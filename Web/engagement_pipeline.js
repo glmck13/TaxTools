@@ -661,8 +661,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const addSignerInput = document.querySelector('input[name="meta_additional_signer"]');
         const coSignerNameInput = document.querySelector('input[name="meta_co_signer_name"]');
 
-        const hasEmail = addSignerInput && addSignerInput.value.trim() !== "";
-        const hasName = coSignerNameInput && coSignerNameInput.value.trim() !== "";
+        const CLEAR_KEYWORDS = ["none", "null", "single", "n/a"];
+        const hasEmail = addSignerInput && addSignerInput.value.trim() !== "" && !CLEAR_KEYWORDS.includes(addSignerInput.value.trim().toLowerCase());
+        const hasName = coSignerNameInput && coSignerNameInput.value.trim() !== "" && !CLEAR_KEYWORDS.includes(coSignerNameInput.value.trim().toLowerCase());
 
         if (hasEmail || hasName) {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

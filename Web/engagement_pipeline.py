@@ -623,11 +623,15 @@ def handle_generate_preview(form):
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
 
     heal_profile_flag = get_form_val(form, "heal_profile_flag", "false")
-    
+
     raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type")
     meta_sig = raw_sig.strip() if "@" in raw_sig else ""
     
     meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
+    
+    if meta_co_signer_name.lower().strip() in ["none", "null", "single", "n/a"] or raw_sig.lower().strip() in ["none", "null", "single", "n/a"]:
+        meta_sig = meta_co_signer_name = ""
+
     meta_ent = get_form_val(form, "meta_entity_type", "individual")
 
     heal_street = get_form_val(form, "heal_street")
@@ -655,20 +659,16 @@ def handle_generate_preview(form):
     if not friendly_name:
         friendly_name = clean_client_title
 
-    if not heal_street or not meta_co_signer_name:
+    if not heal_street:
         try:
             fresh_c = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
             c_addr = fresh_c.get("BillAddr", {})
-            c_meta = parse_acct_num(fresh_c.get("Notes", ""))
             
-            if not heal_street:
-                heal_street, heal_city = c_addr.get("Line1", ""), c_addr.get("City", "")
-                heal_state, heal_zip = c_addr.get("CountrySubDivisionCode", ""), c_addr.get("PostalCode", "")
-            if not meta_co_signer_name:
-                meta_co_signer_name = c_meta.get("co_signer_name", "")
+            heal_street, heal_city = c_addr.get("Line1", ""), c_addr.get("City", "")
+            heal_state, heal_zip = c_addr.get("CountrySubDivisionCode", ""), c_addr.get("PostalCode", "")
         except Exception as fe:
             print(f"DEBUG: QBO fallback data extraction failed: {str(fe)}", file=sys.stderr)
-
+ 
     posted_oos = {k: get_form_val(form, k) for k in form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
     if not posted_oos and existing_draft.get("out_of_scope_items"):
         posted_oos = existing_draft["out_of_scope_items"]
