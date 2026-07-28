@@ -160,10 +160,20 @@ def handle_post_notification():
         agreement_info = payload.get("agreement", {})
         agreement_id = agreement_info.get("id")
         external_info = agreement_info.get("externalId", {})
-        qbo_customer_id = external_info.get("id", "UNKNOWN_QBO_ID")
-        print(f"DEBUG: Webhook matched for QBO Customer: {qbo_customer_id}", file=sys.stderr)
+        raw_external_id = str(external_info.get("id", "")).strip()
 
-        filename = f"Tax Agreement ({qbo_customer_id}).pdf"
+        # Parse Document Type and QBO ID strictly via externalId
+        if ":" in raw_external_id:
+            doc_type, qbo_customer_id = raw_external_id.split(":", 1)
+            doc_type = doc_type.strip()
+            qbo_customer_id = qbo_customer_id.strip()
+        else:
+            # Fallback if externalId is raw ID without prefix
+            qbo_customer_id = raw_external_id if raw_external_id else "0"
+            doc_type = "Unknown"
+
+        filename = f"{doc_type} ({qbo_customer_id}).pdf"
+        print(f"DEBUG: Webhook matched for QBO Customer: {qbo_customer_id} [{doc_type}]", file=sys.stderr)
 
         # Determine target SharePoint folder based on QBOSP_MATCH_FILE lookup
         matched_sp_folder = lookup_sp_folder(qbo_customer_id)
