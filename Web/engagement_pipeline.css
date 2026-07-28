@@ -1,0 +1,500 @@
+/* ==========================================================================
+   GLOBAL STYLES & RESET
+   ========================================================================== */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f0f2f5;
+    color: #222;
+}
+
+/* ==========================================================================
+   INITIAL FORM SELECTION LAYOUT (PHASE 1)
+   ========================================================================== */
+.wrapper {
+    max-width: 1000px;
+    background: #fff;
+    padding: 35px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin: 40px auto;
+}
+
+h1 {
+    color: #0078d4;
+    margin-top: 0;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #efefef;
+}
+
+.meta-info {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 25px;
+}
+
+.form-group {
+    margin-bottom: 25px;
+}
+
+label {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 8px;
+    font-size: 15px;
+}
+
+select {
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+    border: 1px solid #ccd1d9;
+    border-radius: 4px;
+    background: #fff;
+    box-sizing: border-box;
+}
+
+/* ==========================================================================
+   PROFILE HEALING & LOCK CONTAINERS (DYNAMIC INJECTION)
+   ========================================================================== */
+.profile-card {
+    padding: 20px;
+    border-radius: 6px;
+    margin-bottom: 30px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.profile-card-incomplete {
+    background: #fffaf0;
+    border: 1px solid #fbd38d;
+}
+
+.profile-card-complete {
+    background: #f0fff4;
+    border: 1px solid #c6f6d5;
+}
+
+.profile-card-locked {
+    background: #f0f7ff;
+    border: 1px solid #90cdfe;
+}
+
+.profile-card-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 12px;
+}
+
+/* Lock Status Alert Box */
+.lock-banner-card {
+    background: #fefce8;
+    border: 1px solid #fef08a;
+    border-left: 5px solid #eab308;
+    padding: 16px;
+    border-radius: 6px;
+    margin-bottom: 25px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.lock-banner-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: #854d0e;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.lock-banner-text {
+    font-size: 13px;
+    color: #713f12;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.profile-grid-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 15px;
+}
+
+.form-field-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 4px;
+}
+
+.profile-editable-grid input[type="text"],
+.profile-editable-grid input[type="email"],
+.profile-editable-grid select {
+    padding: 8px 12px;
+    font-size: 13px;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    background: #fff;
+}
+
+/* ==========================================================================
+   DYNAMIC WORKSPACE ESTIMATES MATRIX
+   ========================================================================== */
+.service-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 25px;
+    margin-bottom: 20px;
+    table-layout: fixed; 
+}
+
+.service-table th {
+    background: #f7fafc;
+    color: #4a5568;
+    font-weight: 600;
+    text-align: left;
+    padding: 12px;
+    font-size: 14px;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.service-table td {
+    padding: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+}
+
+/* Explicit Column Width Allocations */
+.service-table th:nth-child(1),
+.service-table td:nth-child(1) {
+    width: 6%;
+    text-align: center;
+}
+
+.service-table th:nth-child(2),
+.service-table td:nth-child(2) {
+    width: 39%;
+}
+
+.service-table th:nth-child(3),
+.service-table td:nth-child(3) {
+    width: 15%;
+}
+
+.service-table th:nth-child(4),
+.service-table td:nth-child(4) {
+    width: 40%;
+}
+
+.service-table td:nth-child(2) select {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.service-table td:nth-child(3) input[type="number"] {
+    width: 90px; 
+    box-sizing: border-box;
+}
+
+.btn-remove-row {
+    background: #fff1f2;
+    color: #e11d48;
+    border: 1px solid #ffe4e6;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 16px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.btn-remove-row:hover {
+    background: #ffe4e6;
+    color: #be123c;
+}
+
+/* Badges for Row Classification Alignment */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 12px;
+    text-transform: uppercase;
+}
+
+.badge-individual {
+    background: #ebf8ff;
+    color: #2b6cb0;
+}
+
+.badge-organization {
+    background: #faf5ff;
+    color: #553c9a;
+}
+
+/* Footer Financial Calculation Styles */
+.calc-val {
+    font-family: monospace;
+    font-size: 15px;
+    font-weight: bold;
+    text-align: right;
+}
+
+.calc-row-net {
+    background: #f7fafc;
+    font-size: 15px;
+    font-weight: bold;
+}
+
+.calc-row-balance {
+    background: #edf2f7;
+    font-size: 16px;
+    font-weight: bold;
+    border-bottom: 2px solid #cbd5e0;
+}
+
+/* ==========================================================================
+   INTERACTIVE ACTIONS & OUT-OF-SCOPE WORK AREA
+   ========================================================================== */
+.actions-container {
+    margin-bottom: 30px;
+}
+
+.btn-add-row {
+    background: #fff;
+    color: #4a5568;
+    border: 1px solid #cbd5e0;
+    padding: 10px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.btn-add-row:hover {
+    background: #f7fafc;
+    border-color: #a0aec0;
+    color: #2d3748;
+}
+
+.out-of-scope-editor-group {
+    margin-top: 30px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 25px;
+}
+
+.out-of-scope-checklist-item {
+    display: block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+}
+
+.out-of-scope-checklist-item:hover {
+    background: #f8fafc; 
+}
+
+.out-of-scope-checklist-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: #0078d4; 
+}
+
+/* Custom Out-of-Scope Inline Add Controls */
+.add-out-of-scope-row input[type="text"] {
+    transition: border-color 0.15s ease-in-out;
+}
+
+.add-out-of-scope-row input[type="text"]:focus {
+    border-color: #0078d4;
+    outline: none;
+    box-shadow: 0 0 4px rgba(0, 120, 212, 0.15);
+}
+
+.custom-out-of-scope-item {
+    background-color: #f0f7ff;
+    border-radius: 4px;
+}
+
+.custom-out-of-scope-item label span {
+    color: #0078d4;
+    font-weight: 500;
+}
+
+.btn-submit {
+    background: #0078d4;
+    color: #fff;
+    border: none;
+    padding: 14px 28px;
+    font-size: 15px;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.btn-submit:hover {
+    background: #106ebe;
+}
+
+/* ==========================================================================
+   SPLIT PREVIEW CONTAINER (PHASE 2 RENDERER)
+   ========================================================================== */
+.split-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+.editor-panel {
+    width: 420px;
+    min-width: 420px;
+    background: #fff;
+    border-right: 1px solid #e2e8f0;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.03);
+    z-index: 10;
+    box-sizing: border-box;
+}
+
+/* Contained overrides to stop component overflow inside the narrow 420px Sidebar */
+.editor-panel select,
+.editor-panel input,
+.editor-panel button {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.pdf-panel {
+    flex-grow: 1;
+    background: #525659;
+}
+
+.pdf-panel iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
+/* ==========================================================================
+   SUCCESS STATUS PANEL VIEW (PHASE 3)
+   ========================================================================== */
+.success-wrapper {
+    background: #fafafa;
+    padding: 40px;
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+.success-card {
+    max-width: 650px;
+    background: #fff;
+    padding: 40px;
+    border-radius: 6px;
+    border: 1px solid #107c41;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    text-align: center;
+    margin: 40px auto 0 auto;
+}
+
+.icon-circle {
+    width: 60px;
+    height: 60px;
+    background: #dff6dd;
+    color: #107c41;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: bold;
+    margin: 0 auto 20px auto;
+}
+
+.success-card h2 {
+    color: #107c41;
+    margin-top: 0;
+    margin-bottom: 12px;
+}
+
+.success-card p {
+    color: #444;
+    font-size: 15px;
+    line-height: 1.5;
+    margin-bottom: 24px;
+}
+
+/* Unified Layout Row Metrics */
+.notes-cell textarea {
+    width: 98%;
+    height: 46px; /* Matched seamlessly to JS row injection properties to avoid jumping */
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px;
+    box-sizing: border-box;
+    resize: vertical; 
+    line-height: 1.4;
+    transition: border-color 0.15s ease-in-out;
+}
+
+.notes-cell textarea:focus {
+    border-color: #0078d4;
+    outline: none;
+    box-shadow: 0 0 4px rgba(0, 120, 212, 0.15);
+}
+
+/* ==========================================================================
+   PHASE 2 EDITOR SIDEBAR BUTTON VARIATIONS (CR#4)
+   ========================================================================== */
+.btn-action-grey {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+.btn-action-grey:hover {
+    background: #e5e7eb;
+}
+
+.btn-action-yellow {
+    background: #fef9c3;
+    color: #854d0e;
+    border: 1px solid #fde047;
+}
+.btn-action-yellow:hover {
+    background: #fef08a;
+}
+
+.btn-action-lightgreen {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+.btn-action-lightgreen:hover {
+    background: #bbf7d0;
+}
+
+.btn-action-green {
+    background: #15803d;
+    color: #ffffff;
+    border: 1px solid #166534;
+}
+.btn-action-green:hover {
+    background: #166534;
+}

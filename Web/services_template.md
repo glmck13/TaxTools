@@ -1,0 +1,146 @@
+# Tarrant Advisors - Exposed Services Catalog Configuration
+
+This file defines the active service offerings available within the engagement portal.
+TA Users can edit the text directly beneath each service item heading to update the
+default text that auto-populates the "Scope Specification / Notes" table column.
+
+---
+
+## 2026 Federal & State Tax Returns
+- ID: 48
+- Type: both
+
+Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal income tax return and 2026 state income tax return for your state of residence. We will assist with routine tax questions that do not require additional research and will assist with the preparation of federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
+
+
+## 2025 Federal & State Tax Returns
+- ID: 19
+- Type: both
+
+Our Services for 2025 are expected to include the following: Preparation of the 2025 Federal income tax return and 2025 state income tax return for your state of residence, if applicable. We will assist with routine tax questions that do not require additional research and will assist with the preparation of 2026 federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority. We will provide guidance related to you making federal tax payments online, as necessary.
+
+
+## 2025 Itemizing Deductions
+- ID: 41
+- Type: both
+
+
+## 2024 Federal & State Tax Returns
+- ID: 9
+- Type: both
+
+Our Services for 2024 are expected to include the following: Preparation of the 2024 Federal income tax return and 2024 state income tax return for your state of residence, if applicable. We will assist with routine tax questions that do not require additional research and will assist with the preparation of 2025 federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority. We will provide guidance related to you making federal tax payments online, as necessary.
+
+
+## Additional State
+- ID: 44
+- Type: both
+
+
+## Amended Return
+- ID: 25
+- Type: both
+
+Preparation of the amended income tax return. We will assist with routine tax questions that do not require additional research. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
+
+
+## Client Discount
+- ID: 18
+- Type: both
+
+
+## Consultation
+- ID: 21
+- Type: both
+
+
+## Estimated payments
+- ID: 35
+- Type: both
+
+
+## Gift Tax Return
+- ID: 22
+- Type: both
+
+
+## IRS Notice
+- ID: 33
+- Type: both
+
+
+## Mailing
+- ID: 14
+- Type: both
+
+
+## Monthly Tax & Accounting Services
+- ID: 27
+- Type: both
+
+Monthly services will include but not be limited to:<br/>
+- Reconciling bank accounts and credit card balances quarterly, annually or on an as needed basis<br/>
+- Reviewing transactions for proper reporting and reconcile balance sheet amounts on an annual basis<br/>
+- Providing adjusting journal entries following the preparation of the tax returns<br/>
+- Interface with Payroll admin as needed related to miscellaneous payroll and withholding tax questions<br/>
+- Assist with the proper QB reporting and tax considerations related to reporting taxable operations<br/>
+- Interface with company representative to review tax considerations and any compliance questions that arise relate to the retirement plans<br/>
+- Assist with special tax projects and related research including analysis of tax law changes, preparation of tax analysis and tax accounting method change related to the tax reporting of Inventory and Supplies<br/>
+- Assistance with the preparation of the Personal Property tax returns and related questions and planning<br/>
+- Assistance with tax notices and communications with the tax authorities<br/>
+- Make estimated tax payments for the Client, as needed and as requested<br/>
+- Provide tax planning and consultation opportunities, as identified<br/>
+- Assist with routine tax questions, estimated tax consideration and other financial questions, as needed<br/>
+
+
+## New Client Referral
+- ID: 47
+- Type: both
+
+
+## Preparation of BPOL
+- ID: 42
+- Type: both
+
+
+## Preparation of FBAR
+- ID: 34
+- Type: both
+
+
+## Quarterly Financials
+- ID: 29
+- Type: both
+
+
+## QuickBooks Assistance
+- ID: 45
+- Type: both
+
+
+## Reimbursement for state taxes paid on your behalf
+- ID: 28
+- Type: both
+
+
+## Research
+- ID: 43
+- Type: both
+
+
+## S Corp - Planning & Analysis
+- ID: 46
+- Type: organization
+
+Planning and Analysis related to setup of the S Corporation. This work will include the following:<br/>
+- Tax analysis and comparison operating as an S Corp, partnership or Sole proprietor <br/>
+- Preparation of necessary election to convert to S Corp, if applicable <br/>
+- Connect you with a payroll service and consultation on level of compensation in 2026 <br/>
+- Set up bookkeeping and accounting for operation as an S Corp or partnership, as needed <br/>
+- Consideration of making state tax payments at the S Corp level. <br/>
+
+## Deposit Due
+- ID: 00000
+- Type: both
+
+Initial retainer payment received toward professional engagement services.
