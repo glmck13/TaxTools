@@ -45,7 +45,7 @@ else:
 
 TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
 SCRIPT_URL = os.environ.get("SCRIPT_NAME", "")
-DRAFTS_DIR = os.environ.get("DRAFTS_DIR", os.environ.get("DOCUMENT_ROOT", "") + "/drafts")
+DRAFTS_DIR = os.environ.get("DRAFTS_DIR", os.environ.get("DOCUMENT_ROOT", "") + "/engagements")
 
 QBO_APIBASE = os.environ.get("QBO_APIBASE", "")
 QBO_REALMID = os.environ.get("QBO_REALMID", "")

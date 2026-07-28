@@ -178,7 +178,7 @@ def handle_post_notification():
         # Determine target SharePoint folder based on QBOSP_MATCH_FILE lookup
         matched_sp_folder = lookup_sp_folder(qbo_customer_id)
         if matched_sp_folder:
-            target_folder = f"Shared Documents/{matched_sp_folder}/{TAX_YEAR}"
+            target_folder = f"Shared Documents/{matched_sp_folder}/{TAX_YEAR}/Agreements & Invoices"
             print(f"DEBUG: Found match in CSV for QBO ID {qbo_customer_id}. Folder: {target_folder}", file=sys.stderr)
         else:
             target_folder = SP_TARGET_FOLDER
