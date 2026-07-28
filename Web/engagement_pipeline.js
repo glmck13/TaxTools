@@ -19,6 +19,16 @@ function escapeHtml(str) {
 }
 
 /**
+ * Utility helper to decode HTML entities (e.g., &amp; -> &)
+ */
+function unescapeHtml(str) {
+    if (!str) return '';
+    const txt = document.createElement('textarea');
+    txt.innerHTML = str;
+    return txt.value;
+}
+
+/**
  * Appends or rehydrates a custom out-of-scope checklist item dynamically.
  */
 function addCustomOutOfScopeItem(customValue = '', customKey = '', isLocked = false) {
@@ -163,8 +173,9 @@ function onClientChange() {
     const isLocked = Boolean(draftData.is_locked);
     const lockedMtime = draftData.locked_mtime || 'recently';
 
-    const rawOptionText = clientSelect.options[clientSelect.selectedIndex].text;
-    const rawCustomerName = rawOptionText.split(' (Customer')[0].trim();
+    // Decode HTML entities (e.g., &amp; -> &) before parsing name
+    const rawOptionText = unescapeHtml(clientSelect.options[clientSelect.selectedIndex].text);
+    const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
     // Render locked banner if agreement was already dispatched
     if (isLocked && lockBannerContainer) {
@@ -222,7 +233,7 @@ function onClientChange() {
     const hEntity = document.querySelector('select[name="meta_entity_type"]');
     if (hEntity && healData.meta_entity_type) hEntity.value = healData.meta_entity_type;
 
-    // SURGICAL FIX #1: Map meta_additional_signer ONLY if present, never overwrite with meta_signature_type
+    // Map meta_additional_signer ONLY if present, never overwrite with meta_signature_type
     const hSig = document.querySelector('input[name="meta_additional_signer"]');
     if (hSig) {
         if (healData.meta_additional_signer) {
@@ -260,7 +271,7 @@ function onClientChange() {
  * Renders the editable data correction form layout.
  */
 function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, clientEmail) {
-    // SURGICAL FIX #2: Extract coSignerEmailVal only if signature_type contains an '@'
+    // Extract coSignerEmailVal only if signature_type contains an '@'
     const coSignerEmailVal = meta.signature_type && meta.signature_type.includes('@') ? meta.signature_type : '';
     const coSignerNameVal = meta.co_signer_name || '';
 
@@ -281,7 +292,7 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
             <div class="profile-grid-layout profile-editable-grid">
                 <div class="form-field-group">
                     <label class="field-label">Friendly Name</label>
-                    <input type="text" name="friendly_name" value="${escapeHtml(defaultFriendlyName)}" required placeholder="e.g., Susan Smith">
+                    <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required placeholder="e.g., Susan Smith">
                 </div>
                 <div class="form-field-group">
                     <label class="field-label">Street Address</label>
@@ -350,14 +361,14 @@ function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, 
             <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr; gap: 10px;">
                 <div class="form-field-group">
                     <label class="field-label" style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Friendly Name (Override text if needed)</label>
-                    <input type="text" name="friendly_name" value="${escapeHtml(defaultFriendlyName)}" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;" required>
+                    <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;" required>
                 </div>
             </div>
             <div class="profile-grid-layout markdown-verified-grid">
                 <div><strong>Billing Address:</strong><br><span style="color:#555;">${escapeHtml(formattedAddress)}</span></div>
                 <div><strong>Email:</strong><br><span style="color:#555; font-family: monospace; font-size: 12px;">${clientEmail ? escapeHtml(clientEmail) : '[None Sourced]'}</span></div>
                 <div><strong>Classification:</strong><br><span class="badge ${isOrg ? 'badge-organization' : 'badge-individual'}">${escapeHtml(displayClassification)}</span></div>
-                <!-- SURGICAL FIX #3: Verify additional signer badge via '@' symbol presence -->
+                <!-- Verify additional signer badge via '@' symbol presence -->
                 <div><strong>Signature Grid:</strong><br><span style="color:#555;">${meta.signature_type && meta.signature_type.includes('@') ? 'Additional Signer: ' + escapeHtml(coSignerDisplayName) : 'Single Signer'}</span></div>
             </div>
             <p style="margin: 12px 0 0 0; font-size: 11px; color: #888; font-style: italic;">
@@ -378,7 +389,10 @@ function toggleProfileEditMode() {
 
     const record = window.clientData[selectedClient];
     const friendlyInput = document.querySelector('input[name="friendly_name"]');
-    const defaultFriendlyName = friendlyInput ? friendlyInput.value : selectEl.options[selectEl.selectedIndex].text.split(' (Customer')[0].trim();
+    
+    // Decode HTML entities before parsing default friendly name
+    const rawOptionText = unescapeHtml(selectEl.options[selectEl.selectedIndex].text);
+    const defaultFriendlyName = friendlyInput ? friendlyInput.value : rawOptionText.split(/\s*\(Customer/)[0].trim();
 
     renderEditableProfilePanel(container, record.address || {}, record.metadata || {}, defaultFriendlyName, record.email);
     

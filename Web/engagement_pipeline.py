@@ -23,8 +23,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # ==========================================
 # CONFIGURATION & GLOBAL STATE
 # ==========================================
-ENGAGEMENT_SANDBOX = os.environ.get("ENGAGEMENT_SANDBOX")
-if ENGAGEMENT_SANDBOX:
+PIPELINE_SANDBOX = os.environ.get("PIPELINE_SANDBOX")
+if PIPELINE_SANDBOX:
     JS_FILE = "engagement_sandbox.js"
     CSS_FILE = "engagement_sandbox.css"
     ENGAGEMENT_TEMPLATE = "engagement_sandbox.md"
@@ -317,7 +317,7 @@ def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, a
             "fileInfos": [{"transientDocumentId": transient_id}],
             "name": f"Tarrant Advisors {TAX_YEAR} Engagement Agreement",
             "participantSetsInfo": participant_sets,
-            "externalId": {"id": client_qbo_id},
+            "externalId": {"id": f"Tax Agreement:{client_qbo_id}"},
             "signatureType": "ESIGN",
             "state": "IN_PROCESS"
         }
@@ -389,7 +389,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     client_data_map = {}
     for c in customers:
         c_id = c["Id"]
-        c_name = c["DisplayName"]
+        # Unescape HTML entities first so dictionary keys are plain text ("Duncan & Gerry McKenna")
+        c_name = html.unescape(c["DisplayName"])
         acct_num = c.get("Notes", "")
         addr_obj = c.get("BillAddr", {})
         c_email = c.get("PrimaryEmailAddr", {}).get("Address", "")
@@ -414,7 +415,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         client_key = f"{c_name} (Customer ID: {c_id})"
         client_data_map[client_key] = {
             "id": c_id,
-            "sync_token": c["SyncToken"],
+            "sync_token": c.get("SyncToken", ""),
             "email": c_email,
             "metadata": meta if (has_addr and has_meta) else {},
             "address": {
@@ -436,14 +437,14 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     custom_items_to_render = {}
 
     if preserved_form:
-        selected_client = get_form_val(preserved_form, "client_name")
+        selected_client = html.unescape(get_form_val(preserved_form, "client_name"))
         estimate_date_option = get_form_val(preserved_form, "estimate_date_option", "next_year")
         
         add_signer = get_form_val(preserved_form, "meta_additional_signer")
         clean_add_signer = add_signer if "@" in add_signer else ""
 
         heal_data = {
-            "friendly_name": get_form_val(preserved_form, "friendly_name"),
+            "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
             "heal_street": get_form_val(preserved_form, "heal_street"),
             "heal_city": get_form_val(preserved_form, "heal_city"),
             "heal_state": get_form_val(preserved_form, "heal_state"),
@@ -451,7 +452,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             "meta_entity_type": get_form_val(preserved_form, "meta_entity_type"),
             "meta_signature_type": get_form_val(preserved_form, "meta_signature_type", "single"),
             "meta_additional_signer": clean_add_signer,
-            "meta_co_signer_name": get_form_val(preserved_form, "meta_co_signer_name"),
+            "meta_co_signer_name": html.unescape(get_form_val(preserved_form, "meta_co_signer_name")),
             "out_of_scope_items": {k: get_form_val(preserved_form, k) for k in preserved_form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
         }
         preserved_heal_data_json = json.dumps(heal_data)
@@ -611,9 +612,12 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 
 def handle_generate_preview(form):
     """Phase 2: Renders split preview view with live iframe PDF document."""
-    client_name = get_form_val(form, "client_name")
-    client_qbo_id = extract_qbo_id(client_name)
-    clean_client_title = client_name.split(" (Customer")[0].strip()
+    raw_client_name = get_form_val(form, "client_name")
+    client_qbo_id = extract_qbo_id(raw_client_name)
+    
+    # Unescape HTML entities before splitting off (Customer ID
+    clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
+    client_name = raw_client_name
 
     row_ids = get_form_list(form, "selected_rows")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
@@ -623,7 +627,7 @@ def handle_generate_preview(form):
     raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type")
     meta_sig = raw_sig.strip() if "@" in raw_sig else ""
     
-    meta_co_signer_name = get_form_val(form, "meta_co_signer_name")
+    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
     meta_ent = get_form_val(form, "meta_entity_type", "individual")
 
     heal_street = get_form_val(form, "heal_street")
@@ -645,9 +649,9 @@ def handle_generate_preview(form):
     except Exception as de:
         print(f"DEBUG: Draft reading failure: {str(de)}", file=sys.stderr)
 
-    friendly_name = get_form_val(form, "friendly_name").strip()
+    friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip()
     if not friendly_name and existing_draft.get("friendly_name"):
-        friendly_name = existing_draft.get("friendly_name", "").strip()
+        friendly_name = html.unescape(existing_draft.get("friendly_name", "")).strip()
     if not friendly_name:
         friendly_name = clean_client_title
 
@@ -817,6 +821,8 @@ def handle_generate_preview(form):
 def xml_safe_escape(text):
     if not text:
         return ""
+    # Unescape existing HTML entities first to prevent double-escaping (&amp; -> & -> &amp;)
+    text = html.unescape(str(text))
     text = unicodedata.normalize('NFKD', text)
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     for tag in ["strong", "b", "i", "u"]:
@@ -825,18 +831,18 @@ def xml_safe_escape(text):
 
 def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     """Pure rendering function: Compiles Markdown template into ReportLab PDF binary buffer."""
-    client_name = get_form_val(form, "client_name", "Unknown Client")
+    raw_client_name = get_form_val(form, "client_name", "Unknown Client")
     row_ids = get_form_list(form, "selected_rows")
     if not row_ids:
         row_ids = [k.replace("row_item_id_", "") for k in form if k.startswith("row_item_id_")]
 
     raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type", "single")
     meta_sig = raw_sig.strip() if "@" in raw_sig else ""
-    meta_co_signer_name = get_form_val(form, "meta_co_signer_name")
+    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
     meta_ent = get_form_val(form, "meta_entity_type", "individual")
 
-    clean_client_title = client_name.split(" (Customer")[0].strip()
-    friendly_name = get_form_val(form, "friendly_name").strip() or clean_client_title
+    clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
+    friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
 
     street = get_form_val(form, "heal_street")
     city = get_form_val(form, "heal_city")
@@ -845,7 +851,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     if not street:
         try:
-            c_id = extract_qbo_id(client_name)
+            c_id = extract_qbo_id(raw_client_name)
             c_data = qbo_api_request(f"customer/{c_id}").get("Customer", {})
             addr_obj = c_data.get("BillAddr", {})
             street, city = addr_obj.get('Line1',''), addr_obj.get('City','')
@@ -1030,7 +1036,7 @@ def handle_render_live_pdf(form):
 def handle_download_pdf(form, prefix="DRAFT"):
     """Unified handler for PDF downloads (Draft or Final)."""
     client_name = get_form_val(form, "client_name", "Unknown Client")
-    clean_client_title = client_name.split(" (Customer")[0].strip()
+    clean_client_title = re.split(r'\s*\(Customer', html.unescape(client_name))[0].strip()
     timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
     filename = f"Tax Agreement {clean_client_title} ({prefix} {timestamp_str}).pdf"
     generated_buffer = compile_reportlab_pdf_buffer(form, include_esign_tags=False)
@@ -1053,7 +1059,7 @@ def execute_transactional_pipeline(form):
     heal_flag = get_form_val(form, "heal_profile_flag", "false")
     raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type")
     meta_sig = raw_sig.strip() if "@" in raw_sig else ""
-    meta_co_signer_name = get_form_val(form, "meta_co_signer_name")
+    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
     meta_ent = get_form_val(form, "meta_entity_type", "individual")
 
     delivery_method = get_form_val(form, "delivery_method")

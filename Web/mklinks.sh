@@ -41,8 +41,20 @@ done
 for f in \
 nph-qbo.cgi \
 nph-qbo_intake.cgi \
+consent_pipeline.cgi \
 engagement_pipeline.cgi \
 ; do
 	rm -f $f
 	[ "$PURGE" ] || ln qbo.cgi $f
+done
+
+#
+# QBO SANDBOX
+#
+for f in \
+consent_sandbox.cgi \
+engagement_sandbox.cgi \
+; do
+	rm -f $f
+	[ "$PURGE" ] || ln qbo_sandbox.cgi $f
 done
