@@ -1,0 +1,286 @@
+{
+  "template": {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "logicAppName": {
+        "type": "String",
+        "metadata": {
+          "description": "Name of the logic app."
+        }
+      },
+      "logicAppLocation": {
+        "defaultValue": "[resourceGroup().location]",
+        "allowedValues": [
+          "eastasia",
+          "southeastasia",
+          "centralus",
+          "eastus",
+          "eastus2",
+          "westus",
+          "northcentralus",
+          "southcentralus",
+          "northeurope",
+          "westeurope",
+          "japanwest",
+          "japaneast",
+          "brazilsouth",
+          "australiaeast",
+          "australiasoutheast",
+          "southindia",
+          "centralindia",
+          "westindia",
+          "canadacentral",
+          "canadaeast",
+          "uaecentral",
+          "westcentralus",
+          "westus2",
+          "[resourceGroup().location]"
+        ],
+        "type": "String",
+        "metadata": {
+          "description": "Location of the logic app."
+        }
+      },
+      "sharepointonline_Connection_Name": {
+        "defaultValue": "sharepointonline",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      },
+      "onedriveforbusiness_Connection_Name": {
+        "defaultValue": "onedriveforbusiness",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      }
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Logic/workflows",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('logicAppName')]",
+        "location": "[parameters('logicAppLocation')]",
+        "dependsOn": [
+          "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]",
+          "[resourceId('Microsoft.Web/connections', parameters('onedriveforbusiness_Connection_Name'))]"
+        ],
+        "properties": {
+          "state": "Disabled",
+          "definition": {
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "$authentication": {
+                "defaultValue": {},
+                "type": "SecureObject"
+              },
+              "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+              }
+            },
+            "triggers": {
+              "manual": {
+                "splitOn": "@triggerBody()['rows']",
+                "type": "Request",
+                "kind": "ApiConnection",
+                "inputs": {
+                  "operationId": "ForASelectedFileHybridTrigger",
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                    "table": "cf46e4f0-8fc3-46cb-8a99-142613b2147b"
+                  },
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "rows": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "entity": {
+                              "properties": {
+                                "ID": {
+                                  "title": "ID",
+                                  "type": "integer",
+                                  "format": "int64"
+                                }
+                              },
+                              "type": "object",
+                              "required": []
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "rows"
+                    ]
+                  },
+                  "host": {
+                    "connection": {
+                      "name": "@parameters('$connections')['shared_sharepointonline']['connectionId']"
+                    }
+                  }
+                }
+              }
+            },
+            "actions": {
+              "Get_file_properties": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                    "table": "cf46e4f0-8fc3-46cb-8a99-142613b2147b",
+                    "id": "@triggerBody()?['entity']['ID']"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFileItem"
+                  }
+                }
+              },
+              "Upload_file_from_URL": {
+                "runAfter": {
+                  "Get_file_properties": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "source": "https://appserver.tarrantadvisors.com/cgi/nph-m365_convert2pdf.cgi?siteUrl=@{encodeURIComponent('https://tarrantadvisors.sharepoint.com/sites/Company/')}&fileUrl=@{encodeURIComponent(outputs('Get_file_properties')?['body/{FullPath}'])}&folderUrl=@{encodeURIComponent(outputs('Get_file_properties')?['body/{Path}'])}",
+                    "destination": "/Logs/convert2pdf_@{formatDateTime(utcNow(), 'yyyy-MM-dd_HH-mm-ss')}.txt",
+                    "overwrite": false
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness",
+                    "connectionReferenceName": "shared_onedriveforbusiness",
+                    "operationId": "CopyFile"
+                  }
+                }
+              }
+            },
+            "outputs": {},
+            "description": ""
+          },
+          "connectionReferences": {
+            "shared_sharepointonline": {
+              "connection": {
+                "name": "shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline/connections/shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "sharepointonline",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-eastus-01.azure-apim.net/apim/sharepointonline",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzLzVlYTgwOWE4LWQ2ODgtNGRhZi05MTk0LTU2NzIyNDE0OWNmZiIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzLzVlYTgwOWE4LWQ2ODgtNGRhZi05MTk0LTU2NzIyNDE0OWNmZiIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvNWVhODA5YTgtZDY4OC00ZGFmLTkxOTQtNTY3MjI0MTQ5Y2ZmIiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODI4Mjk2MDQsImV4cCI6MTgxNjUyNTYwNCwiaWF0IjoxNzgyODI5NjA0LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.IN22HEPBeMTKglJ34nOyIdYasgQGs1Ui_UzPMSgs6KSVFcH4jIsNAovFPzWHF-JAxvLTOdjtiTyr8cSeI4E28FSs8zsSj5DAnorGBeUNE5JVG5F4Pkis884sUyZ8F_G8FfhmGo-nMWq-O7IUZOUNa1PmH69jgeDZk4lY7Jcp2faHN3l7Jps9Qn-pquddoWHhX6WXTy51AOtytm5IoIOs9LAOgR8U1HKk8NtUMlYBgkvGQrAnjzMssh34yp-zYBDRQIsOIggL7bgE3yLJuvlNjgGzLkfPxDhDhwkct6cGUDnzaGCmvUGM1iCAF_MIQVb5qJmTOra-c5PErgZPOHfHiw",
+                "type": "Raw"
+              },
+              "runtimeSource": "invoker"
+            },
+            "shared_onedriveforbusiness": {
+              "connection": {
+                "name": "shared-onedriveforbu-5614ee3d-4296-4311-8265-77b775f3710b",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness/connections/shared-onedriveforbu-5614ee3d-4296-4311-8265-77b775f3710b",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "onedriveforbusiness",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-eastus-01.azure-apim.net/apim/onedriveforbusiness",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzLzVlYTgwOWE4LWQ2ODgtNGRhZi05MTk0LTU2NzIyNDE0OWNmZiIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzLzVlYTgwOWE4LWQ2ODgtNGRhZi05MTk0LTU2NzIyNDE0OWNmZiIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvNWVhODA5YTgtZDY4OC00ZGFmLTkxOTQtNTY3MjI0MTQ5Y2ZmIiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODI4Mjk2MDQsImV4cCI6MTgxNjUyNTYwNCwiaWF0IjoxNzgyODI5NjA0LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.IN22HEPBeMTKglJ34nOyIdYasgQGs1Ui_UzPMSgs6KSVFcH4jIsNAovFPzWHF-JAxvLTOdjtiTyr8cSeI4E28FSs8zsSj5DAnorGBeUNE5JVG5F4Pkis884sUyZ8F_G8FfhmGo-nMWq-O7IUZOUNa1PmH69jgeDZk4lY7Jcp2faHN3l7Jps9Qn-pquddoWHhX6WXTy51AOtytm5IoIOs9LAOgR8U1HKk8NtUMlYBgkvGQrAnjzMssh34yp-zYBDRQIsOIggL7bgE3yLJuvlNjgGzLkfPxDhDhwkct6cGUDnzaGCmvUGM1iCAF_MIQVb5qJmTOra-c5PErgZPOHfHiw",
+                "type": "Raw"
+              },
+              "runtimeSource": "invoker"
+            }
+          },
+          "parameters": {
+            "$connections": {
+              "value": {
+                "sharepointonline": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]",
+                  "connectionName": "[parameters('sharepointonline_Connection_Name')]"
+                },
+                "onedriveforbusiness": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'onedriveforbusiness')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('onedriveforbusiness_Connection_Name'))]",
+                  "connectionName": "[parameters('onedriveforbusiness_Connection_Name')]"
+                }
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "lifetime": {
+              "unit": "Day",
+              "count": 30
+            },
+            "operationOptions": "WithLargeNumberOfActions",
+            "collections": {
+              "maximumItemCount": 100000
+            },
+            "performanceProfile": {
+              "throttles": {
+                "mode": "Medium"
+              }
+            },
+            "retryPolicy": {
+              "type": "Exponential",
+              "interval": "PT5M",
+              "count": 2,
+              "minimumInterval": "PT5M",
+              "maximumInterval": "PT1H"
+            },
+            "usageConfiguration": {
+              "name": "USER-0E9B714EDEA149FAAD7D6DD8E020D301"
+            }
+          },
+          "integrationAccount": {
+            "name": "fb5857de616e45bdb8418ba900665fd5-westus",
+            "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/resourceGroups/selfhostingresourcegroup/providers/Microsoft.Logic/integrationAccounts/fb5857de616e45bdb8418ba900665fd5-westus",
+            "type": "Microsoft.Logic/integrationAccounts"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('sharepointonline_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]"
+          },
+          "displayName": "[parameters('sharepointonline_Connection_Name')]"
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('onedriveforbusiness_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'onedriveforbusiness')]"
+          },
+          "displayName": "[parameters('onedriveforbusiness_Connection_Name')]"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,787 @@
+{
+  "template": {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "logicAppName": {
+        "type": "String",
+        "metadata": {
+          "description": "Name of the logic app."
+        }
+      },
+      "logicAppLocation": {
+        "defaultValue": "[resourceGroup().location]",
+        "allowedValues": [
+          "eastasia",
+          "southeastasia",
+          "centralus",
+          "eastus",
+          "eastus2",
+          "westus",
+          "northcentralus",
+          "southcentralus",
+          "northeurope",
+          "westeurope",
+          "japanwest",
+          "japaneast",
+          "brazilsouth",
+          "australiaeast",
+          "australiasoutheast",
+          "southindia",
+          "centralindia",
+          "westindia",
+          "canadacentral",
+          "canadaeast",
+          "uaecentral",
+          "westcentralus",
+          "westus2",
+          "[resourceGroup().location]"
+        ],
+        "type": "String",
+        "metadata": {
+          "description": "Location of the logic app."
+        }
+      },
+      "microsoftforms_Connection_Name": {
+        "defaultValue": "microsoftforms",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      },
+      "sharepointonline_Connection_Name": {
+        "defaultValue": "sharepointonline",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      },
+      "office365_Connection_Name": {
+        "defaultValue": "office365",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      },
+      "onedriveforbusiness_Connection_Name": {
+        "defaultValue": "onedriveforbusiness",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      }
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Logic/workflows",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('logicAppName')]",
+        "location": "[parameters('logicAppLocation')]",
+        "dependsOn": [
+          "[resourceId('Microsoft.Web/connections', parameters('microsoftforms_Connection_Name'))]",
+          "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]",
+          "[resourceId('Microsoft.Web/connections', parameters('office365_Connection_Name'))]",
+          "[resourceId('Microsoft.Web/connections', parameters('onedriveforbusiness_Connection_Name'))]"
+        ],
+        "properties": {
+          "state": "Disabled",
+          "definition": {
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "$authentication": {
+                "defaultValue": {},
+                "type": "SecureObject"
+              },
+              "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+              }
+            },
+            "triggers": {
+              "When_a_new_response_is_submitted": {
+                "splitOn": "@triggerOutputs()?['body/value']",
+                "metadata": {
+                  "operationMetadataId": "fcb6507b-e62c-4f4c-b789-59a69a1112dd"
+                },
+                "type": "OpenApiConnectionWebhook",
+                "inputs": {
+                  "parameters": {
+                    "form_id": "3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUQlhCUDFHRVJKTUlSSlZJQUUwTTNMWkVINC4u"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms",
+                    "connectionReferenceName": "shared_microsoftforms",
+                    "operationId": "CreateFormWebhook"
+                  }
+                }
+              }
+            },
+            "actions": {
+              "Get_response_details": {
+                "runAfter": {},
+                "metadata": {
+                  "operationMetadataId": "d9da842c-4bba-459e-8231-38eff80fe4b2"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "form_id": "3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUQlhCUDFHRVJKTUlSSlZJQUUwTTNMWkVINC4u",
+                    "response_id": "@triggerOutputs()?['body/resourceData/responseId']"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms",
+                    "connectionReferenceName": "shared_microsoftforms",
+                    "operationId": "GetFormResponseById"
+                  }
+                }
+              },
+              "Initialize_SharedFolders": {
+                "runAfter": {
+                  "Get_response_details": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "c8525716-dbd9-4276-838a-028ed8c0558e"
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "SharedFolders",
+                      "type": "array",
+                      "value": [
+                        "2026",
+                        "Prior to 2026",
+                        "Tax Returns"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "Initialize_CompanyFolders": {
+                "runAfter": {
+                  "Apply_to_each_Share": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "51afee99-26e6-4d63-b6e8-c3d1d02c188e"
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "CompanyFolders",
+                      "type": "array",
+                      "value": [
+                        "2025 - Not Prepared by TA",
+                        "2026",
+                        "2026/Agreements & Invoices",
+                        "2026/BU Detail"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "Create_Share_folder": {
+                "runAfter": {
+                  "Initialize_SharedFolders": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "23a51a78-19fd-4005-b387-4fe3cf57a979"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/TarrantAdvisorsShare",
+                    "table": "26639a91-d6e9-4a4a-9fa3-e3797c13d5b6",
+                    "parameters/path": "/@{trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f'])} - SHARED"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "CreateNewFolder"
+                  }
+                }
+              },
+              "Apply_to_each_Share": {
+                "foreach": "@variables('SharedFolders')",
+                "actions": {
+                  "Create_Share_subfolder": {
+                    "metadata": {
+                      "operationMetadataId": "b08213c7-156b-4d89-bf9c-4150e5affa42"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com/sites/TarrantAdvisorsShare",
+                        "table": "26639a91-d6e9-4a4a-9fa3-e3797c13d5b6",
+                        "parameters/path": "@{trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f'])} - SHARED/@{items('Apply_to_each_Share')}"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "CreateNewFolder"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Update_dashboard_properties": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "6b52f3b7-5620-47ef-a15c-f3e31eff92ea"
+                },
+                "type": "Foreach"
+              },
+              "Create_Client_folder": {
+                "runAfter": {
+                  "Initialize_CompanyFolders": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "7fcb41a9-063b-48ab-9545-38dfee0af0e7"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                    "table": "cf46e4f0-8fc3-46cb-8a99-142613b2147b",
+                    "parameters/path": "/@{trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f'])}"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "CreateNewFolder"
+                  }
+                }
+              },
+              "Apply_to_each_Company": {
+                "foreach": "@variables('CompanyFolders')",
+                "actions": {
+                  "Create_Company_subfolder": {
+                    "metadata": {
+                      "operationMetadataId": "a79383a7-a3ec-4f5e-9efa-5c44ace0ddc9"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                        "table": "cf46e4f0-8fc3-46cb-8a99-142613b2147b",
+                        "parameters/path": "@{trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f'])}/@{items('Apply_to_each_Company')}"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "CreateNewFolder"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Update_dashboard_link": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "4bc46018-a49c-4f91-9fe7-81694c9d8f56"
+                },
+                "type": "Foreach"
+              },
+              "Send_an_email_(V2)": {
+                "runAfter": {
+                  "Create_intake_file": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "851a548f-96d0-46b3-a5e7-90f9d1afd937"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "emailMessage/To": "katie@tarrantadvisors.com;steve@tarrantadvisors.com;stephen@tarrantadvisors.com",
+                    "emailMessage/Subject": "New Client Intake submitted on Tarrant Advisors",
+                    "emailMessage/Body": "<p class=\"editor-paragraph\"><b><strong class=\"editor-text-bold\">Submitted by:</strong></b> @{outputs('Get_response_details')?['body/responder']}</p><h1 class=\"editor-heading-h1\">Client Info:<br></h1><p class=\"editor-paragraph\"><a href=\"https://forms.cloud.microsoft/Pages/DesignPageV2.aspx?prevorigin=shell&amp;origin=NeoPortalPage&amp;subpage=design&amp;id=3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUQlhCUDFHRVJKTUlSSlZJQUUwTTNMWkVINC4u&amp;analysis=true&amp;topview=SurveyResults&amp;qid=ra26d8c4b64494872965568738bb07c3f&amp;ridx=0\" class=\"editor-link\">Click here to see form response</a><br><br><b><strong class=\"editor-text-bold\">Name:</strong></b> @{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}<br><b><strong class=\"editor-text-bold\">Email address:</strong></b> @{outputs('Get_response_details')?['body/r711b2f13db9c442a95df743438845825']}<br><b><strong class=\"editor-text-bold\">Phone number:</strong></b> @{outputs('Get_response_details')?['body/r598294f732744a4eb4218b3855ec2931']}<br><b><strong class=\"editor-text-bold\">Contact date:</strong></b> @{outputs('Get_response_details')?['body/submitDate']}<br><b><strong class=\"editor-text-bold\">Proposed service(s):</strong></b> @{body('Join_services')}<br><b><strong class=\"editor-text-bold\">Estimated fee(s):</strong></b> @{outputs('Get_response_details')?['body/r6e5f56f7f45b43dba319967e6004b52a']}<br><b><strong class=\"editor-text-bold\">Notes:</strong></b><br>@{outputs('Get_response_details')?['body/r334c06af2edd40e09be528b61eb253e4']}<br><b><strong class=\"editor-text-bold\">QBO:</strong></b><br>@{body('Get_QBO_response')}</p><h1 class=\"editor-heading-h1\">To do:</h1><ul class=\"editor-list-ul\"><li class=\"editor-listitem\">Add client to Revenue Schedule: @{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}</li><li class=\"editor-listitem\">Create TA Tax Agreement</li><li class=\"editor-listitem\">Share folder w/ client (and tax organizer if needed)</li><li class=\"editor-listitem\">Add client to ProConnect only after tax return has been received for download</li></ul>",
+                    "emailMessage/Importance": "Normal"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/office365",
+                    "connectionReferenceName": "shared_office365",
+                    "operationId": "SendEmailV2"
+                  }
+                }
+              },
+              "Update_dashboard_properties": {
+                "runAfter": {
+                  "Create_Share_folder": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "5bed3d13-a34c-4a5e-9645-ce65511468d8"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/TarrantAdvisorsShare",
+                    "table": "26639a91-d6e9-4a4a-9fa3-e3797c13d5b6",
+                    "id": "@outputs('Create_Share_folder')?['body/ID']",
+                    "item/TotalFiles": 0,
+                    "item/Format/Value": "Electronic",
+                    "item/Questionnaire/Value": "Not Found",
+                    "item/RetLoaded/Value": "No"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "PatchFileItem"
+                  }
+                }
+              },
+              "Get_file_content": {
+                "runAfter": {
+                  "Create_Client_folder": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "%252fShared%2bDocuments%252fClient%2bLog%2bTemplate.xlsx": "/Shared Documents/Client Log Template.xlsx",
+                  "operationMetadataId": "1f8fc1ed-ee47-4f45-a12b-41774e67f79d"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/TarrantAdvisorsShare",
+                    "id": "%252fShared%2bDocuments%252fClient%2bLog%2bTemplate.xlsx",
+                    "inferContentType": true
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFileContent"
+                  }
+                }
+              },
+              "Create_logfile": {
+                "runAfter": {
+                  "Get_file_content": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "d76d9967-ba3c-457a-8102-1e492469fde2"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                    "folderPath": "/Shared Documents/@{trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f'])}",
+                    "name": "Log-@{join(take(split(trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']),' '),3),'')}.xlsx",
+                    "body": "@body('Get_file_content')"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "CreateFile"
+                  }
+                }
+              },
+              "Get_logfile_properties": {
+                "runAfter": {
+                  "Create_logfile": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "32a71815-b469-4fcc-8954-7a1294e85d67"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                    "table": "cf46e4f0-8fc3-46cb-8a99-142613b2147b",
+                    "id": "@outputs('Create_logfile')?['body/ItemId']"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFileItem"
+                  }
+                }
+              },
+              "Update_dashboard_link": {
+                "runAfter": {
+                  "Get_logfile_properties": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "6af22196-883e-46b1-b769-37355e1ce364"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/TarrantAdvisorsShare",
+                    "table": "26639a91-d6e9-4a4a-9fa3-e3797c13d5b6",
+                    "id": "@outputs('Create_Share_folder')?['body/ID']",
+                    "item/ClientLog": "@outputs('Get_logfile_properties')?['body/{Link}']"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "PatchFileItem"
+                  }
+                }
+              },
+              "Create_intake_file": {
+                "runAfter": {
+                  "Compose_HTML": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "c48a4909-9029-4f35-bcba-bececee3a356"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com/sites/Company",
+                    "folderPath": "/Shared Documents/@{trim(outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f'])}",
+                    "name": "Client Intake Form.html",
+                    "body": "@outputs('Compose_HTML')"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "CreateFile"
+                  }
+                }
+              },
+              "Compose_HTML": {
+                "runAfter": {
+                  "Get_QBO_response": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "e090cddc-8b30-40b5-818b-65baa56f569c"
+                },
+                "type": "Compose",
+                "inputs": "<html>\n\n<head>\n<style>\n  body {\n    margin: 50px; \n  }\n</style>\n</head>\n\n<body>\n<b>Submitted by: </b>@{outputs('Get_response_details')?['body/responder']}</br>\n<h1>Client Info:</h1>\n<b>Name: </b>@{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}</br>\n<b>Email address: </b>@{outputs('Get_response_details')?['body/r711b2f13db9c442a95df743438845825']}</br>\n<b>Phone number: </b> @{outputs('Get_response_details')?['body/r598294f732744a4eb4218b3855ec2931']}</br>\n<b>Contact date: </b>@{outputs('Get_response_details')?['body/rb6eddb34c50a4d29bfd0ae9667a44107']}</br>\n<b>Proposed service(s): </b>@{body('Join_services')}</br>\n<b>Estimated fee(s): </b>@{outputs('Get_response_details')?['body/r6e5f56f7f45b43dba319967e6004b52a']}</br>\n<b>Notes:</b></br>\n@{outputs('Get_response_details')?['body/r334c06af2edd40e09be528b61eb253e4']}</br>\n<b>QBO:</b></br>\n@{body('Get_QBO_response')}\n<h1>To Do:</h1>\n<ul>\n<li>Add client to Revenue Schedule: @{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}</li>\n<li>Create TA Tax Agreement</li>\n<li>Share folder w/ client (and tax organizer if needed)</li>\n<li>Add client to ProConnect only after tax return has been received for download</li>\n</ul>\n</body>\n\n</html>"
+              },
+              "Create_estimate_file": {
+                "runAfter": {
+                  "Join_services": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "folderPath": "/Shared Documents/Apps/QBO",
+                    "name": "@{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}.txt",
+                    "body": "{\n  \"customer_name\": \"@{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}\",\n  \"customer_email\": \"@{outputs('Get_response_details')?['body/r711b2f13db9c442a95df743438845825']}\",\n  \"customer_phone\": \"@{outputs('Get_response_details')?['body/r598294f732744a4eb4218b3855ec2931']}\",\n  \"item_id\": \"@{body('Join_services')}\",\n  \"estimate_amount\": \"@{outputs('Get_response_details')?['body/r6e5f56f7f45b43dba319967e6004b52a']}\",\n  \"memo\": \"Submitted by: @{outputs('Get_response_details')?['body/responder']} on @{outputs('Get_response_details')?['body/submitDate']}\"\n}\n"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "CreateFile"
+                  }
+                },
+                "runtimeConfiguration": {
+                  "contentTransfer": {
+                    "transferMode": "Chunked"
+                  }
+                }
+              },
+              "Get_estimate_file_properties": {
+                "runAfter": {
+                  "Create_estimate_file": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                    "id": "@outputs('Create_estimate_file')?['body/ItemId']"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFileItem"
+                  }
+                }
+              },
+              "Get_estimate_file_UUID": {
+                "runAfter": {
+                  "Get_estimate_file_properties": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "parameters/method": "GET",
+                    "parameters/uri": "_api/web/GetFileByServerRelativeUrl('/@{replace(outputs('Get_estimate_file_properties')?['body/{FullPath}'], '''', '''''')}')"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "HttpRequest"
+                  }
+                }
+              },
+              "Submit_QBO_estimate": {
+                "runAfter": {
+                  "Get_estimate_file_UUID": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "source": "https://appserver.tarrantadvisors.com/cgi/nph-m365_intake.cgi?uuid=@{outputs('Get_estimate_file_UUID')?['body']['d']['UniqueId']}",
+                    "destination": "/Apps/QBO/@{outputs('Get_response_details')?['body/ra26d8c4b64494872965568738bb07c3f']}.txt",
+                    "overwrite": true
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness",
+                    "connectionReferenceName": "shared_onedriveforbusiness",
+                    "operationId": "CopyFile"
+                  }
+                }
+              },
+              "Get_QBO_response": {
+                "runAfter": {
+                  "Submit_QBO_estimate": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "id": "@outputs('Submit_QBO_estimate')?['body/Id']",
+                    "inferContentType": false
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness",
+                    "connectionReferenceName": "shared_onedriveforbusiness",
+                    "operationId": "GetFileContent"
+                  }
+                }
+              },
+              "Join_services": {
+                "runAfter": {
+                  "Apply_to_each_Company": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "Join",
+                "inputs": {
+                  "from": "@json(outputs('Get_response_details')?['body/r641a8caf721f40a98b5f83cc37801e26'])",
+                  "joinWith": ", "
+                }
+              }
+            },
+            "outputs": {},
+            "description": ""
+          },
+          "connectionReferences": {
+            "shared_microsoftforms": {
+              "connection": {
+                "name": "shared-microsoftform-26d23bf8-dc2f-4503-af8d-b966d2835e90",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms/connections/shared-microsoftform-26d23bf8-dc2f-4503-af8d-b966d2835e90",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "microsoftforms",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-westus-01.azure-apim.net/apim/microsoftforms",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvYmU5YWNiZjItZjY5Ni00NTYxLThkZTktZjQwYjQ2MzFiNmQ3IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODM1MzQ4NjksImV4cCI6MTgxNzIzMDg2OSwiaWF0IjoxNzgzNTM0ODY5LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.XK336YCn_vFKTeyv3aaLRSH2Ph_iOW14OlFmdzs6HPeNP_jytpzyr1aX6dExEbr9vnzPuuo_jRt_NaMMwg7pc-t7e0QcKsoMGml4bnmxNZhKbv-NhBrFLjBfXuTpqwQYoEbRkvHtPGwG9SVhZRZEeAYCDFude8D56RilpcfTrCHOhWXDARgnnv3bWzYTy_h6DFKTphj2XXqa03ExhtyfLwecdIlsoVrPcn1xcSQagoduReVeNgtG19hgYlefpntGzZC46fCMZjT1s3qOq8I9klDezIsOsmmZ4cs7ZxnHFfUbzQUDyp3OSiVHMTUJSrdS9QRi4B5M7QOwweenxzxg1g",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            },
+            "shared_sharepointonline": {
+              "connection": {
+                "name": "shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline/connections/shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "sharepointonline",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-eastus-01.azure-apim.net/apim/sharepointonline",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvYmU5YWNiZjItZjY5Ni00NTYxLThkZTktZjQwYjQ2MzFiNmQ3IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODM1MzQ4NjksImV4cCI6MTgxNzIzMDg2OSwiaWF0IjoxNzgzNTM0ODY5LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.XK336YCn_vFKTeyv3aaLRSH2Ph_iOW14OlFmdzs6HPeNP_jytpzyr1aX6dExEbr9vnzPuuo_jRt_NaMMwg7pc-t7e0QcKsoMGml4bnmxNZhKbv-NhBrFLjBfXuTpqwQYoEbRkvHtPGwG9SVhZRZEeAYCDFude8D56RilpcfTrCHOhWXDARgnnv3bWzYTy_h6DFKTphj2XXqa03ExhtyfLwecdIlsoVrPcn1xcSQagoduReVeNgtG19hgYlefpntGzZC46fCMZjT1s3qOq8I9klDezIsOsmmZ4cs7ZxnHFfUbzQUDyp3OSiVHMTUJSrdS9QRi4B5M7QOwweenxzxg1g",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            },
+            "shared_office365": {
+              "connection": {
+                "name": "shared-office365-60c7e2b0-edf9-4bb1-a6e1-b9efc95c1702",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/office365/connections/shared-office365-60c7e2b0-edf9-4bb1-a6e1-b9efc95c1702",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "office365",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/office365",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-westus-01.azure-apim.net/apim/office365",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvYmU5YWNiZjItZjY5Ni00NTYxLThkZTktZjQwYjQ2MzFiNmQ3IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODM1MzQ4NjksImV4cCI6MTgxNzIzMDg2OSwiaWF0IjoxNzgzNTM0ODY5LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.XK336YCn_vFKTeyv3aaLRSH2Ph_iOW14OlFmdzs6HPeNP_jytpzyr1aX6dExEbr9vnzPuuo_jRt_NaMMwg7pc-t7e0QcKsoMGml4bnmxNZhKbv-NhBrFLjBfXuTpqwQYoEbRkvHtPGwG9SVhZRZEeAYCDFude8D56RilpcfTrCHOhWXDARgnnv3bWzYTy_h6DFKTphj2XXqa03ExhtyfLwecdIlsoVrPcn1xcSQagoduReVeNgtG19hgYlefpntGzZC46fCMZjT1s3qOq8I9klDezIsOsmmZ4cs7ZxnHFfUbzQUDyp3OSiVHMTUJSrdS9QRi4B5M7QOwweenxzxg1g",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            },
+            "shared_onedriveforbusiness": {
+              "connection": {
+                "name": "shared-onedriveforbu-5614ee3d-4296-4311-8265-77b775f3710b",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness/connections/shared-onedriveforbu-5614ee3d-4296-4311-8265-77b775f3710b",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "onedriveforbusiness",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/onedriveforbusiness",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-eastus-01.azure-apim.net/apim/onedriveforbusiness",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzL2JlOWFjYmYyLWY2OTYtNDU2MS04ZGU5LWY0MGI0NjMxYjZkNyIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvYmU5YWNiZjItZjY5Ni00NTYxLThkZTktZjQwYjQ2MzFiNmQ3IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODM1MzQ4NjksImV4cCI6MTgxNzIzMDg2OSwiaWF0IjoxNzgzNTM0ODY5LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.XK336YCn_vFKTeyv3aaLRSH2Ph_iOW14OlFmdzs6HPeNP_jytpzyr1aX6dExEbr9vnzPuuo_jRt_NaMMwg7pc-t7e0QcKsoMGml4bnmxNZhKbv-NhBrFLjBfXuTpqwQYoEbRkvHtPGwG9SVhZRZEeAYCDFude8D56RilpcfTrCHOhWXDARgnnv3bWzYTy_h6DFKTphj2XXqa03ExhtyfLwecdIlsoVrPcn1xcSQagoduReVeNgtG19hgYlefpntGzZC46fCMZjT1s3qOq8I9klDezIsOsmmZ4cs7ZxnHFfUbzQUDyp3OSiVHMTUJSrdS9QRi4B5M7QOwweenxzxg1g",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            }
+          },
+          "parameters": {
+            "$connections": {
+              "value": {
+                "microsoftforms": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'microsoftforms')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('microsoftforms_Connection_Name'))]",
+                  "connectionName": "[parameters('microsoftforms_Connection_Name')]"
+                },
+                "sharepointonline": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]",
+                  "connectionName": "[parameters('sharepointonline_Connection_Name')]"
+                },
+                "office365": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'office365')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('office365_Connection_Name'))]",
+                  "connectionName": "[parameters('office365_Connection_Name')]"
+                },
+                "onedriveforbusiness": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'onedriveforbusiness')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('onedriveforbusiness_Connection_Name'))]",
+                  "connectionName": "[parameters('onedriveforbusiness_Connection_Name')]"
+                }
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "lifetime": {
+              "unit": "Day",
+              "count": 30
+            },
+            "operationOptions": "WithLargeNumberOfActions",
+            "collections": {
+              "maximumItemCount": 5000
+            },
+            "performanceProfile": {
+              "throttles": {
+                "mode": "Low"
+              }
+            },
+            "retryPolicy": {
+              "type": "Exponential",
+              "interval": "PT5M",
+              "count": 2,
+              "minimumInterval": "PT5M",
+              "maximumInterval": "PT1H"
+            },
+            "usageConfiguration": {
+              "name": "USER-0E9B714EDEA149FAAD7D6DD8E020D301"
+            }
+          },
+          "integrationAccount": {
+            "name": "fb5857de616e45bdb8418ba900665fd5-westus",
+            "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/resourceGroups/selfhostingresourcegroup/providers/Microsoft.Logic/integrationAccounts/fb5857de616e45bdb8418ba900665fd5-westus",
+            "type": "Microsoft.Logic/integrationAccounts"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('microsoftforms_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'microsoftforms')]"
+          },
+          "displayName": "[parameters('microsoftforms_Connection_Name')]"
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('sharepointonline_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]"
+          },
+          "displayName": "[parameters('sharepointonline_Connection_Name')]"
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('office365_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'office365')]"
+          },
+          "displayName": "[parameters('office365_Connection_Name')]"
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('onedriveforbusiness_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'onedriveforbusiness')]"
+          },
+          "displayName": "[parameters('onedriveforbusiness_Connection_Name')]"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,256 @@
+{
+  "template": {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "logicAppName": {
+        "type": "String",
+        "metadata": {
+          "description": "Name of the logic app."
+        }
+      },
+      "logicAppLocation": {
+        "defaultValue": "[resourceGroup().location]",
+        "allowedValues": [
+          "eastasia",
+          "southeastasia",
+          "centralus",
+          "eastus",
+          "eastus2",
+          "westus",
+          "northcentralus",
+          "southcentralus",
+          "northeurope",
+          "westeurope",
+          "japanwest",
+          "japaneast",
+          "brazilsouth",
+          "australiaeast",
+          "australiasoutheast",
+          "southindia",
+          "centralindia",
+          "westindia",
+          "canadacentral",
+          "canadaeast",
+          "uaecentral",
+          "westcentralus",
+          "westus2",
+          "[resourceGroup().location]"
+        ],
+        "type": "String",
+        "metadata": {
+          "description": "Location of the logic app."
+        }
+      },
+      "microsoftforms_Connection_Name": {
+        "defaultValue": "microsoftforms",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      },
+      "office365_Connection_Name": {
+        "defaultValue": "office365",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      }
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Logic/workflows",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('logicAppName')]",
+        "location": "[parameters('logicAppLocation')]",
+        "dependsOn": [
+          "[resourceId('Microsoft.Web/connections', parameters('microsoftforms_Connection_Name'))]",
+          "[resourceId('Microsoft.Web/connections', parameters('office365_Connection_Name'))]"
+        ],
+        "properties": {
+          "state": "Disabled",
+          "definition": {
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "$authentication": {
+                "defaultValue": {},
+                "type": "SecureObject"
+              },
+              "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+              }
+            },
+            "triggers": {
+              "When_a_new_response_is_submitted": {
+                "splitOn": "@triggerOutputs()?['body/value']",
+                "type": "OpenApiConnectionWebhook",
+                "inputs": {
+                  "parameters": {
+                    "form_id": "3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUOU5PNEtERTRKQUlWQ1pBMjBBT0YySVo3Sy4u"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms",
+                    "connectionReferenceName": "shared_microsoftforms",
+                    "operationId": "CreateFormWebhook"
+                  }
+                }
+              }
+            },
+            "actions": {
+              "Get_response_details": {
+                "runAfter": {},
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "form_id": "3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUOU5PNEtERTRKQUlWQ1pBMjBBT0YySVo3Sy4u",
+                    "response_id": "@triggerOutputs()?['body/resourceData/responseId']"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms",
+                    "connectionReferenceName": "shared_microsoftforms",
+                    "operationId": "GetFormResponseById"
+                  }
+                }
+              },
+              "Send_an_email_(V2)": {
+                "runAfter": {
+                  "Get_response_details": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "emailMessage/To": "katie@tarrantadvisors.com;steve@tarrantadvisors.com;stephen@tarrantadvisors.com",
+                    "emailMessage/Subject": "New Tax Questionnaire submitted on Tarrant Advisors",
+                    "emailMessage/Body": "<p class=\"editor-paragraph\"><b><strong class=\"editor-text-bold\">Submitted by:</strong></b> @{outputs('Get_response_details')?['body/rddfc13984b6b482fb9fa313f904d1580']}, @{outputs('Get_response_details')?['body/r5632cb4474d54645b24bbb16a5dd73f2']}<br><a href=\"https://forms.office.com/pages/designpagev2.aspx?id=3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUOU5PNEtERTRKQUlWQ1pBMjBBT0YySVo3Sy4u&amp;analysis=true&amp;tab=0&amp;topview=SurveyResults&amp;ridx=0\" class=\"editor-link\">Click here to see form response</a></p><br>",
+                    "emailMessage/Importance": "Normal"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/office365",
+                    "connectionReferenceName": "shared_office365",
+                    "operationId": "SendEmailV2"
+                  }
+                }
+              }
+            },
+            "outputs": {},
+            "description": ""
+          },
+          "connectionReferences": {
+            "shared_microsoftforms": {
+              "connection": {
+                "name": "shared-microsoftform-26d23bf8-dc2f-4503-af8d-b966d2835e90",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms/connections/shared-microsoftform-26d23bf8-dc2f-4503-af8d-b966d2835e90",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "microsoftforms",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/microsoftforms",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-westus-01.azure-apim.net/apim/microsoftforms",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjgzRDA2QTVEQTk4QzA0NjMzOURDQzY5REM5ODg5MTIwNjEyNjczQTkiLCJ4NXQiOiJnOUJxWGFtTUJHTTUzTWFkeVlpUklHRW1jNmsiLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzLzUxZTNmYWQwLTE5NzctNGQwYi04MTExLWQxMTBlNjExZmMxNCIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzLzUxZTNmYWQwLTE5NzctNGQwYi04MTExLWQxMTBlNjExZmMxNCIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvNTFlM2ZhZDAtMTk3Ny00ZDBiLTgxMTEtZDExMGU2MTFmYzE0IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3NzcwNzYyODAsImV4cCI6MTgxMDc3MjI4MCwiaWF0IjoxNzc3MDc2MjgwLCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.RSQfZ9UotzhPOBFWElTNSuXTrJWWsg-Sc1PQHATdka2VNIHDthkBy1qkXYGaGbmMERgj1ezsCm6tRYfyeFmyr_FLNiBpQjpTwk5SrsDaeDGliszFsjqcFS15py2XMW0eSh7rbrNH34JS3mAL_XJdiw_2VvS5mhwtNMWvxIc3W8m0x4n8Yi8lUmqsugP72U383SDlkyu63yl8oMe3cqnmTY_VQTO2VvnmYhjDEKHV_sctG_96gPSawrc795Qznf6iFvLL-XEV9QShExAZrZ7J6b9g0vWEMnmixubJbjRQqzKEQCsjJr5dB4hpnLe1Wfsjpq4VX6lMVQ1mC6r7TSbELw",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            },
+            "shared_office365": {
+              "connection": {
+                "name": "shared-office365-60c7e2b0-edf9-4bb1-a6e1-b9efc95c1702",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/office365/connections/shared-office365-60c7e2b0-edf9-4bb1-a6e1-b9efc95c1702",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "office365",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/office365",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-westus-01.azure-apim.net/apim/office365",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjgzRDA2QTVEQTk4QzA0NjMzOURDQzY5REM5ODg5MTIwNjEyNjczQTkiLCJ4NXQiOiJnOUJxWGFtTUJHTTUzTWFkeVlpUklHRW1jNmsiLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzLzUxZTNmYWQwLTE5NzctNGQwYi04MTExLWQxMTBlNjExZmMxNCIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzLzUxZTNmYWQwLTE5NzctNGQwYi04MTExLWQxMTBlNjExZmMxNCIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvNTFlM2ZhZDAtMTk3Ny00ZDBiLTgxMTEtZDExMGU2MTFmYzE0IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3NzcwNzYyODAsImV4cCI6MTgxMDc3MjI4MCwiaWF0IjoxNzc3MDc2MjgwLCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.RSQfZ9UotzhPOBFWElTNSuXTrJWWsg-Sc1PQHATdka2VNIHDthkBy1qkXYGaGbmMERgj1ezsCm6tRYfyeFmyr_FLNiBpQjpTwk5SrsDaeDGliszFsjqcFS15py2XMW0eSh7rbrNH34JS3mAL_XJdiw_2VvS5mhwtNMWvxIc3W8m0x4n8Yi8lUmqsugP72U383SDlkyu63yl8oMe3cqnmTY_VQTO2VvnmYhjDEKHV_sctG_96gPSawrc795Qznf6iFvLL-XEV9QShExAZrZ7J6b9g0vWEMnmixubJbjRQqzKEQCsjJr5dB4hpnLe1Wfsjpq4VX6lMVQ1mC6r7TSbELw",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            }
+          },
+          "parameters": {
+            "$connections": {
+              "value": {
+                "microsoftforms": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'microsoftforms')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('microsoftforms_Connection_Name'))]",
+                  "connectionName": "[parameters('microsoftforms_Connection_Name')]"
+                },
+                "office365": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'office365')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('office365_Connection_Name'))]",
+                  "connectionName": "[parameters('office365_Connection_Name')]"
+                }
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "lifetime": {
+              "unit": "Day",
+              "count": 30
+            },
+            "operationOptions": "WithLargeNumberOfActions",
+            "collections": {
+              "maximumItemCount": 5000
+            },
+            "performanceProfile": {
+              "throttles": {
+                "mode": "Low"
+              }
+            },
+            "retryPolicy": {
+              "type": "Exponential",
+              "interval": "PT5M",
+              "count": 2,
+              "minimumInterval": "PT5M",
+              "maximumInterval": "PT1H"
+            },
+            "usageConfiguration": {
+              "name": "USER-0E9B714EDEA149FAAD7D6DD8E020D301"
+            }
+          },
+          "integrationAccount": {
+            "name": "fb5857de616e45bdb8418ba900665fd5-westus",
+            "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/resourceGroups/selfhostingresourcegroup/providers/Microsoft.Logic/integrationAccounts/fb5857de616e45bdb8418ba900665fd5-westus",
+            "type": "Microsoft.Logic/integrationAccounts"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('microsoftforms_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'microsoftforms')]"
+          },
+          "displayName": "[parameters('microsoftforms_Connection_Name')]"
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('office365_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'office365')]"
+          },
+          "displayName": "[parameters('office365_Connection_Name')]"
+        }
+      }
+    ]
+  }
+}

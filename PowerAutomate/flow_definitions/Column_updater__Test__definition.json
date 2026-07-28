@@ -1,0 +1,619 @@
+{
+  "template": {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "logicAppName": {
+        "type": "String",
+        "metadata": {
+          "description": "Name of the logic app."
+        }
+      },
+      "logicAppLocation": {
+        "defaultValue": "[resourceGroup().location]",
+        "allowedValues": [
+          "eastasia",
+          "southeastasia",
+          "centralus",
+          "eastus",
+          "eastus2",
+          "westus",
+          "northcentralus",
+          "southcentralus",
+          "northeurope",
+          "westeurope",
+          "japanwest",
+          "japaneast",
+          "brazilsouth",
+          "australiaeast",
+          "australiasoutheast",
+          "southindia",
+          "centralindia",
+          "westindia",
+          "canadacentral",
+          "canadaeast",
+          "uaecentral",
+          "westcentralus",
+          "westus2",
+          "[resourceGroup().location]"
+        ],
+        "type": "String",
+        "metadata": {
+          "description": "Location of the logic app."
+        }
+      },
+      "sharepointonline_Connection_Name": {
+        "defaultValue": "sharepointonline",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      }
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Logic/workflows",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('logicAppName')]",
+        "location": "[parameters('logicAppLocation')]",
+        "dependsOn": [
+          "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]"
+        ],
+        "properties": {
+          "state": "Disabled",
+          "definition": {
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "$authentication": {
+                "defaultValue": {},
+                "type": "SecureObject"
+              },
+              "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+              }
+            },
+            "triggers": {
+              "When_a_file_is_created_(properties_only)": {
+                "recurrence": {
+                  "frequency": "Minute",
+                  "interval": 1
+                },
+                "evaluatedRecurrence": {
+                  "frequency": "Minute",
+                  "interval": 1
+                },
+                "splitOn": "@triggerOutputs()?['body/value']",
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetOnNewFileItems"
+                  }
+                }
+              }
+            },
+            "actions": {
+              "Compose_Top_Level_Path": {
+                "runAfter": {
+                  "Check_if_folder": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "Compose",
+                "inputs": "@concat('/', join(take(split(triggerOutputs()?['body/{Path}'], '/'), 2), '/'))"
+              },
+              "Get_files_(properties_only)": {
+                "runAfter": {
+                  "Check_for_SHARED": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                    "folderPath": "@outputs('Compose_Top_Level_Path')",
+                    "viewScopeOption": "RecursiveAll"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFileItems"
+                  }
+                },
+                "runtimeConfiguration": {
+                  "paginationPolicy": {
+                    "minimumItemCount": 1000
+                  }
+                }
+              },
+              "Get_folder_metadata": {
+                "runAfter": {
+                  "Get_files_(properties_only)": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "id": "@outputs('Compose_Top_Level_Path')"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFolderMetadata"
+                  }
+                }
+              },
+              "Check_if_folder": {
+                "actions": {
+                  "Terminate": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Succeeded"
+                    }
+                  }
+                },
+                "runAfter": {},
+                "else": {
+                  "actions": {}
+                },
+                "expression": {
+                  "and": [
+                    {
+                      "equals": [
+                        "@triggerBody()?['{IsFolder}']",
+                        true
+                      ]
+                    }
+                  ]
+                },
+                "type": "If"
+              },
+              "Loop_over_files": {
+                "foreach": "@outputs('Get_files_(properties_only)')?['body/value']",
+                "actions": {
+                  "Look_for_Questionnaire": {
+                    "actions": {
+                      "Set_variable": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "Questionnaire",
+                          "value": "Submitted"
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Tally_non-folders": [
+                        "Succeeded"
+                      ]
+                    },
+                    "else": {
+                      "actions": {}
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "contains": [
+                            "@items('Loop_over_files')?['{FilenameWithExtension}']",
+                            "BU Questionnaire"
+                          ]
+                        }
+                      ]
+                    },
+                    "type": "If"
+                  },
+                  "Tally_non-folders": {
+                    "actions": {
+                      "Increment_variable": {
+                        "type": "IncrementVariable",
+                        "inputs": {
+                          "name": "FileCounter",
+                          "value": 1
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Set_FileName": [
+                        "Succeeded"
+                      ]
+                    },
+                    "else": {
+                      "actions": {}
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "equals": [
+                            "@item()?['{IsFolder}']",
+                            false
+                          ]
+                        }
+                      ]
+                    },
+                    "type": "If"
+                  },
+                  "Look_for_RetLoaded": {
+                    "actions": {
+                      "Set_RetLoaded": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "RetLoaded",
+                          "value": "Yes"
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Look_for_Questionnaire": [
+                        "Succeeded"
+                      ]
+                    },
+                    "else": {
+                      "actions": {}
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "equals": [
+                            "@or(and(greater(indexOf(variables('FileName'), 'tax return'), -1), greater(indexOf(variables('FileName'), '2026'), -1)), equals(indexOf(variables('FileName'), 'complete_return_for_'), 0))",
+                            true
+                          ]
+                        }
+                      ]
+                    },
+                    "type": "If"
+                  },
+                  "Set_FileName": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "FileName",
+                      "value": "@toLower(items('Loop_over_files')?['{FilenameWithExtension}'])"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Initialize_FileName": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "Foreach"
+              },
+              "Initialize_FileCounter": {
+                "runAfter": {
+                  "Initialize_RetLoaded": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "FileCounter",
+                      "type": "integer",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "Update_TotalFiles": {
+                "runAfter": {
+                  "Loop_over_files": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                    "id": "@outputs('Get_folder_metadata')?['body/ItemId']",
+                    "item/TotalFiles": "@variables('FileCounter')"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "PatchFileItem"
+                  }
+                }
+              },
+              "Check_for_SHARED": {
+                "actions": {
+                  "Terminate_1": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Succeeded"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Compose_Top_Level_Path": [
+                    "Succeeded"
+                  ]
+                },
+                "else": {
+                  "actions": {}
+                },
+                "expression": {
+                  "and": [
+                    {
+                      "not": {
+                        "endsWith": [
+                          "@outputs('Compose_Top_Level_Path')",
+                          "- SHARED"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "type": "If"
+              },
+              "Initialize_RetLoaded": {
+                "runAfter": {
+                  "Initialize_Questionnaire": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "RetLoaded",
+                      "type": "string",
+                      "value": "No"
+                    }
+                  ]
+                }
+              },
+              "Condition_RetLoaded": {
+                "actions": {
+                  "Update_RetLoaded": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "id": "@outputs('Get_folder_metadata')?['body/ItemId']",
+                        "item/RetLoaded/Value": "@variables('RetLoaded')"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "PatchFileItem"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Update_TotalFiles": [
+                    "Succeeded"
+                  ]
+                },
+                "else": {
+                  "actions": {}
+                },
+                "expression": {
+                  "or": [
+                    {
+                      "equals": [
+                        "@variables('RetLoaded')",
+                        "Yes"
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "@outputs('Update_TotalFiles')?['body/RetLoaded/Value']",
+                        "Yes"
+                      ]
+                    }
+                  ]
+                },
+                "type": "If"
+              },
+              "Initialize_Questionnaire": {
+                "runAfter": {
+                  "Get_folder_metadata": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "Questionnaire",
+                      "type": "string",
+                      "value": "Not Found"
+                    }
+                  ]
+                }
+              },
+              "Condition_Questionnaire": {
+                "actions": {
+                  "Update_Questionnaire": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "id": "@outputs('Get_folder_metadata')?['body/ItemId']",
+                        "item/Questionnaire/Value": "@variables('Questionnaire')"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "PatchFileItem"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Paper_Questionnaire_check": [
+                    "Succeeded"
+                  ]
+                },
+                "else": {
+                  "actions": {}
+                },
+                "expression": {
+                  "or": [
+                    {
+                      "equals": [
+                        "@variables('Questionnaire')",
+                        "Submitted"
+                      ]
+                    },
+                    {
+                      "not": {
+                        "equals": [
+                          "@outputs('Update_TotalFiles')?['body/Questionnaire/Value']",
+                          "Form"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "type": "If"
+              },
+              "Paper_Questionnaire_check": {
+                "actions": {
+                  "Set_Questionnaire": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "Questionnaire",
+                      "value": "Paper"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Condition_RetLoaded": [
+                    "Succeeded"
+                  ]
+                },
+                "else": {
+                  "actions": {}
+                },
+                "expression": {
+                  "and": [
+                    {
+                      "equals": [
+                        "@variables('Questionnaire')",
+                        "Not Found"
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "@outputs('Update_TotalFiles')?['body/Format/Value']",
+                        "Paper"
+                      ]
+                    }
+                  ]
+                },
+                "type": "If"
+              },
+              "Initialize_FileName": {
+                "runAfter": {
+                  "Initialize_FileCounter": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "FileName",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            "outputs": {},
+            "description": ""
+          },
+          "connectionReferences": {
+            "shared_sharepointonline": {
+              "connection": {
+                "name": "shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline/connections/shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "sharepointonline",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-eastus-01.azure-apim.net/apim/sharepointonline",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzLzRiNWEzZDA0LTM3YjgtNGE4Ni05ZTJiLTc2NmUyYzRlNDE5NCIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzLzRiNWEzZDA0LTM3YjgtNGE4Ni05ZTJiLTc2NmUyYzRlNDE5NCIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvNGI1YTNkMDQtMzdiOC00YTg2LTllMmItNzY2ZTJjNGU0MTk0IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODM1MTM4NzAsImV4cCI6MTgxNzIwOTg3MCwiaWF0IjoxNzgzNTEzODcwLCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.DkybGUwlB-7Oi6Gg2uSdwwer2-Z2wdGTMyY6k_-klge2f7GuLkJfnasJ-SnGLETHLduqtbyvDLO2vVznqAoXlnvfsalSmcz8ZDPOX5lwuCNi0FgbiGnjOa_YWIKNtgrL67Trh163oz1Fflc3LgHL9ks0jlZ_p2Hxz8QwUnjF2io8sEL_ozu8-abHCf56j00Um5SwsDhrSLlWVjgdYenMb-9-f5n7ugBV8tFK71dneu8fN3abudDPMcUqgHq2UBsjUIJWrCmCi-a_sZYnEVQq_PONqHnoZn1aXpFD4z5tImxAMKKmZVPUcq3ZSkKrl-CTi69kH9O_6Zu_0yOaWFObAw",
+                "type": "Raw"
+              },
+              "runtimeSource": "embedded"
+            }
+          },
+          "parameters": {
+            "$connections": {
+              "value": {
+                "sharepointonline": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]",
+                  "connectionName": "[parameters('sharepointonline_Connection_Name')]"
+                }
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "lifetime": {
+              "unit": "Day",
+              "count": 30
+            },
+            "operationOptions": "WithLargeNumberOfActions",
+            "collections": {
+              "maximumItemCount": 5000
+            },
+            "performanceProfile": {
+              "throttles": {
+                "mode": "Low"
+              }
+            },
+            "retryPolicy": {
+              "type": "Exponential",
+              "interval": "PT5M",
+              "count": 2,
+              "minimumInterval": "PT5M",
+              "maximumInterval": "PT1H"
+            },
+            "usageConfiguration": {
+              "name": "USER-0E9B714EDEA149FAAD7D6DD8E020D301"
+            }
+          },
+          "integrationAccount": {
+            "name": "fb5857de616e45bdb8418ba900665fd5-westus",
+            "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/resourceGroups/selfhostingresourcegroup/providers/Microsoft.Logic/integrationAccounts/fb5857de616e45bdb8418ba900665fd5-westus",
+            "type": "Microsoft.Logic/integrationAccounts"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('sharepointonline_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]"
+          },
+          "displayName": "[parameters('sharepointonline_Connection_Name')]"
+        }
+      }
+    ]
+  }
+}

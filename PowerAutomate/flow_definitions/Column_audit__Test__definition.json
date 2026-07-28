@@ -1,0 +1,769 @@
+{
+  "template": {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "logicAppName": {
+        "type": "String",
+        "metadata": {
+          "description": "Name of the logic app."
+        }
+      },
+      "logicAppLocation": {
+        "defaultValue": "[resourceGroup().location]",
+        "allowedValues": [
+          "eastasia",
+          "southeastasia",
+          "centralus",
+          "eastus",
+          "eastus2",
+          "westus",
+          "northcentralus",
+          "southcentralus",
+          "northeurope",
+          "westeurope",
+          "japanwest",
+          "japaneast",
+          "brazilsouth",
+          "australiaeast",
+          "australiasoutheast",
+          "southindia",
+          "centralindia",
+          "westindia",
+          "canadacentral",
+          "canadaeast",
+          "uaecentral",
+          "westcentralus",
+          "westus2",
+          "[resourceGroup().location]"
+        ],
+        "type": "String",
+        "metadata": {
+          "description": "Location of the logic app."
+        }
+      },
+      "sharepointonline_Connection_Name": {
+        "defaultValue": "sharepointonline",
+        "type": "String",
+        "metadata": {
+          "description": "Name of the connection."
+        }
+      }
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Logic/workflows",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('logicAppName')]",
+        "location": "[parameters('logicAppLocation')]",
+        "dependsOn": [
+          "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]"
+        ],
+        "properties": {
+          "state": "Disabled",
+          "definition": {
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "undefined",
+            "parameters": {
+              "$authentication": {
+                "defaultValue": {},
+                "type": "SecureObject"
+              },
+              "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+              }
+            },
+            "triggers": {
+              "manual": {
+                "metadata": {
+                  "operationMetadataId": "724a23e6-f884-43c5-8371-cc57ffb82431"
+                },
+                "type": "Request",
+                "kind": "Button",
+                "inputs": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                  }
+                }
+              }
+            },
+            "actions": {
+              "List_Documents": {
+                "runAfter": {},
+                "metadata": {
+                  "flowSystemMetadata": {
+                    "portalOperationIconOverride": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/v1.0.1769/1.0.1769.4352/sharepointonline/icon.png",
+                    "portalOperationBrandColorOverride": "",
+                    "portalOperationId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline/apiOperations/GetFileItems"
+                  },
+                  "operationMetadataId": "94188f95-20ba-4229-8e0e-a4d8be4a8c0f"
+                },
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://tarrantadvisors.sharepoint.com",
+                    "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                    "viewScopeOption": "Default"
+                  },
+                  "host": {
+                    "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                    "connectionReferenceName": "shared_sharepointonline",
+                    "operationId": "GetFileItems"
+                  }
+                },
+                "runtimeConfiguration": {
+                  "paginationPolicy": {
+                    "minimumItemCount": 1000
+                  }
+                }
+              },
+              "Count_Files": {
+                "foreach": "@body('Select_folders')",
+                "actions": {
+                  "Get_files_(properties_only)_-_count": {
+                    "metadata": {
+                      "operationMetadataId": "760e0738-f0dd-4d01-bb7d-08a73bc23c05"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "folderPath": "@item()?['{FullPath}']",
+                        "viewScopeOption": "RecursiveAll"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFileItems"
+                      }
+                    },
+                    "runtimeConfiguration": {
+                      "paginationPolicy": {
+                        "minimumItemCount": 1000
+                      }
+                    }
+                  },
+                  "Get_folder_metadata_-_count": {
+                    "runAfter": {
+                      "Select_files_only": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "b52f4e58-a627-445e-8b11-31e50e533e1c"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "id": "@item()?['{FullPath}']"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFolderMetadata"
+                      }
+                    }
+                  },
+                  "Select_files_only": {
+                    "runAfter": {
+                      "Get_files_(properties_only)_-_count": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "38652418-16bb-4f20-82be-025f006b3b48"
+                    },
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@outputs('Get_files_(properties_only)_-_count')?['body/value']",
+                      "where": "@equals(item()?['{IsFolder}'],false)"
+                    }
+                  },
+                  "Get_folder_properties_-_count": {
+                    "runAfter": {
+                      "Get_folder_metadata_-_count": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "6c999fd2-ff14-475f-8725-4e93e7a1bc17"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "id": "@outputs('Get_folder_metadata_-_count')?['body/ItemId']"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFileItem"
+                      }
+                    }
+                  },
+                  "Compare_Total_Files": {
+                    "actions": {
+                      "Update_Total_Files": {
+                        "metadata": {
+                          "operationMetadataId": "7275cea6-8735-4952-ac6d-59fe84ca2a6d"
+                        },
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "dataset": "https://tarrantadvisors.sharepoint.com",
+                            "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                            "id": "@outputs('Get_folder_metadata_-_count')?['body/ItemId']",
+                            "item/TotalFiles": "@length(body('Select_files_only'))"
+                          },
+                          "host": {
+                            "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                            "connectionReferenceName": "shared_sharepointonline",
+                            "operationId": "PatchFileItem"
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Get_folder_properties_-_count": [
+                        "Succeeded"
+                      ]
+                    },
+                    "else": {
+                      "actions": {}
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "not": {
+                            "equals": [
+                              "@outputs('Get_folder_properties_-_count')?['body/TotalFiles']",
+                              "@length(body('Select_files_only'))"
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "10dafd5a-d919-44d6-b316-fb26ee8850cd"
+                    },
+                    "type": "If"
+                  }
+                },
+                "runAfter": {
+                  "Select_folders": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "66c381e0-1286-4368-b10c-689dde53c472"
+                },
+                "type": "Foreach"
+              },
+              "Search_for_filename": {
+                "foreach": "@body('Select_folders')",
+                "actions": {
+                  "Get_files_(properties_only)_-_search": {
+                    "metadata": {
+                      "operationMetadataId": "ed951517-8438-4c1c-a11c-014e83d47e68"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "folderPath": "@item()?['{FullPath}']",
+                        "viewScopeOption": "RecursiveAll"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFileItems"
+                      }
+                    },
+                    "runtimeConfiguration": {
+                      "paginationPolicy": {
+                        "minimumItemCount": 1000
+                      }
+                    }
+                  },
+                  "Get_folder_metadata_-_search": {
+                    "runAfter": {
+                      "Filter_array": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "aa32a956-060f-48b7-b07b-73932cc6df13"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "id": "@item()?['{FullPath}']"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFolderMetadata"
+                      }
+                    }
+                  },
+                  "Filter_array": {
+                    "runAfter": {
+                      "Get_files_(properties_only)_-_search": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "f31d15bf-61f9-4855-9b5d-188675621b11"
+                    },
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@outputs('Get_files_(properties_only)_-_search')?['body/value']",
+                      "where": "@contains(item()?['{FilenameWithExtension}'],'BU Questionnaire')"
+                    }
+                  },
+                  "Get_folder_properties_-_search": {
+                    "runAfter": {
+                      "Get_folder_metadata_-_search": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "236c1aca-de07-41e4-9aec-014dfbad28dd"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "id": "@outputs('Get_folder_metadata_-_search')?['body/ItemId']"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFileItem"
+                      }
+                    }
+                  },
+                  "Compare_Questionnaire": {
+                    "actions": {
+                      "Update_Questionnaire": {
+                        "metadata": {
+                          "operationMetadataId": "e5b85b52-f8a1-4d95-83f1-e0c28888e684"
+                        },
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "dataset": "https://tarrantadvisors.sharepoint.com",
+                            "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                            "id": "@outputs('Get_folder_metadata_-_search')?['body/ItemId']",
+                            "item/Questionnaire/Value": "@variables('Questionnaire')"
+                          },
+                          "host": {
+                            "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                            "connectionReferenceName": "shared_sharepointonline",
+                            "operationId": "PatchFileItem"
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Set_Questionnaire": [
+                        "Succeeded"
+                      ]
+                    },
+                    "else": {
+                      "actions": {}
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "not": {
+                            "equals": [
+                              "@outputs('Get_folder_properties_-_search')?['body/Questionnaire/Value']",
+                              "@variables('Questionnaire')"
+                            ]
+                          }
+                        },
+                        {
+                          "or": [
+                            {
+                              "equals": [
+                                "@variables('Questionnaire')",
+                                "Submitted"
+                              ]
+                            },
+                            {
+                              "not": {
+                                "equals": [
+                                  "@outputs('Get_folder_properties_-_search')?['body/Questionnaire/Value']",
+                                  "Form"
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "0a823887-f9d9-444e-9e11-1e8c100ac4f3"
+                    },
+                    "type": "If"
+                  },
+                  "Set_Questionnaire": {
+                    "runAfter": {
+                      "Get_folder_properties_-_search": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "f8d8a275-ac68-43d4-920a-ff93391b0069"
+                    },
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "Questionnaire",
+                      "value": "@if(greater(length(body('Filter_array')), 0), 'Submitted', if(equals(outputs('Get_folder_properties_-_search')?['body/Format/Value'], 'Paper'), 'Paper', 'Not Found'))"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Initialize_Questionnaire": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "26f644d5-89c8-4450-9fd2-aa7a8822738e"
+                },
+                "type": "Foreach"
+              },
+              "Select_folders": {
+                "runAfter": {
+                  "Select_SHARED": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "6fbf814a-248e-4f3a-a327-45373d8ea2df"
+                },
+                "type": "Query",
+                "inputs": {
+                  "from": "@body('Select_SHARED')",
+                  "where": "@equals(item()?['{IsFolder}'],true)"
+                }
+              },
+              "Select_SHARED": {
+                "runAfter": {
+                  "List_Documents": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "5057f339-8704-43b1-a3df-34b7bbaf3ae0"
+                },
+                "type": "Query",
+                "inputs": {
+                  "from": "@outputs('List_Documents')?['body/value']",
+                  "where": "@endsWith(item()?['{FullPath}'],' - SHARED')"
+                }
+              },
+              "Initialize_Questionnaire": {
+                "runAfter": {
+                  "Count_Files": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "3060a573-b9c6-4ed7-aa5c-c73fd34d54f1"
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "Questionnaire",
+                      "type": "string",
+                      "value": "Not Found"
+                    }
+                  ]
+                }
+              },
+              "Initialize_RetLoaded": {
+                "runAfter": {
+                  "Search_for_filename": [
+                    "Succeeded"
+                  ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                  "variables": [
+                    {
+                      "name": "RetLoaded",
+                      "type": "string",
+                      "value": "No"
+                    }
+                  ]
+                }
+              },
+              "Search_for_filename_1": {
+                "foreach": "@body('Select_folders')",
+                "actions": {
+                  "Get_files_(properties_only)_-_search_1": {
+                    "metadata": {
+                      "operationMetadataId": "ed951517-8438-4c1c-a11c-014e83d47e68"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "folderPath": "@item()?['{FullPath}']",
+                        "viewScopeOption": "RecursiveAll"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFileItems"
+                      }
+                    },
+                    "runtimeConfiguration": {
+                      "paginationPolicy": {
+                        "minimumItemCount": 1000
+                      }
+                    }
+                  },
+                  "Get_folder_metadata_-_search_1": {
+                    "runAfter": {
+                      "Filter_array_1": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "aa32a956-060f-48b7-b07b-73932cc6df13"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "id": "@item()?['{FullPath}']"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFolderMetadata"
+                      }
+                    }
+                  },
+                  "Filter_array_1": {
+                    "runAfter": {
+                      "Get_files_(properties_only)_-_search_1": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "f31d15bf-61f9-4855-9b5d-188675621b11"
+                    },
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@outputs('Get_files_(properties_only)_-_search_1')?['body/value']",
+                      "where": "@equals(or(and(greater(indexOf(item()?['{FilenameWithExtension}'], 'tax return'), -1), greater(indexOf(item()?['{FilenameWithExtension}'], '2026'), -1)), equals(indexOf(item()?['{FilenameWithExtension}'], 'complete_return_for_'), 0)),true)"
+                    }
+                  },
+                  "Get_folder_properties_-_search_1": {
+                    "runAfter": {
+                      "Get_folder_metadata_-_search_1": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "236c1aca-de07-41e4-9aec-014dfbad28dd"
+                    },
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://tarrantadvisors.sharepoint.com",
+                        "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                        "id": "@outputs('Get_folder_metadata_-_search_1')?['body/ItemId']"
+                      },
+                      "host": {
+                        "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                        "connectionReferenceName": "shared_sharepointonline",
+                        "operationId": "GetFileItem"
+                      }
+                    }
+                  },
+                  "Compare_RetLoaded": {
+                    "actions": {
+                      "Update_RetLoaded": {
+                        "metadata": {
+                          "operationMetadataId": "e5b85b52-f8a1-4d95-83f1-e0c28888e684"
+                        },
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "dataset": "https://tarrantadvisors.sharepoint.com",
+                            "table": "8b07e830-ff9f-475e-a3c0-a4244dc18ccb",
+                            "id": "@outputs('Get_folder_metadata_-_search_1')?['body/ItemId']",
+                            "item/RetLoaded/Value": "@variables('RetLoaded')"
+                          },
+                          "host": {
+                            "apiId": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                            "connectionReferenceName": "shared_sharepointonline",
+                            "operationId": "PatchFileItem"
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Set_RetLoaded": [
+                        "Succeeded"
+                      ]
+                    },
+                    "else": {
+                      "actions": {}
+                    },
+                    "expression": {
+                      "and": [
+                        {
+                          "not": {
+                            "equals": [
+                              "@outputs('Get_folder_properties_-_search_1')?['body/RetLoaded/Value']",
+                              "@variables('RetLoaded')"
+                            ]
+                          }
+                        },
+                        {
+                          "or": [
+                            {
+                              "equals": [
+                                "@variables('RetLoaded')",
+                                "Yes"
+                              ]
+                            },
+                            {
+                              "equals": [
+                                "@outputs('Get_folder_properties_-_search_1')?['body/RetLoaded/Value']",
+                                "Yes"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "0a823887-f9d9-444e-9e11-1e8c100ac4f3"
+                    },
+                    "type": "If"
+                  },
+                  "Set_RetLoaded": {
+                    "runAfter": {
+                      "Get_folder_properties_-_search_1": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "f8d8a275-ac68-43d4-920a-ff93391b0069"
+                    },
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "RetLoaded",
+                      "value": "@if(greater(length(body('Filter_array_1')), 0), 'Yes', 'No')"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Initialize_RetLoaded": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "26f644d5-89c8-4450-9fd2-aa7a8822738e"
+                },
+                "type": "Foreach"
+              }
+            }
+          },
+          "connectionReferences": {
+            "shared_sharepointonline": {
+              "connection": {
+                "name": "shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline/connections/shared-sharepointonl-f587950a-46a2-417a-b718-449feced63f0",
+                "type": "Microsoft.Web/locations/runtimes/apis/connections"
+              },
+              "api": {
+                "name": "sharepointonline",
+                "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/providers/Microsoft.Web/locations/westus/runtimes/unitedstates-002/apis/sharepointonline",
+                "type": "Microsoft.Web/locations/runtimes/apis"
+              },
+              "runtimeUrl": "https://flow-apim-unitedstates-002-eastus-01.azure-apim.net/apim/sharepointonline",
+              "authentication": {
+                "scheme": "Key",
+                "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjMxMTM3Mjg2NDlDRjk5REZDQzlGM0QxMzNGMTQwNkRFQURDRDNCNzgiLCJ4NXQiOiJNUk55aGtuUG1kX01uejBUUHhRRzNxM05PM2ciLCJ0eXAiOiJKV1QifQ.eyJ0cyI6ImZiNTg1N2RlLTYxNmUtNDViZC1iODQxLThiYTkwMDY2NWZkNSIsImNzIjoidW5pdGVkc3RhdGVzLTAwMi9sb2dpY2Zsb3dzL2I2Y2JlMjU1LWUwZWQtNDQ4Mi05YzUwLWU1OGE5Y2JiNDYxNiIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZGVmYXVsdC1mYjU4NTdkZS02MTZlLTQ1YmQtYjg0MS04YmE5MDA2NjVmZDUiLCJhdWQiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvYXBpbS9sb2dpY2Zsb3dzL2I2Y2JlMjU1LWUwZWQtNDQ4Mi05YzUwLWU1OGE5Y2JiNDYxNiIsInJ1bnRpbWV1cmwiOiJodHRwczovL2RlZmF1bHQtZmI1ODU3ZGUtNjE2ZS00NWJkLWI4NDEtOGJhOTAwNjY1ZmQ1LjE1LmNvbW1vbi51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC9hcGltL2xvZ2ljZmxvd3MvYjZjYmUyNTUtZTBlZC00NDgyLTljNTAtZTU4YTljYmI0NjE2IiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC51c2EwMDIuYXp1cmUtYXBpaHViLm5ldC8iLCJuYmYiOjE3ODM1MTQwNjQsImV4cCI6MTgxNzIxMDA2NCwiaWF0IjoxNzgzNTE0MDY0LCJpc3MiOiJodHRwczovL3VuaXRlZHN0YXRlcy0wMDIuYXp1cmUtYXBpbS5uZXQvIn0.lwvvtOIhru-CZHFJ81K5h9dcn8ZZhq7hSBa5a-2ywWf7iTwyc0jJ_eD9K2XhL8_DgheI7ne6DiHP1Z7jS6AyZum_C8Kcbkq34dVqh8Yn9cfaDCZ6AT7CAMFDpVWhdNxxW0fWFAa-37z9Xdoeyv8rKxSoNNBGUjPPCJy3hcTnuXeq_mLFnXXi1n1aXZUtm9Q_5keCAvzuNVMM0Q0_E7iXXPW-IuJOxX4jNrbsDYeqildqQ-IcVjeSNlxASwVWL0g_KQRVIVI6IFvq9_5ctJrKljq-NaSyV20nn8r2pjSv-9QDAd6trW29ziKwkBppO0wu53snMKaaJN6nxDyYdI_i2w",
+                "type": "Raw"
+              },
+              "runtimeSource": "invoker"
+            }
+          },
+          "parameters": {
+            "$connections": {
+              "value": {
+                "sharepointonline": {
+                  "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]",
+                  "connectionId": "[resourceId('Microsoft.Web/connections', parameters('sharepointonline_Connection_Name'))]",
+                  "connectionName": "[parameters('sharepointonline_Connection_Name')]"
+                }
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "lifetime": {
+              "unit": "Day",
+              "count": 30
+            },
+            "operationOptions": "WithLargeNumberOfActions",
+            "collections": {
+              "maximumItemCount": 100000
+            },
+            "performanceProfile": {
+              "throttles": {
+                "mode": "High"
+              }
+            },
+            "retryPolicy": {
+              "type": "Exponential",
+              "interval": "PT5M",
+              "count": 2,
+              "minimumInterval": "PT5M",
+              "maximumInterval": "PT1H"
+            },
+            "usageConfiguration": {
+              "name": "USER-0E9B714EDEA149FAAD7D6DD8E020D301"
+            }
+          },
+          "integrationAccount": {
+            "name": "fb5857de616e45bdb8418ba900665fd5-westus",
+            "id": "subscriptions/default-fb5857de-616e-45bd-b841-8ba900665fd5/resourceGroups/selfhostingresourcegroup/providers/Microsoft.Logic/integrationAccounts/fb5857de616e45bdb8418ba900665fd5-westus",
+            "type": "Microsoft.Logic/integrationAccounts"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Web/connections",
+        "apiVersion": "2016-06-01",
+        "name": "[parameters('sharepointonline_Connection_Name')]",
+        "location": "[parameters('logicAppLocation')]",
+        "properties": {
+          "api": {
+            "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('logicAppLocation'), '/managedApis/', 'sharepointonline')]"
+          },
+          "displayName": "[parameters('sharepointonline_Connection_Name')]"
+        }
+      }
+    ]
+  }
+}
