@@ -7,7 +7,7 @@ Reston, VA 20191
 <b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}  
 
 {% if meta_entity_type in ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust', 'organization'] %}
-Dear {{ FRIENDLY_NAME }}:<br/>
+Dear {{ GREETING_NAME }}:<br/>
 Thank you for choosing Tarrant Advisors LLC to provide tax return and tax advisory services (“Services”) for {{ CLIENT_LEGAL_NAME }} (“Client”) during the period through December 31, {{ TAX_YEAR }}.
 {% endif %}
 

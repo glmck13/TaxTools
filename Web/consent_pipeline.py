@@ -454,7 +454,6 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     address_parts = [p.strip() for p in [street, city, state, zip_val] if p and p.strip()]
     billing_address = ", ".join(address_parts) if address_parts else "<i>[Address Sourced on Execution]</i>"
-
     greeting_name = build_salutation_name(friendly_name, meta_co_signer_name)
 
     try:

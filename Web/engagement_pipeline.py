@@ -825,6 +825,43 @@ def handle_generate_preview(form):
 </body>
 </html>""")
 
+def build_salutation_name(friendly_name, co_signer_name=""):
+    """Extracts first names and builds a friendly salutation (e.g., 'Jack and Jane')."""
+    prefixes = ("dr.", "dr", "mr.", "mr", "mrs.", "mrs", "ms.", "ms", "prof.", "prof")
+
+    def clean_first_name(name_str):
+        if not name_str:
+            return ""
+        tokens = name_str.strip().split()
+        if tokens and tokens[0].lower() in prefixes:
+            tokens = tokens[1:]
+        return tokens[0] if tokens else ""
+
+    primary_clean = friendly_name.strip() if friendly_name else ""
+    co_signer_clean = co_signer_name.strip() if co_signer_name else ""
+
+    # Case 1: Primary client already contains joint names (e.g., "Jack & Jane Fleisher" or "Jack and Jane Fleisher")
+    if " & " in primary_clean:
+        parts = primary_clean.split(" & ", 1)
+        p1 = clean_first_name(parts[0])
+        p2 = clean_first_name(parts[1])
+        return f"{p1} and {p2}" if p1 and p2 else p1
+    elif " and " in primary_clean.lower():
+        parts = re.split(r'\s+and\s+', primary_clean, flags=re.IGNORECASE, maxsplit=1)
+        p1 = clean_first_name(parts[0])
+        p2 = clean_first_name(parts[1])
+        return f"{p1} and {p2}" if p1 and p2 else p1
+
+    primary_first = clean_first_name(primary_clean)
+    co_signer_first = clean_first_name(co_signer_clean)
+
+    # Case 2: Separate co-signer provided in form
+    if primary_first and co_signer_first and primary_first.lower() != co_signer_first.lower():
+        return f"{primary_first} and {co_signer_first}"
+
+    # Case 3: Standard single client
+    return primary_first or primary_clean
+
 # ==========================================
 # REPORTLAB PDF GENERATION LEG (PURE / STATELESS)
 # ==========================================
@@ -872,6 +909,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     address_parts = [p.strip() for p in [street, city, state, zip_val] if p and p.strip()]
     billing_address = ", ".join(address_parts) if address_parts else "<i>[Billing Address Sourced on Execution]</i>"
+    greeting_name = build_salutation_name(friendly_name, meta_co_signer_name)
 
     try:
         with open(ENGAGEMENT_TEMPLATE, "r", encoding="utf-8") as f:
@@ -936,6 +974,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         CLIENT_ADDRESS=billing_address,
         CLIENT_LEGAL_NAME=xml_safe_escape(legal_name),
         FRIENDLY_NAME=xml_safe_escape(friendly_name),
+        GREETING_NAME=xml_safe_escape(greeting_name),
         meta_entity_type=meta_ent.lower(),
         out_of_scope_items=out_of_scope_list,
         DYNAMIC_ESTIMATES_TABLE="{{DYNAMIC_ESTIMATES_TABLE}}",
