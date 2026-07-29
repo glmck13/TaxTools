@@ -107,7 +107,7 @@ function rehydrateOutOfScopeItems(oosDict, isLocked = false) {
 /**
  * Injects global hidden input fields for complete records to fulfill runtime form submission requirements.
  */
-function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr) {
+function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr, healLegalName) {
     let container = document.getElementById('hidden-master-context');
     if (!container) {
         container = document.createElement('div');
@@ -125,6 +125,7 @@ function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr
         <input type="hidden" name="meta_additional_signer" value="${additionalSignerEmail}">
         <input type="hidden" name="meta_entity_type" value="${entityType || ''}">
         <input type="hidden" name="meta_co_signer_name" value="${coSignerName || ''}">
+        <input type="hidden" name="heal_legal_name" value="${escapeHtml(healLegalName || '')}">
         <input type="hidden" name="heal_street" value="${addr.street || ''}">
         <input type="hidden" name="heal_city" value="${addr.city || ''}">
         <input type="hidden" name="heal_state" value="${addr.state || ''}">
@@ -177,6 +178,12 @@ function onClientChange() {
     const rawOptionText = unescapeHtml(clientSelect.options[clientSelect.selectedIndex].text);
     const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
+    // Priority hierarchy for state recovery: Preserved Form > Disk Draft
+    const hasPreservedHeal = window.preservedHealData && Object.keys(window.preservedHealData).length > 0;
+    const healData = hasPreservedHeal ? window.preservedHealData : draftData;
+
+    const defaultLegalName = healData.heal_legal_name || rawCustomerName;
+
     // Render locked banner if agreement was already dispatched
     if (isLocked && lockBannerContainer) {
         lockBannerContainer.style.display = 'block';
@@ -184,7 +191,7 @@ function onClientChange() {
             <div class="lock-banner-card">
                 <div class="lock-banner-title">🔒 Agreement Dispatched (Read-Only Mode)</div>
                 <p class="lock-banner-text">
-                    An engagement agreement for <strong>${escapeHtml(rawCustomerName)}</strong> was sent out on <strong>${escapeHtml(lockedMtime)}</strong>. 
+                    An engagement agreement for <strong>${escapeHtml(defaultLegalName)}</strong> was sent out on <strong>${escapeHtml(lockedMtime)}</strong>. 
                     Workspace parameters are locked to preserve the dispatched context.
                 </p>
             </div>
@@ -198,10 +205,10 @@ function onClientChange() {
     if (profileContainer) {
         profileContainer.style.display = 'block';
         if (isProfileIncomplete) {
-            renderEditableProfilePanel(profileContainer, address, metadata, rawCustomerName, clientRecord.email);
+            renderEditableProfilePanel(profileContainer, address, metadata, rawCustomerName, defaultLegalName, clientRecord.email);
         } else {
-            renderReadOnlyProfilePanel(profileContainer, address, metadata, rawCustomerName, clientRecord.email);
-            injectHiddenMasterContext(metadata.signature_type, metadata.entity_type, metadata.co_signer_name, address);
+            renderReadOnlyProfilePanel(profileContainer, address, metadata, rawCustomerName, defaultLegalName, clientRecord.email);
+            injectHiddenMasterContext(metadata.signature_type, metadata.entity_type, metadata.co_signer_name, address, defaultLegalName);
         }
     }
 
@@ -214,10 +221,6 @@ function onClientChange() {
     actionsDiv.style.display = isLocked ? 'none' : 'flex';
     if (outOfScopeContainer) outOfScopeContainer.style.display = 'block';
 
-    // Priority hierarchy for state recovery: Preserved Form > Disk Draft
-    const hasPreservedHeal = window.preservedHealData && Object.keys(window.preservedHealData).length > 0;
-    const healData = hasPreservedHeal ? window.preservedHealData : draftData;
-
     const dateSelect = document.getElementById('estimate-date-option');
     if (dateSelect) {
         if (healData.estimate_date_option) dateSelect.value = healData.estimate_date_option;
@@ -225,7 +228,7 @@ function onClientChange() {
     }
 
     // Populate preserved field states
-    ['friendly_name', 'heal_street', 'heal_city', 'heal_state', 'heal_zip', 'meta_co_signer_name'].forEach(fieldName => {
+    ['friendly_name', 'heal_legal_name', 'heal_street', 'heal_city', 'heal_state', 'heal_zip', 'meta_co_signer_name'].forEach(fieldName => {
         const input = document.querySelector(`input[name="${fieldName}"]`);
         if (input && healData[fieldName]) input.value = healData[fieldName];
     });
@@ -270,7 +273,7 @@ function onClientChange() {
 /**
  * Renders the editable data correction form layout.
  */
-function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, clientEmail) {
+function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail) {
     // Extract coSignerEmailVal only if signature_type contains an '@'
     const coSignerEmailVal = meta.signature_type && meta.signature_type.includes('@') ? meta.signature_type : '';
     const coSignerNameVal = meta.co_signer_name || '';
@@ -293,6 +296,10 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
                 <div class="form-field-group">
                     <label class="field-label">Friendly Name</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required placeholder="e.g., Susan Smith">
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label">Legal Name (For Documents)</label>
+                    <input type="text" name="heal_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required placeholder="e.g., Susan Smith LLC">
                 </div>
                 <div class="form-field-group">
                     <label class="field-label">Street Address</label>
@@ -338,7 +345,7 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
 /**
  * Renders an immutable read-only view block when customer parameters are satisfied.
  */
-function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, clientEmail) {
+function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail) {
     const formattedAddress = `${addr.street || ''}, ${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`;
     const displayMap = {
         'individual': 'Individual',
@@ -358,10 +365,14 @@ function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, 
                 <div class="profile-card-title" style="color: #107c41; margin-bottom: 0;">✓ Customer Profile Verified</div>
                 <button type="button" class="btn-add-row btn-edit-profile" onclick="toggleProfileEditMode()" style="font-size: 12px; padding: 4px 10px;">✏️ Edit Profile Parameters</button>
             </div>
-            <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr; gap: 10px;">
+            <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="form-field-group">
                     <label class="field-label" style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Friendly Name (Override text if needed)</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;" required>
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label" style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Legal Name (Document Override)</label>
+                    <input type="text" name="heal_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;" required>
                 </div>
             </div>
             <div class="profile-grid-layout markdown-verified-grid">
@@ -389,12 +400,16 @@ function toggleProfileEditMode() {
 
     const record = window.clientData[selectedClient];
     const friendlyInput = document.querySelector('input[name="friendly_name"]');
+    const legalInput = document.querySelector('input[name="heal_legal_name"]');
     
-    // Decode HTML entities before parsing default friendly name
+    // Decode HTML entities before parsing default names
     const rawOptionText = unescapeHtml(selectEl.options[selectEl.selectedIndex].text);
-    const defaultFriendlyName = friendlyInput ? friendlyInput.value : rawOptionText.split(/\s*\(Customer/)[0].trim();
+    const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
-    renderEditableProfilePanel(container, record.address || {}, record.metadata || {}, defaultFriendlyName, record.email);
+    const defaultFriendlyName = friendlyInput ? friendlyInput.value : rawCustomerName;
+    const defaultLegalName = legalInput ? legalInput.value : rawCustomerName;
+
+    renderEditableProfilePanel(container, record.address || {}, record.metadata || {}, defaultFriendlyName, defaultLegalName, record.email);
     
     const healFlagInput = container.querySelector('input[name="heal_profile_flag"]');
     if (healFlagInput) healFlagInput.value = "true";

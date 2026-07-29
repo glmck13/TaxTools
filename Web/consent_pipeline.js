@@ -1,7 +1,7 @@
 /**
  * Tarrant Advisors - Section 7216 Consent Portal Front-End Orchestrator
  * Controls customer selection changes, dynamic local address fallback rendering,
- * friendly name population, and form submission validation.
+ * friendly name & legal name population, and form submission validation.
  */
 
 /**
@@ -49,18 +49,22 @@ function onClientChange() {
     const clientRecord = window.clientData[selectedClient];
     const address = clientRecord.address || {};
     
-    // Decode HTML entities (e.g., &amp; -> &) before parsing default friendly name
+    // Decode HTML entities (e.g., &amp; -> &) before parsing default names
     const rawOptionText = unescapeHtml(clientSelect.options[clientSelect.selectedIndex].text);
-    const defaultFriendlyName = rawOptionText.split(/\s*\(Customer/)[0].trim();
+    const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
+
+    const healData = window.preservedHealData || {};
+    const defaultFriendlyName = healData.friendly_name || rawCustomerName;
+    const defaultLegalName = healData.local_legal_name || rawCustomerName;
 
     const isAddressMissing = !address.street || !address.city || !address.state || !address.zip;
 
     if (profileContainer) {
         profileContainer.style.display = 'block';
         if (isAddressMissing) {
-            renderFallbackAddressPanel(profileContainer, address, defaultFriendlyName, clientRecord.email);
+            renderFallbackAddressPanel(profileContainer, address, defaultFriendlyName, defaultLegalName, clientRecord.email);
         } else {
-            renderVerifiedProfilePanel(profileContainer, address, defaultFriendlyName, clientRecord.email);
+            renderVerifiedProfilePanel(profileContainer, address, defaultFriendlyName, defaultLegalName, clientRecord.email);
         }
     }
 
@@ -69,10 +73,13 @@ function onClientChange() {
     }
 
     // Hydrate preserved form values if available (e.g. on workspace revert or reload)
-    const healData = window.preservedHealData || {};
     if (healData.friendly_name) {
         const friendlyInput = document.querySelector('input[name="friendly_name"]');
         if (friendlyInput) friendlyInput.value = healData.friendly_name;
+    }
+    if (healData.local_legal_name) {
+        const legalInput = document.querySelector('input[name="local_legal_name"]');
+        if (legalInput) legalInput.value = healData.local_legal_name;
     }
     if (healData.tax_years_covered) {
         const taxYearsSelect = document.getElementById('tax-years-covered');
@@ -111,7 +118,7 @@ function onClientChange() {
  * Renders an address fallback panel when QBO address is incomplete.
  * Note: These fields are strictly used for document generation and are NOT written back to QBO.
  */
-function renderFallbackAddressPanel(container, addr, defaultFriendlyName, clientEmail) {
+function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaultLegalName, clientEmail) {
     // Explicitly fallback to empty string to ensure no leak from prior client selection
     const street = addr.street ? addr.street : '';
     const city = addr.city ? addr.city : '';
@@ -135,6 +142,10 @@ function renderFallbackAddressPanel(container, addr, defaultFriendlyName, client
                 <div class="form-field-group">
                     <label class="field-label">Friendly Name</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required placeholder="e.g., Jack Fleisher">
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label">Legal Name (For Documents)</label>
+                    <input type="text" name="local_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required placeholder="e.g., Jack Fleisher LLC">
                 </div>
                 <div class="form-field-group">
                     <label class="field-label">Street Address (Local Only)</label>
@@ -168,7 +179,7 @@ function renderFallbackAddressPanel(container, addr, defaultFriendlyName, client
 /**
  * Renders verified profile panel when complete customer parameters exist in QBO.
  */
-function renderVerifiedProfilePanel(container, addr, defaultFriendlyName, clientEmail) {
+function renderVerifiedProfilePanel(container, addr, defaultFriendlyName, defaultLegalName, clientEmail) {
     const formattedAddress = `${addr.street || ''}, ${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`;
 
     container.innerHTML = `
@@ -181,10 +192,14 @@ function renderVerifiedProfilePanel(container, addr, defaultFriendlyName, client
             <input type="hidden" name="local_state" value="${escapeHtml(addr.state || '')}">
             <input type="hidden" name="local_zip" value="${escapeHtml(addr.zip || '')}">
 
-            <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr; gap: 10px;">
+            <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="form-field-group">
                     <label class="field-label" style="font-weight: 600; font-size: 13px;">Friendly Name (Override if needed)</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required>
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label" style="font-weight: 600; font-size: 13px;">Legal Name (Document Override)</label>
+                    <input type="text" name="local_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required>
                 </div>
             </div>
 

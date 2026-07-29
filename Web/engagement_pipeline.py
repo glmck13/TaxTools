@@ -400,7 +400,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         has_meta = "SIGNATURE" in acct_num and "ENTITY" in acct_num
 
         saved_draft = None
-        draft_path = os.path.join(DRAFTS_DIR, f"draft_{c_id}.json")
+        draft_path = os.path.join(DRAFTS_DIR, f"client_{c_id}.json")
         is_locked, locked_mtime = is_draft_locked(draft_path)
 
         if os.path.exists(draft_path):
@@ -445,6 +445,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 
         heal_data = {
             "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
+            "heal_legal_name": html.unescape(get_form_val(preserved_form, "heal_legal_name")),
             "heal_street": get_form_val(preserved_form, "heal_street"),
             "heal_city": get_form_val(preserved_form, "heal_city"),
             "heal_state": get_form_val(preserved_form, "heal_state"),
@@ -641,7 +642,7 @@ def handle_generate_preview(form):
 
     prior_estimate_id = ""
     existing_draft = {}
-    draft_path = os.path.join(DRAFTS_DIR, f"draft_{client_qbo_id}.json")
+    draft_path = os.path.join(DRAFTS_DIR, f"client_{client_qbo_id}.json")
     is_locked = False
 
     try:
@@ -658,6 +659,12 @@ def handle_generate_preview(form):
         friendly_name = html.unescape(existing_draft.get("friendly_name", "")).strip()
     if not friendly_name:
         friendly_name = clean_client_title
+
+    heal_legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip()
+    if not heal_legal_name and existing_draft.get("heal_legal_name"):
+        heal_legal_name = html.unescape(existing_draft.get("heal_legal_name", "")).strip()
+    if not heal_legal_name:
+        heal_legal_name = clean_client_title
 
     if not heal_street:
         try:
@@ -702,6 +709,7 @@ def handle_generate_preview(form):
             draft_payload = {
                 "estimate_date_option": estimate_date_option,
                 "friendly_name": friendly_name,
+                "heal_legal_name": heal_legal_name,
                 "heal_profile_flag": heal_profile_flag,
                 "meta_additional_signer": meta_sig if "@" in meta_sig else "",
                 "meta_signature_type": meta_sig if meta_sig else "single",
@@ -724,6 +732,7 @@ def handle_generate_preview(form):
         ("action", "render_live_pdf"), 
         ("client_name", client_name),
         ("friendly_name", friendly_name),
+        ("heal_legal_name", heal_legal_name),
         ("heal_profile_flag", heal_profile_flag), 
         ("meta_additional_signer", meta_sig if "@" in meta_sig else ""),
         ("meta_signature_type", meta_sig if meta_sig else "single"), 
@@ -778,6 +787,7 @@ def handle_generate_preview(form):
         <form method="POST" action="{SCRIPT_URL}">
             <input type="hidden" name="client_name" value="{html.escape(client_name)}">
             <input type="hidden" name="friendly_name" value="{html.escape(friendly_name)}">
+            <input type="hidden" name="heal_legal_name" value="{html.escape(heal_legal_name)}">
             <input type="hidden" name="heal_profile_flag" value="{html.escape(heal_profile_flag)}">
             <input type="hidden" name="meta_additional_signer" value="{html.escape(meta_sig if '@' in meta_sig else '')}">
             <input type="hidden" name="meta_signature_type" value="{html.escape(meta_sig if meta_sig else 'single')}">
@@ -843,6 +853,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
+    legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip() or clean_client_title
 
     street = get_form_val(form, "heal_street")
     city = get_form_val(form, "heal_city")
@@ -923,7 +934,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         TAX_YEAR=TAX_YEAR,
         TODAY_DATE=datetime.date.today().strftime('%B %d, %Y'),
         CLIENT_ADDRESS=billing_address,
-        CLIENT_LEGAL_NAME=xml_safe_escape(clean_client_title),
+        CLIENT_LEGAL_NAME=xml_safe_escape(legal_name),
         FRIENDLY_NAME=xml_safe_escape(friendly_name),
         meta_entity_type=meta_ent.lower(),
         out_of_scope_items=out_of_scope_list,
@@ -932,7 +943,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     )
 
     pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40, title=f"{TAX_YEAR} Tax Engagement Agreement - {clean_client_title}")
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40, title=f"{TAX_YEAR} Tax Engagement Agreement - {legal_name}")
     styles = getSampleStyleSheet()
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
@@ -990,7 +1001,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         return f"{label}: {tag}" if include_esign_tags else f"{label}: " + "_" * underscore_len
 
     sig_elements = [Spacer(1, 15)]
-    signer1_label = f"<strong>{xml_safe_escape(friendly_name)}<br/>Signing on behalf of {xml_safe_escape(clean_client_title)}</strong>" if is_org_type else f"<strong>{xml_safe_escape(friendly_name)}</strong>"
+    signer1_label = f"<strong>{xml_safe_escape(friendly_name)}<br/>Signing on behalf of {xml_safe_escape(legal_name)}</strong>" if is_org_type else f"<strong>{xml_safe_escape(friendly_name)}</strong>"
 
     sig_elements.extend([
         Paragraph(render_sig_line("Signature", "{{_es_signer1_signature}}"), body_style),
@@ -1037,8 +1048,10 @@ def handle_download_pdf(form, prefix="DRAFT"):
     """Unified handler for PDF downloads (Draft or Final)."""
     client_name = get_form_val(form, "client_name", "Unknown Client")
     clean_client_title = re.split(r'\s*\(Customer', html.unescape(client_name))[0].strip()
+    legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip() or clean_client_title
+    
     timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
-    filename = f"Tax Agreement {clean_client_title} ({prefix} {timestamp_str}).pdf"
+    filename = f"Tax Agreement {legal_name} ({prefix} {timestamp_str}).pdf"
     generated_buffer = compile_reportlab_pdf_buffer(form, include_esign_tags=False)
     
     sys.stdout.buffer.write(b"Content-Type: application/pdf\n")
@@ -1054,6 +1067,7 @@ def execute_transactional_pipeline(form):
     client_qbo_id = extract_qbo_id(client_name)
     row_ids = get_form_list(form, "selected_rows")
     friendly_name = get_form_val(form, "friendly_name")
+    heal_legal_name = get_form_val(form, "heal_legal_name")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
 
     heal_flag = get_form_val(form, "heal_profile_flag", "false")
@@ -1123,7 +1137,7 @@ def execute_transactional_pipeline(form):
     deposit_val = 0.0
 
     disk_rows_map = {}
-    draft_path = os.path.join(DRAFTS_DIR, f"draft_{client_qbo_id}.json")
+    draft_path = os.path.join(DRAFTS_DIR, f"client_{client_qbo_id}.json")
     if os.path.exists(draft_path):
         try:
             with open(draft_path, "r", encoding="utf-8") as df:
@@ -1258,6 +1272,7 @@ def execute_transactional_pipeline(form):
         dl_query_args = [
             ("action", "download_final_pdf"), ("estimate_id", estimate_id),
             ("client_name", client_name), ("friendly_name", friendly_name),
+            ("heal_legal_name", heal_legal_name),
             ("delivery_method", "paper"), ("heal_profile_flag", "false"),
             ("meta_additional_signer", meta_sig if "@" in meta_sig else ""),
             ("meta_signature_type", meta_sig if meta_sig else "single"), 
@@ -1324,7 +1339,7 @@ if __name__ == "__main__":
         if client_name:
             try:
                 c_id = extract_qbo_id(client_name)
-                unlock_draft(os.path.join(DRAFTS_DIR, f"draft_{c_id}.json"))
+                unlock_draft(os.path.join(DRAFTS_DIR, f"client_{c_id}.json"))
             except Exception as ex:
                 print(f"DEBUG: Could not unlock draft on revert: {str(ex)}", file=sys.stderr)
         render_phase1_workspace(preserved_form=form_data)

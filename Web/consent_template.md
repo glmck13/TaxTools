@@ -5,7 +5,7 @@
 
 {{ CLIENT_LEGAL_NAME }}<br/>{{ CLIENT_ADDRESS }}
 
-Dear {{ FRIENDLY_NAME }}:
+Dear {{ GREETING_NAME }}:
 
 In order to provide your tax return information to any third party, including your advisors, we are required to have signed consent to disclose such information.
 

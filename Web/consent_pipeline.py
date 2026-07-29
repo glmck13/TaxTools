@@ -242,6 +242,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         selected_client = html.unescape(get_form_val(preserved_form, "client_name"))
         heal_data = {
             "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
+            "local_legal_name": html.unescape(get_form_val(preserved_form, "local_legal_name")),
             "tax_years_covered": get_form_val(preserved_form, "tax_years_covered", "2025 and 2026 tax years"),
             "local_street": get_form_val(preserved_form, "local_street"),
             "local_city": get_form_val(preserved_form, "local_city"),
@@ -316,6 +317,7 @@ def handle_generate_preview(form):
     client_name = raw_client_name
 
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
+    local_legal_name = html.unescape(get_form_val(form, "local_legal_name")).strip() or clean_client_title
     tax_years_covered = get_form_val(form, "tax_years_covered", "2025 and 2026 tax years")
 
     local_street = get_form_val(form, "local_street")
@@ -332,6 +334,7 @@ def handle_generate_preview(form):
         ("action", "render_live_pdf"),
         ("client_name", client_name),
         ("friendly_name", friendly_name),
+        ("local_legal_name", local_legal_name),
         ("tax_years_covered", tax_years_covered),
         ("local_street", local_street),
         ("local_city", local_city),
@@ -357,6 +360,7 @@ def handle_generate_preview(form):
         <form method="POST" action="{SCRIPT_URL}">
             <input type="hidden" name="client_name" value="{html.escape(client_name)}">
             <input type="hidden" name="friendly_name" value="{html.escape(friendly_name)}">
+            <input type="hidden" name="local_legal_name" value="{html.escape(local_legal_name)}">
             <input type="hidden" name="tax_years_covered" value="{html.escape(tax_years_covered)}">
             <input type="hidden" name="local_street" value="{html.escape(local_street)}">
             <input type="hidden" name="local_city" value="{html.escape(local_city)}">
@@ -380,6 +384,43 @@ def handle_generate_preview(form):
 </body>
 </html>""")
 
+def build_salutation_name(friendly_name, co_signer_name=""):
+    """Extracts first names and builds a friendly salutation (e.g., 'Jack and Jane')."""
+    prefixes = ("dr.", "dr", "mr.", "mr", "mrs.", "mrs", "ms.", "ms", "prof.", "prof")
+
+    def clean_first_name(name_str):
+        if not name_str:
+            return ""
+        tokens = name_str.strip().split()
+        if tokens and tokens[0].lower() in prefixes:
+            tokens = tokens[1:]
+        return tokens[0] if tokens else ""
+
+    primary_clean = friendly_name.strip() if friendly_name else ""
+    co_signer_clean = co_signer_name.strip() if co_signer_name else ""
+
+    # Case 1: Primary client already contains joint names (e.g., "Jack & Jane Fleisher" or "Jack and Jane Fleisher")
+    if " & " in primary_clean:
+        parts = primary_clean.split(" & ", 1)
+        p1 = clean_first_name(parts[0])
+        p2 = clean_first_name(parts[1])
+        return f"{p1} and {p2}" if p1 and p2 else p1
+    elif " and " in primary_clean.lower():
+        parts = re.split(r'\s+and\s+', primary_clean, flags=re.IGNORECASE, maxsplit=1)
+        p1 = clean_first_name(parts[0])
+        p2 = clean_first_name(parts[1])
+        return f"{p1} and {p2}" if p1 and p2 else p1
+
+    primary_first = clean_first_name(primary_clean)
+    co_signer_first = clean_first_name(co_signer_clean)
+
+    # Case 2: Separate co-signer provided in form
+    if primary_first and co_signer_first and primary_first.lower() != co_signer_first.lower():
+        return f"{primary_first} and {co_signer_first}"
+
+    # Case 3: Standard single client
+    return primary_first or primary_clean
+
 # ==========================================
 # REPORTLAB PDF GENERATION LEG (PURE / STATELESS)
 # ==========================================
@@ -400,6 +441,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
 
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
+    local_legal_name = html.unescape(get_form_val(form, "local_legal_name")).strip() or clean_client_title
     tax_years_covered = get_form_val(form, "tax_years_covered", "2025 and 2026 tax years")
 
     street = get_form_val(form, "local_street")
@@ -413,6 +455,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     address_parts = [p.strip() for p in [street, city, state, zip_val] if p and p.strip()]
     billing_address = ", ".join(address_parts) if address_parts else "<i>[Address Sourced on Execution]</i>"
 
+    greeting_name = build_salutation_name(friendly_name, meta_co_signer_name)
+
     try:
         with open(CONSENT_TEMPLATE, "r", encoding="utf-8") as f:
             raw_markdown = f.read()
@@ -423,15 +467,16 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     markdown_content = jinja_tmpl.render(
         TODAY_DATE=datetime.date.today().strftime('%B %d, %Y'),
         CLIENT_ADDRESS=billing_address,
-        CLIENT_LEGAL_NAME=xml_safe_escape(clean_client_title),
+        CLIENT_LEGAL_NAME=xml_safe_escape(local_legal_name),
         FRIENDLY_NAME=xml_safe_escape(friendly_name),
+        GREETING_NAME=xml_safe_escape(greeting_name),
         TAX_YEARS_COVERED=xml_safe_escape(tax_years_covered),
         meta_additional_signer=meta_sig,
         CO_SIGNER_NAME=xml_safe_escape(meta_co_signer_name)
     )
 
     pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=45, leftMargin=45, topMargin=45, bottomMargin=45, title=f"7216 Consent - {clean_client_title}")
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=45, leftMargin=45, topMargin=45, bottomMargin=45, title=f"7216 Consent - {local_legal_name}")
     styles = getSampleStyleSheet()
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#222222'))
@@ -502,8 +547,10 @@ def handle_download_pdf(form, prefix="DRAFT"):
     """Unified handler for PDF downloads."""
     client_name = get_form_val(form, "client_name", "Unknown Client")
     clean_client_title = re.split(r'\s*\(Customer', html.unescape(client_name))[0].strip()
+    local_legal_name = html.unescape(get_form_val(form, "local_legal_name")).strip() or clean_client_title
+    
     timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
-    filename = f"7216 Consent {clean_client_title} ({prefix} {timestamp_str}).pdf"
+    filename = f"7216 Consent {local_legal_name} ({prefix} {timestamp_str}).pdf"
     generated_buffer = compile_reportlab_pdf_buffer(form, include_esign_tags=False)
 
     sys.stdout.buffer.write(b"Content-Type: application/pdf\n")
@@ -518,6 +565,7 @@ def execute_transactional_pipeline(form):
     client_name = get_form_val(form, "client_name")
     client_qbo_id = extract_qbo_id(client_name)
     friendly_name = html.unescape(get_form_val(form, "friendly_name"))
+    local_legal_name = html.unescape(get_form_val(form, "local_legal_name"))
     meta_sig = get_form_val(form, "meta_additional_signer").strip()
 
     delivery_method = get_form_val(form, "delivery_method")
@@ -570,6 +618,7 @@ def execute_transactional_pipeline(form):
             ("action", "download_final_pdf"),
             ("client_name", client_name),
             ("friendly_name", friendly_name),
+            ("local_legal_name", local_legal_name),
             ("tax_years_covered", get_form_val(form, "tax_years_covered")),
             ("local_street", get_form_val(form, "local_street")),
             ("local_city", get_form_val(form, "local_city")),
