@@ -130,7 +130,8 @@ def submit_adobe_sign_transaction(client_qbo_id, pdf_binary_data, additional_sig
     """Handles envelope transmission and routing parameters for Adobe Sign."""
     try:
         fresh_customer = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
-        primary_email = fresh_customer.get("PrimaryEmailAddr", {}).get("Address", "")
+        raw_email = fresh_customer.get("PrimaryEmailAddr", {}).get("Address", "")
+        primary_email = raw_email.split(",")[0].strip() if raw_email else ""
 
         if not primary_email:
             return False, "Customer record is missing a valid Primary Email Address in QBO."
