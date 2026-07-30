@@ -7,7 +7,7 @@ SANDBOX=$(echo "$QUERY_STRING" | sed -n 's/.*sandbox=\([^&]*\).*/\1/p')
 if [ "$SANDBOX" ]; then
 export QBO_SANDBOX="sandbox-"
 export ADOBE_SANDBOX="sandbox-"
-export ENGAGEMENT_SANDBOX="sandbox-"
+export PIPELINE_SANDBOX="sandbox-"
 fi
 
 qboRefresh.sh >/dev/null

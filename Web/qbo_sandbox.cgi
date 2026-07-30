@@ -5,7 +5,7 @@ export PATH=$HOME/bin:$PATH
 
 export QBO_SANDBOX="sandbox-"
 export ADOBE_SANDBOX="sandbox-"
-export ENGAGEMENT_SANDBOX="sandbox-"
+export PIPELINE_SANDBOX="sandbox-"
 
 qboRefresh.sh >/dev/null
 . ${HOME}/etc/${QBO_SANDBOX}qboTokens.conf
