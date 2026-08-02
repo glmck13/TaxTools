@@ -122,6 +122,7 @@ def load_exposed_services_from_template():
             service_name = lines[0].strip()
             item_id = ""
             entity_type = "both"
+            fee_val = "0.00"
             notes_lines = []
             
             for line in lines[1:]:
@@ -133,11 +134,14 @@ def load_exposed_services_from_template():
                 
                 id_match = re.match(r'^-\s*ID:\s*(\d+)', clean_line, re.IGNORECASE)
                 type_match = re.match(r'^-\s*Type:\s*(\w+)', clean_line, re.IGNORECASE)
+                fee_match = re.match(r'^-\s*Fee:\s*([0-9.]+)', clean_line, re.IGNORECASE)
                 
                 if id_match:
                     item_id = id_match.group(1)
                 elif type_match:
                     entity_type = type_match.group(1).lower()
+                elif fee_match:
+                    fee_val = f"{float(fee_match.group(1)):.2f}"
                 else:
                     notes_lines.append(clean_line)
             
@@ -147,6 +151,7 @@ def load_exposed_services_from_template():
                     "id": item_id,
                     "name": service_name,
                     "type": entity_type,
+                    "fee": fee_val,
                     "notes": notes_text
                 })
         return sorted(services, key=lambda x: x["name"].lower())

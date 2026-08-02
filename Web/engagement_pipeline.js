@@ -443,7 +443,7 @@ function onProfileEntityChange() {
             exposedServices.forEach(svc => {
                 const svcType = svc.type ? svc.type.toLowerCase() : '';
                 if (!currentRawEntity || svcType === 'both' || svcType === currentContextType) {
-                    optionsHtml += `<option value="${svc.id}" data-type="${svc.type}">${escapeHtml(svc.name)}</option>`;
+                    optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" data-fee="${svc.fee || '0.00'}">${escapeHtml(svc.name)}</option>`;
                 }
             });
             selectEl.innerHTML = optionsHtml;
@@ -504,7 +504,7 @@ function addServiceRow(rowData = null, isLocked = false) {
 
         if (isAllowedByEntity || isMatch) {
             const isSelected = isMatch ? 'selected' : '';
-            optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" ${isSelected}>${escapeHtml(svc.name)}</option>`;
+            optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" data-fee="${svc.fee || '0.00'}" ${isSelected}>${escapeHtml(svc.name)}</option>`;
         }
     });
 
@@ -562,12 +562,14 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
     if (!selectEl) return;
 
     const selectedOption = selectEl.options[selectEl.selectedIndex];
+    const feeInput = document.getElementById(`row_fee_${id}`);
     
     if (!selectedOption || selectEl.value === "") {
         if (badgeContainer) badgeContainer.innerHTML = '';
         if (bpInput) bpInput.value = 'individual';
         if (svcNameInput) svcNameInput.value = '';
         if (notesTextarea) notesTextarea.value = '';
+        if (feeInput) feeInput.value = '0.00';
         calculateGridTotals();
         return;
     }
@@ -599,10 +601,15 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
         badgeContainer.innerHTML = `<span class="badge ${isOrganization ? 'badge-organization' : 'badge-individual'}">${escapeHtml(resolvedType)}</span>`;
     }
 
-    if (!bypassDefaultNotes && notesTextarea && selectedClient && window.clientData && window.clientData[selectedClient]) {
-        const exposedServices = window.clientData[selectedClient].exposed_services || [];
-        const serviceMatch = exposedServices.find(svc => svc.name === itemName);
-        notesTextarea.value = serviceMatch ? (serviceMatch.notes || '') : '';
+    if (!bypassDefaultNotes) {
+        const defaultFee = selectedOption.getAttribute('data-fee') || '0.00';
+        if (feeInput) feeInput.value = defaultFee;
+
+        if (notesTextarea && selectedClient && window.clientData && window.clientData[selectedClient]) {
+            const exposedServices = window.clientData[selectedClient].exposed_services || [];
+            const serviceMatch = exposedServices.find(svc => svc.name === itemName);
+            notesTextarea.value = serviceMatch ? (serviceMatch.notes || '') : '';
+        }
     }
 
     calculateGridTotals();

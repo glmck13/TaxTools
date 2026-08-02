@@ -9,6 +9,7 @@ default text that auto-populates the "Scope Specification / Notes" table column.
 ## 2026 Federal & State Tax Returns
 - ID: 48
 - Type: both
+- Fee: 0
 
 Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal income tax return and 2026 state income tax return for your state of residence. We will assist with routine tax questions that do not require additional research and will assist with the preparation of federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
@@ -16,6 +17,7 @@ Our Services for 2026 are expected to include the following: Preparation of the 
 ## 2025 Federal & State Tax Returns
 - ID: 19
 - Type: both
+- Fee: 0
 
 Our Services for 2025 are expected to include the following: Preparation of the 2025 Federal income tax return and 2025 state income tax return for your state of residence, if applicable. We will assist with routine tax questions that do not require additional research and will assist with the preparation of 2026 federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority. We will provide guidance related to you making federal tax payments online, as necessary.
 
@@ -23,11 +25,13 @@ Our Services for 2025 are expected to include the following: Preparation of the 
 ## 2025 Itemizing Deductions
 - ID: 41
 - Type: both
+- Fee: 0
 
 
 ## 2024 Federal & State Tax Returns
 - ID: 9
 - Type: both
+- Fee: 0
 
 Our Services for 2024 are expected to include the following: Preparation of the 2024 Federal income tax return and 2024 state income tax return for your state of residence, if applicable. We will assist with routine tax questions that do not require additional research and will assist with the preparation of 2025 federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority. We will provide guidance related to you making federal tax payments online, as necessary.
 
@@ -35,11 +39,13 @@ Our Services for 2024 are expected to include the following: Preparation of the 
 ## Additional State
 - ID: 44
 - Type: both
+- Fee: 0
 
 
 ## Amended Return
 - ID: 25
 - Type: both
+- Fee: 0
 
 Preparation of the amended income tax return. We will assist with routine tax questions that do not require additional research. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
@@ -47,36 +53,43 @@ Preparation of the amended income tax return. We will assist with routine tax qu
 ## Client Discount
 - ID: 18
 - Type: both
+- Fee: 0
 
 
 ## Consultation
 - ID: 21
 - Type: both
+- Fee: 0
 
 
 ## Estimated payments
 - ID: 35
 - Type: both
+- Fee: 0
 
 
 ## Gift Tax Return
 - ID: 22
 - Type: both
+- Fee: 0
 
 
 ## IRS Notice
 - ID: 33
 - Type: both
+- Fee: 0
 
 
 ## Mailing
 - ID: 14
 - Type: both
+- Fee: 0
 
 
 ## Monthly Tax & Accounting Services
 - ID: 27
 - Type: both
+- Fee: 0
 
 Monthly services will include but not be limited to:<br/>
 - Reconciling bank accounts and credit card balances quarterly, annually or on an as needed basis<br/>
@@ -96,41 +109,49 @@ Monthly services will include but not be limited to:<br/>
 ## New Client Referral
 - ID: 47
 - Type: both
+- Fee: 0
 
 
 ## Preparation of BPOL
 - ID: 42
 - Type: both
+- Fee: 0
 
 
 ## Preparation of FBAR
 - ID: 34
 - Type: both
+- Fee: 0
 
 
 ## Quarterly Financials
 - ID: 29
 - Type: both
+- Fee: 0
 
 
 ## QuickBooks Assistance
 - ID: 45
 - Type: both
+- Fee: 0
 
 
 ## Reimbursement for state taxes paid on your behalf
 - ID: 28
 - Type: both
+- Fee: 0
 
 
 ## Research
 - ID: 43
 - Type: both
+- Fee: 0
 
 
 ## S Corp - Planning & Analysis
 - ID: 46
 - Type: organization
+- Fee: 0
 
 Planning and Analysis related to setup of the S Corporation. This work will include the following:<br/>
 - Tax analysis and comparison operating as an S Corp, partnership or Sole proprietor <br/>
@@ -142,5 +163,6 @@ Planning and Analysis related to setup of the S Corporation. This work will incl
 ## Deposit Due
 - ID: 00000
 - Type: both
+- Fee: 0
 
 Initial retainer payment received toward professional engagement services.
