@@ -1,398 +1,325 @@
 #!/usr/bin/env python3
-"""
-qbota.py
 
-Combines live QBO REST API extraction with google-genai PDF parsing.
-Dynamically maps extracted PDF line items against active QBO Service Items via Gemini prompt context.
-"""
-
-import sys
 import os
 import json
-import logging
+import csv
+import re
 import requests
-from typing import Dict, Any, List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pydantic import BaseModel, Field, field_validator
+from google import genai
+from google.genai import types
 
-# Setup logging
-DEBUG_MODE = os.getenv("DEBUG", "").lower() in ("1", "true", "yes") or "--debug" in sys.argv
-logging.basicConfig(
-    level=logging.DEBUG if DEBUG_MODE else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stderr
-)
-logger = logging.getLogger("qbota")
+# ---------------------------------------------------------------------------
+# 1. ENVIRONMENT & SETUP
+# ---------------------------------------------------------------------------
+QBO_APIBASE = os.getenv("QBO_APIBASE", "https://quickbooks.api.intuit.com/v3")
+QBO_REALMID = os.getenv("QBO_REALMID")
+QBO_ACCESS_TOKEN = os.getenv("QBO_ACCESS_TOKEN")
+DRAFTS_DIR = os.getenv("DRAFTS_DIR", "./engagements")
+WWW_DIR = "/var/www"
 
-# Graceful import check for google-genai
-try:
-    from google import genai
-    from google.genai import types
-    HAS_GENAI = True
-    logger.debug("google-genai package detected successfully.")
-except ImportError:
-    HAS_GENAI = False
-    logger.warning("google-genai package not found. PDF extraction will be disabled.")
+os.makedirs(DRAFTS_DIR, exist_ok=True)
 
-# QBO Environment Configuration
-QBO_REALMID = os.getenv("QBO_REALMID", "")
-QBO_ACCESS_TOKEN = os.getenv("QBO_ACCESS_TOKEN", "")
-QBO_APIBASE = os.getenv("QBO_APIBASE", "https://quickbooks.api.intuit.com/v3/company").rstrip("/").removesuffix("/company")
+if not QBO_REALMID or not QBO_ACCESS_TOKEN:
+    raise ValueError("Missing QBO_REALMID or QBO_ACCESS_TOKEN in environment. Ensure qboTokens.conf was sourced.")
 
+ai_client = genai.Client()
 
-class ExtractedServiceLine(BaseModel):
-    matched_qbo_id: str = Field(
-        description="The exact QBO Item ID selected from the provided LIVE QBO SERVICE CATALOG that best matches this line item."
-    )
-    service_name: str = Field(
-        description="Name or title of service or discount line item."
-    )
-    fee: float = Field(
-        description="Fee amount in USD. Use NEGATIVE values for discounts or fee reductions (e.g. -1000.00)."
-    )
-    notes: str = Field(
-        default="",
-        description="Context, terms, state details, or billing frequency terms."
-    )
-    entity_target: str = Field(
-        default="both",
-        description="'individual', 'organization', or 'both'"
-    )
+# ---------------------------------------------------------------------------
+# 2. PYDANTIC SCHEMA DEFINITIONS
+# ---------------------------------------------------------------------------
+class DraftRow(BaseModel):
+    item_id: str = Field(..., description="QBO catalog item ID")
+    service: str = Field(..., description="Service line title")
+    fee: str = Field(..., description="Resolved fee string")
+    notes: str = Field(default="", description="Always output an empty string")
+    bp: str = Field(default="individual", description="'individual' or 'organization'")
 
+    @field_validator("fee", mode="before")
+    @classmethod
+    def coerce_fee_to_str(cls, v: Any) -> str:
+        """Coerces numeric float/int fees returned by LLM into formatted string values."""
+        if isinstance(v, (int, float)):
+            return f"{v:.2f}"
+        return str(v)
 
-class PDFContractMetadata(BaseModel):
-    meta_entity_type: str = Field(
-        default="individual",
-        description="Extract the entity type of the client: 's_corp', 'partnership', 'c_corp', 'llc', 'non_profit', 'trust', or 'individual'."
-    )
-    meta_signature_type: str = Field(
-        default="single",
-        description="Return secondary client spouse/co-signer EMAIL if joint. Return 'single' if 1 client signer. Ignore firm counter-signers like Steve Tarrant."
-    )
-    meta_co_signer_name: str = Field(
-        default="", 
-        description="Full human name of secondary client co-signer or spouse (e.g., 'Jane Doe'). Ignore firm counter-signers like Steve Tarrant."
-    )
-    total_contract_fee: Optional[float] = Field(
-        default=0.0,
-        description="Total top-line agreement fee stated (e.g., 6500.00)."
-    )
-    deposit_required: Optional[float] = Field(
-        default=0.0,
-        description="Deposit amount required upon submission (e.g., 1000.00)."
-    )
-    hourly_rate_range: Optional[str] = Field(
-        default="",
-        description="Hourly rate range for out-of-scope work (e.g. '$100-$250/hr')."
-    )
-    extracted_services: List[ExtractedServiceLine] = Field(
-        default_factory=list,
-        description="List of distinct services, discounts, and fee breakdowns found in the agreement."
-    )
-    out_of_scope_list: List[str] = Field(
-        default_factory=list, 
-        description="List of excluded or additional billable out-of-scope items."
-    )
+class ClientDraftSchema(BaseModel):
+    qbo_id: Optional[str] = Field(default=None, description="QBO Customer ID")
+    estimate_date_option: str = Field(default="next_year")
+    friendly_name: str = Field(..., description="Display name")
+    heal_legal_name: str = Field(..., description="Full legal name")
+    heal_profile_flag: str = Field(default="false")
+    meta_additional_signer: str = Field(default="")
+    meta_signature_type: str = Field(..., description="'single' or 'joint'")
+    meta_co_signer_name: str = Field(default="", description="Spouse name if joint")
+    meta_entity_type: str = Field(..., description="'individual', 's_corp', 'partnership', or 'llc'")
+    heal_street: str = Field(default="")
+    heal_city: str = Field(default="")
+    heal_state: str = Field(default="")
+    heal_zip: str = Field(default="")
+    out_of_scope_items: List[str] = Field(default_factory=list, description="Always output an empty list")
+    estimate_id: str = Field(default="")
+    rows: List[DraftRow] = Field(..., description="Mapped service lines")
 
+# ---------------------------------------------------------------------------
+# 3. HELPER FUNCTIONS & DATA PRE-PROCESSING
+# ---------------------------------------------------------------------------
+def load_sp_mappings(csv_path: str = f"{WWW_DIR}/etc/qbosp.csv") -> Dict[str, str]:
+    mapping = {}
+    if not os.path.exists(csv_path):
+        print(f"Warning: '{csv_path}' not found. Proceeding with empty SP mapping.")
+        return mapping
+    
+    with open(csv_path, mode="r", encoding="utf-8") as f:
+        reader = csv.reader(f, delimiter=":")
+        for row in reader:
+            if not row or row[0].startswith("qbo_id") or len(row) < 3:
+                continue
+            qbo_id = row[0].strip()
+            sp_folder = row[2].strip()
+            mapping[qbo_id] = sp_folder
+    return mapping
 
-def get_qbo_headers() -> Dict[str, str]:
-    return {
-        "Authorization": f"Bearer {QBO_ACCESS_TOKEN}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Accept-Encoding": "identity"  # Prevents decompression mismatch errors
-    }
-
-
-def fetch_qbo_items() -> List[Dict[str, Any]]:
-    """Queries QBO API to pull all active Products/Services for matching."""
-    url = f"{QBO_APIBASE}/company/{QBO_REALMID}/query"
-    query = "SELECT Id, Name, Description, Type FROM Item WHERE Active = true MAXRESULTS 1000"
-    logger.info("Fetching QBO Item catalog for dynamic service resolution...")
-
-    resp = requests.get(url, headers=get_qbo_headers(), params={"query": query})
-    if resp.status_code != 200:
-        logger.warning(f"Failed to fetch QBO Items catalog: {resp.text}")
-        return []
-
-    items = resp.json().get("QueryResponse", {}).get("Item", [])
-    logger.debug(f"Retrieved {len(items)} active items from QBO Catalog.")
-    return items
-
-
-def resolve_qbo_item(extracted_name: str, qbo_items: List[Dict[str, Any]]) -> Dict[str, str]:
-    """Fallback utility to match service titles against QBO Items if Gemini match is absent."""
-    name_clean = extracted_name.lower().strip()
-
-    for q_item in qbo_items:
-        q_name = q_item.get("Name", "").lower()
-        if name_clean in q_name or q_name in name_clean:
-            return {"item_id": str(q_item.get("Id")), "service": q_item.get("Name")}
-
-    if "deposit" in name_clean or "retainer" in name_clean:
-        for q_item in qbo_items:
-            if "deposit" in q_item.get("Name", "").lower():
-                return {"item_id": str(q_item.get("Id")), "service": q_item.get("Name")}
-        return {"item_id": "00000", "service": "Deposit Due"}
-
-    if "discount" in name_clean or "reduction" in name_clean:
-        for q_item in qbo_items:
-            if "discount" in q_item.get("Name", "").lower():
-                return {"item_id": str(q_item.get("Id")), "service": q_item.get("Name")}
-        return {"item_id": "18", "service": "Discount"}
-
-    first_item = qbo_items[0] if qbo_items else {"Id": "21", "Name": extracted_name}
-    return {"item_id": str(first_item.get("Id")), "service": extracted_name}
-
-
-def extract_pdf_metadata(pdf_path: str, qbo_items: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Uses Gemini 2.5 Flash via google-genai to extract metadata and maps services directly to QBO Items."""
-    logger.info(f"Starting PDF extraction for: {pdf_path}")
-
-    if not HAS_GENAI:
-        logger.warning("Skipping PDF analysis because google-genai module is missing.")
+def extract_catalog_fees(template_path: str = f"{WWW_DIR}/cgi/services_template.md") -> Dict[str, Any]:
+    if not os.path.exists(template_path):
         return {}
 
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        logger.error("GEMINI_API_KEY (or GOOGLE_API_KEY) environment variable is not set!")
-        return {}
+    with open(template_path, "r", encoding="utf-8") as f:
+        content = f.read()
 
-    uploaded_file = None
+    catalog_map = {}
+    pattern = re.compile(r"ID:\s*`?(\d+)`?.*?Service:\s*\*\*([^\*]+)\*\*.*?Fee:\s*\$?([\d\.]+)", re.DOTALL | re.IGNORECASE)
+    matches = pattern.findall(content)
 
-    try:
-        catalog_prompt_list = "\n".join([
-            f"- ID: {item.get('Id')} | Name: '{item.get('Name')}' | Desc: '{item.get('Description', '')}'"
-            for item in qbo_items
-        ])
-        logger.debug(f"Formatted {len(qbo_items)} active QBO catalog items for prompt context.")
-
-        logger.debug("Initializing google-genai Client...")
-        client = genai.Client(api_key=api_key)
-
-        logger.debug(f"Uploading file {pdf_path} to Gemini Files API...")
-        uploaded_file = client.files.upload(file=pdf_path)
-        logger.debug(f"Uploaded file successfully. Remote URI: {uploaded_file.name}")
-
-        prompt = f"""
-        Analyze this signed Tax Services Agreement PDF carefully.
-        
-        LIVE QBO SERVICE CATALOG:
-        {catalog_prompt_list}
-        
-        EXTRACTION RULES:
-        1. Entity Classification: Look for entity clues in client names (e.g., 'LLC', 'Inc', 'Corp', 'Partnership', 'S-Corp') or narrative text. Map to 's_corp', 'partnership', 'c_corp', 'non_profit', 'trust', or 'individual'.
-        2. Firm Counter-Signatures: Steve Tarrant (or 'Managing Member') is the firm's counter-signer, NOT a client co-signer. Do NOT treat Steve Tarrant as a co-signer or spouse.
-        3. Co-Signers: Set meta_signature_type to 'single' and meta_co_signer_name to "" unless there is a second CLIENT/HUMAN co-signer (e.g., spouse).
-        4. Granularity: Break down line items into their smallest explicitly priced components.
-        5. Discounts: Express discounts as separate negative fee line items (e.g., -1000.00).
-        6. Matching: For every line item, assign the single best matched_qbo_id from the LIVE QBO SERVICE CATALOG above.
-        
-        Output empty strings ("") rather than "null", "none", or "undefined".
-        """
-
-        logger.debug("Sending request to gemini-2.5-flash with structured output schema...")
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt, uploaded_file],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=PDFContractMetadata,
-                temperature=0.0,
-                seed=42,
-            ),
-        )
-
-        extracted: PDFContractMetadata = response.parsed if response.parsed else PDFContractMetadata()
-        logger.debug(f"Raw parsed metadata from Gemini: {extracted}")
-
-        extracted_rows = []
-
-        # Process Deposit
-        if extracted.deposit_required and extracted.deposit_required > 0:
-            resolved_dep = resolve_qbo_item("Deposit", qbo_items)
-            extracted_rows.append({
-                "item_id": resolved_dep["item_id"],
-                "service": resolved_dep["service"],
-                "fee": f"{extracted.deposit_required:.2f}",
-                "notes": "Deposit due upon submission of tax information",
-                "bp": "both"
-            })
-            logger.info(f"Deposit extracted: ${extracted.deposit_required:.2f} (Mapped ID: {resolved_dep['item_id']})")
-
-        # Process Extracted Service Lines directly using Gemini's matched QBO ID
-        sum_services = 0.0
-        for item in extracted.extracted_services:
-            sum_services += item.fee
-            logger.info(
-                f"Extracted Line Item: '{item.service_name}' (${item.fee:.2f}) "
-                f"--> Matched QBO ID: '{item.matched_qbo_id}'"
-            )
-            extracted_rows.append({
-                "item_id": str(item.matched_qbo_id),
-                "service": item.service_name,
-                "fee": f"{item.fee:.2f}",
-                "notes": item.notes or item.service_name,
-                "bp": item.entity_target
-            })
-
-        # Fee Reconciliation Logging
-        logger.info(
-            f"Contract Fee Summary: PDF Stated Total = ${extracted.total_contract_fee:.2f} | "
-            f"Sum of Extracted Rows = ${sum_services:.2f}"
-        )
-        if abs(extracted.total_contract_fee - sum_services) > 0.01:
-            logger.warning("Discrepancy detected between PDF top-line fee and sum of extracted line items!")
-
-        oos_dict = {f"out_of_scope_item_{i}": item for i, item in enumerate(extracted.out_of_scope_list)}
-        if extracted.hourly_rate_range:
-            oos_dict["out_of_scope_hourly_rate"] = f"Additional work billed at {extracted.hourly_rate_range}"
-
-        return {
-            "meta_entity_type": extracted.meta_entity_type,  # <-- Corrected Pass-Through
-            "meta_signature_type": extracted.meta_signature_type,
-            "meta_co_signer_name": extracted.meta_co_signer_name,
-            "pdf_extracted_rows": extracted_rows,
-            "out_of_scope_items": oos_dict,
-            "total_contract_fee": extracted.total_contract_fee
+    for item_id, service_title, fee_str in matches:
+        try:
+            fee_val = float(fee_str)
+        except ValueError:
+            fee_val = 0.0
+            
+        catalog_map[item_id.strip()] = {
+            "service": service_title.strip(),
+            "catalog_fee": fee_val
         }
 
-    except Exception as e:
-        logger.error(f"Failed to extract metadata from PDF {pdf_path}: {e}", exc_info=True)
-        return {}
-    finally:
-        if uploaded_file:
-            try:
-                logger.debug(f"Cleaning up uploaded file {uploaded_file.name} from Gemini...")
-                client.files.delete(name=uploaded_file.name)
-            except Exception as e:
-                logger.warning(f"Failed to delete uploaded file from Gemini: {e}")
+    return catalog_map
 
-
-def fetch_qbo_customer(customer_id: str) -> Dict[str, Any]:
-    url = f"{QBO_APIBASE}/company/{QBO_REALMID}/customer/{customer_id}"
-    logger.info(f"Fetching QBO Customer profile for ID: {customer_id}")
-
-    resp = requests.get(url, headers=get_qbo_headers())
-    if resp.status_code != 200:
-        logger.error(f"QBO Customer Fetch Error: {resp.text}")
-        raise RuntimeError(f"QBO API Error ({resp.status_code}): {resp.text}")
-
-    return resp.json().get("Customer", {})
-
-
-def fetch_latest_qbo_invoice(customer_id: str) -> Optional[Dict[str, Any]]:
-    query = f"SELECT * FROM Invoice WHERE CustomerRef = '{customer_id}' ORDERBY TxnDate DESC MAXRESULTS 1"
-    url = f"{QBO_APIBASE}/company/{QBO_REALMID}/query"
-    logger.info(f"Fetching latest invoice for Customer ID: {customer_id}")
-
-    resp = requests.get(url, headers=get_qbo_headers(), params={"query": query})
-    if resp.status_code != 200:
-        logger.warning(f"Failed to fetch invoices for customer {customer_id}: {resp.text}")
-        return None
-
-    invoices = resp.json().get("QueryResponse", {}).get("Invoice", [])
-    return invoices[0] if invoices else None
-
-
-def resolve_entity_type(customer: Dict[str, Any]) -> str:
-    """Infer entity type from QBO customer attributes."""
-    company_name = customer.get("CompanyName", "")
-    is_company = customer.get("IsProject", False) is False and bool(company_name)
-
-    if is_company:
-        name_lower = company_name.lower()
-        if "inc" in name_lower or "corp" in name_lower:
-            return "c_corp"
-        if "llc" in name_lower or "partner" in name_lower:
-            return "partnership"
-        if "foundation" in name_lower or "nonprofit" in name_lower:
-            return "non_profit"
-        if "trust" in name_lower:
-            return "trust"
-        return "s_corp"
-    return "individual"
-
-
-def main():
-    if "--debug" in sys.argv:
-        sys.argv.remove("--debug")
-
-    if len(sys.argv) < 2:
-        print("Usage: python3 qbota.py <QBO_CUSTOMER_ID> [PDF_FILE_PATH] [--debug]")
-        sys.exit(1)
-
-    customer_id = sys.argv[1]
-    pdf_path = sys.argv[2] if len(sys.argv) > 2 else None
-
-    logger.info(f"Customer = {customer_id}, PDF = {pdf_path if pdf_path else 'None'}")
-
-    if not QBO_REALMID or not QBO_ACCESS_TOKEN:
-        logger.critical("Missing QBO_REALMID or QBO_ACCESS_TOKEN environment variables.")
-        sys.exit(1)
-
-    try:
-        customer = fetch_qbo_customer(customer_id)
-        latest_invoice = fetch_latest_qbo_invoice(customer_id)
-        qbo_items = fetch_qbo_items()
-    except Exception as e:
-        logger.critical(f"Error communicating with QBO: {e}", exc_info=DEBUG_MODE)
-        sys.exit(1)
-
-    pdf_meta = {}
-    if pdf_path and os.path.exists(pdf_path):
-        pdf_meta = extract_pdf_metadata(pdf_path, qbo_items)
-    elif pdf_path:
-        logger.critical(f"File not found: {pdf_path}")
-        sys.exit(1)
-
-    display_name = customer.get("DisplayName") or customer.get("FullyQualifiedName", "")
-    bill_addr = customer.get("BillAddr", {})
-
-    qbo_entity_type = resolve_entity_type(customer)
-    pdf_entity_type = pdf_meta.get("meta_entity_type", "").lower()
-    if pdf_entity_type in ['s_corp', 'partnership', 'c_corp', 'llc', 'non_profit', 'trust', 'organization']:
-        entity_type = "s_corp" if pdf_entity_type == "llc" else pdf_entity_type
-    else:
-        entity_type = qbo_entity_type
-
-    is_org = entity_type in ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust', 'organization']
-    bp_val = "organization" if is_org else "individual"
-
-    combined_rows = []
-    if "pdf_extracted_rows" in pdf_meta and pdf_meta["pdf_extracted_rows"]:
-        combined_rows.extend(pdf_meta["pdf_extracted_rows"])
-    elif latest_invoice and "Line" in latest_invoice:
-        for line in latest_invoice["Line"]:
-            detail_type = line.get("DetailType")
-            if detail_type == "SalesItemLineDetail":
-                item_ref = line.get("SalesItemLineDetail", {}).get("ItemRef", {})
-                combined_rows.append({
-                    "item_id": str(item_ref.get("value", "")),
-                    "service": item_ref.get("name") or line.get("Description") or "",
-                    "fee": f"{line.get('Amount', 0.0):.2f}",
-                    "notes": line.get("Description") or "",
-                    "bp": bp_val
-                })
-
-    payload = {
-        "estimate_date_option": "next_year",
-        "friendly_name": display_name,
-        "heal_profile_flag": "false",
-        "meta_signature_type": pdf_meta.get("meta_signature_type", "single"),
-        "meta_co_signer_name": pdf_meta.get("meta_co_signer_name", ""),
-        "meta_entity_type": entity_type,
-        "heal_street": bill_addr.get("Line1", ""),
-        "heal_city": bill_addr.get("City", ""),
-        "heal_state": bill_addr.get("CountrySubDivisionCode", ""),
-        "heal_zip": bill_addr.get("PostalCode", ""),
-        "out_of_scope_items": pdf_meta.get("out_of_scope_items", {}),
-        "estimate_id": str(latest_invoice.get("Id", "")) if latest_invoice else "",
-        "rows": combined_rows
+def query_qbo_paginated(entity_name: str, base_where: str = "") -> List[Dict[str, Any]]:
+    results = []
+    start_pos = 1
+    max_results = 100
+    
+    headers = {
+        "Authorization": f"Bearer {QBO_ACCESS_TOKEN}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
 
-    logger.info(f"Successfully generated payload for '{display_name}' with {len(combined_rows)} row(s).")
-    print(json.dumps(payload, indent=2))
+    while True:
+        where_clause = f"WHERE {base_where} " if base_where else ""
+        query_str = f"SELECT * FROM {entity_name} {where_clause}STARTPOSITION {start_pos} MAXRESULTS {max_results}"
+        url = f"{QBO_APIBASE}/company/{QBO_REALMID}/query?query={requests.utils.quote(query_str)}&minorversion=65"
+        
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json().get("QueryResponse", {})
+        items = data.get(entity_name, [])
+        
+        if not items:
+            break
+            
+        results.extend(items)
+        if len(items) < max_results:
+            break
+            
+        start_pos += max_results
 
+    return results
+
+def clean_invoice_payload(inv: Dict[str, Any]) -> Dict[str, Any]:
+    if not inv:
+        return {"consolidated_lines": []}
+    
+    consolidated: Dict[str, Dict[str, Any]] = {}
+    
+    for line in inv.get("Line", []):
+        detail = line.get("SalesItemLineDetail", {})
+        item_ref = detail.get("ItemRef", {})
+        item_id = item_ref.get("value")
+        item_name = item_ref.get("name", "")
+        raw_amt = line.get("Amount", 0.0)
+        
+        if not item_id:
+            continue
+
+        amt = abs(raw_amt) if item_id == "18" else raw_amt
+
+        if item_id in consolidated:
+            consolidated[item_id]["historical_fee"] += amt
+        else:
+            consolidated[item_id] = {
+                "item_id": item_id,
+                "service": item_name,
+                "historical_fee": amt
+            }
+            
+    cleaned_lines = []
+    for item_id, line_data in consolidated.items():
+        cleaned_lines.append({
+            "item_id": item_id,
+            "service": line_data["service"],
+            "historical_fee": f"{line_data['historical_fee']:.2f}"
+        })
+            
+    return {"consolidated_lines": cleaned_lines}
+
+def get_qbo_data() -> List[Dict[str, Any]]:
+    print("Fetching active customers from QBO...")
+    customers = query_qbo_paginated("Customer", "Active = true")
+    
+    print("Fetching 2026 invoices from QBO...")
+    invoices = query_qbo_paginated("Invoice", "TxnDate >= '2026-01-01'")
+    
+    customer_invoices: Dict[str, Dict[str, Any]] = {}
+    for inv in invoices:
+        cust_ref = inv.get("CustomerRef", {}).get("value")
+        if cust_ref:
+            customer_invoices[cust_ref] = inv
+            
+    sp_mapping = load_sp_mappings()
+    combined_records = []
+    
+    for c in customers:
+        q_id = str(c.get("Id"))
+        bill_addr = c.get("BillAddr", {})
+        raw_inv = customer_invoices.get(q_id, {})
+        
+        combined_records.append({
+            "qbo_id": q_id,
+            "display_name": c.get("DisplayName", ""),
+            "company_name": c.get("CompanyName", ""),
+            "address": {
+                "street": bill_addr.get("Line1", ""),
+                "city": bill_addr.get("City", ""),
+                "state": bill_addr.get("CountrySubDivisionCode", ""),
+                "zip": bill_addr.get("PostalCode", "")
+            },
+            "qbo_invoice": clean_invoice_payload(raw_inv),
+            "sharepoint_folder": sp_mapping.get(q_id, "")
+        })
+        
+    print(f"Prepared {len(combined_records)} unified client records.")
+    return combined_records
+
+# ---------------------------------------------------------------------------
+# 4. SINGLE-CLIENT PARALLEL WORKER
+# ---------------------------------------------------------------------------
+def process_single_client(args: tuple) -> bool:
+    """Processes ONE client record through Gemini Flash with full LLM name & address formatting."""
+    client_data, catalog_map = args
+    
+    system_instruction = f"""
+You are an accounting ETL engine converting 1 client input into 1 JSON draft.
+
+CATALOG DEFAULT PRICES MAP:
+{json.dumps(catalog_map)}
+
+Return 1 valid JSON object with EXACTLY these top-level keys:
+- qbo_id (MUST match input client qbo_id string)
+- estimate_date_option ("next_year")
+- friendly_name
+- heal_legal_name
+- heal_profile_flag ("false")
+- meta_additional_signer ("")
+- meta_signature_type ("single" or "joint")
+- meta_co_signer_name
+- meta_entity_type ("individual", "s_corp", "partnership", or "llc")
+- heal_street
+- heal_city
+- heal_state
+- heal_zip
+- out_of_scope_items ([])
+- estimate_id ("")
+- rows (array of row objects with keys: item_id, service, fee, notes="", bp="individual" or "organization")
+
+RULES:
+1. Entity Classification: Check company_name, display_name, sharepoint_folder for LLC, Inc, Corp, Partners -> set meta_entity_type ('s_corp', 'partnership', 'llc', or 'individual') and row bp ('organization' or 'individual').
+2. Name Formatting & Order:
+   - Convert ALL UPPERCASE names into Proper Title Case (e.g., "ALBERTS KERI L." -> "Keri Alberts").
+   - friendly_name: Output in "First Last" order in Title Case. Drop middle initials (e.g., "ALBERTS KERI L." becomes "Keri Alberts").
+   - heal_legal_name: Output full legal name in Title Case (e.g., "ALBERTS KERI L." becomes "Keri L. Alberts" or "Keri Alberts").
+3. Joint Signers: Check display_name and sharepoint_folder for spouse/joint names -> set meta_signature_type='joint' & meta_co_signer_name in Title Case, else 'single' & "".
+4. Address Formatting: Map street -> heal_street, city -> heal_city, state -> heal_state, zip -> heal_zip. Format city/street in Title Case if input is ALL CAPS (e.g., "Ashburn" instead of "ASHBURN").
+5. Fee Resolution: For each input line, set row fee to catalog_fee from CATALOG MAP if > 0, else historical_fee. Always format fee as a string (e.g. "1100.00").
+"""
+
+    user_payload = json.dumps(client_data)
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        response_mime_type="application/json",
+        temperature=0.1
+    )
+
+    try:
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=user_payload,
+            config=config,
+        )
+
+        result_data = json.loads(response.text)
+        
+        # Validate directly against ClientDraftSchema
+        draft = ClientDraftSchema(**result_data)
+        
+        qbo_id = draft.qbo_id or client_data.get("qbo_id")
+        if not qbo_id:
+            return False
+            
+        file_path = os.path.join(DRAFTS_DIR, f"client_{qbo_id}.json")
+        draft_dict = draft.model_dump()
+        draft_dict.pop("qbo_id", None)
+        
+        raw_oos_list = draft_dict.get("out_of_scope_items", [])
+        draft_dict["out_of_scope_items"] = {
+            f"out_of_scope_item_{i}": item for i, item in enumerate(raw_oos_list)
+        }
+        
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(draft_dict, f, indent=2)
+            
+        return True
+    except Exception as e:
+        print(f"  !! Error processing client {client_data.get('qbo_id')}: {e}")
+        return False
+
+# ---------------------------------------------------------------------------
+# 5. MAIN PARALLEL EXECUTION LOOP
+# ---------------------------------------------------------------------------
+def main():
+    catalog_map = extract_catalog_fees()
+    client_records = get_qbo_data()
+    
+    total_clients = len(client_records)
+    print(f"\nProcessing {total_clients} clients concurrently (15 parallel workers) via Gemini 2.5 Flash...")
+    
+    tasks = [(c, catalog_map) for c in client_records]
+    completed = 0
+    
+    # 15 parallel HTTP connections to Google Gemini
+    MAX_WORKERS = 15
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(process_single_client, task) for task in tasks]
+        for future in as_completed(futures):
+            if future.result():
+                completed += 1
+                if completed % 25 == 0 or completed == total_clients:
+                    print(f"  Progress: {completed}/{total_clients} client files generated...")
+
+    print(f"\nETL Pipeline Execution Complete! Generated {completed} client JSON file(s) in '{DRAFTS_DIR}'.")
 
 if __name__ == "__main__":
     main()
