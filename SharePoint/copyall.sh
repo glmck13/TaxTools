@@ -1,7 +1,7 @@
 # 1. Define Variables
 TENANT_URL="https://tarrantadvisors.sharepoint.com"
 SITE_URL="${TENANT_URL}/sites/Company"
-QUERY_TEXT="filename:agreement* fileextension:pdf IsDocument:1"
+QUERY_TEXT="filename:invoice* fileextension:pdf IsDocument:1"
 
 # 2. Get Access Token for SharePoint
 export AUTH_TOKEN=$(m365 util accesstoken get --resource "$TENANT_URL" --output text)
@@ -41,14 +41,15 @@ m365 spo search \
   --allResults \
   --query "[*].{Name: Title, UUID: UniqueId, URL: OriginalPath, SiteURL: SPSiteUrl}" \
   -o json | jq -j --arg SITE "$SITE_URL" '.[] | select(.SiteURL == $SITE) | (
-      .SiteURL,                                       # Web site URL where file resides
+      (.SiteURL // ""),                               # Web site URL
       "\u0000",                                       # NUL byte
-      (.UUID | gsub("[{}]"; "")),                     # Clean UUID
+      ((.UUID // "") | gsub("[{}]"; "")),             # Clean UUID
       "\u0000",                                       # NUL byte
       (
-        .URL 
+        (.URL // "") 
         | sub(".*Shared Documents/"; "")              # Strip path up to Shared Documents
-        | gsub("[^a-zA-Z0-9._-]"; "_")                # Clean special characters
+        | sub("/"; ":")                               # Change first slash to :
+        | gsub("[^a-zA-Z0-9._:-]"; "_")               # Clean special characters (fixed range)
         | gsub("_+"; "_")                             # Collapse underscores
         | sub("^_"; "") | sub("_$"; "")               # Trim leading/trailing underscores
       ), "\u0000"                                     # NUL byte
