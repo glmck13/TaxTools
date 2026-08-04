@@ -135,6 +135,7 @@ def load_exposed_services_from_template():
                 id_match = re.match(r'^-\s*ID:\s*(\d+)', clean_line, re.IGNORECASE)
                 type_match = re.match(r'^-\s*Type:\s*(\w+)', clean_line, re.IGNORECASE)
                 fee_match = re.match(r'^-\s*Fee:\s*([0-9.]+)', clean_line, re.IGNORECASE)
+                migrates_match = re.match(r'^-\s*Migrates-From:', clean_line, re.IGNORECASE)
                 
                 if id_match:
                     item_id = id_match.group(1)
@@ -142,6 +143,8 @@ def load_exposed_services_from_template():
                     entity_type = type_match.group(1).lower()
                 elif fee_match:
                     fee_val = f"{float(fee_match.group(1)):.2f}"
+                elif migrates_match:
+                    pass
                 else:
                     notes_lines.append(clean_line)
             

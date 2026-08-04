@@ -1,6 +1,6 @@
 # Tarrant Advisors LLC
-1875 Campus Commons Dr., Suite 203  
-Reston, VA 20191  
+1875 Campus Commons Dr., Suite 203, Reston, VA 20191  
+75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464  
 
 ## {{TAX_YEAR}} TAX SERVICES ENGAGEMENT AGREEMENT ("Agreement")
 
