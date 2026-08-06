@@ -49,8 +49,9 @@ function onClientChange() {
     const clientRecord = window.clientData[selectedClient];
     const address = clientRecord.address || {};
     
-    // Decode HTML entities (e.g., &amp; -> &) before parsing default names
-    const rawOptionText = unescapeHtml(clientSelect.options[clientSelect.selectedIndex].text);
+    // Support both <input list="..."> and legacy <select> elements for name extraction
+    const rawText = clientSelect.value || (clientSelect.options && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex].text : '');
+    const rawOptionText = unescapeHtml(rawText);
     const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
     const healData = window.preservedHealData || {};

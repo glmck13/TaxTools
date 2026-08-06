@@ -15,7 +15,7 @@ from jinja2 import Template
 # ReportLab Layout Engine & Platypus Components
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # ==========================================
@@ -284,11 +284,20 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         {f'<div style="background:#fde8e8; border:1px solid #e53e3e; color:#9b2c2c; padding:15px; margin-bottom:20px; border-radius:4px;">{html.escape(error_msg)}</div>' if error_msg else ''}
 
         <div class="form-group">
-            <label for="client-select">Select QuickBooks Online Customer Account Record:</label>
-            <select name="client_name" id="client-select" onchange="onClientChange()" required>
-                <option value="">-- Choose Active Customer --</option>
-                {"".join([f'<option value="{html.escape(k)}"{" selected" if k == selected_client else ""}>{html.escape(k)}</option>' for k in client_data_map.keys()])}
-            </select>
+            <label for="client-select">Search & Select QuickBooks Online Customer Account Record:</label>
+            <input type="text" 
+                   name="client_name" 
+                   id="client-select" 
+                   list="client-options" 
+                   value="{html.escape(selected_client)}" 
+                   placeholder="Type client name, business entity, or QBO ID (e.g., Smith or 102)..." 
+                   onchange="onClientChange()" 
+                   oninput="onClientChange()" 
+                   style="width: 100%; padding: 12px; font-size: 14px; border: 1px solid #ccd1d9; border-radius: 4px; box-sizing: border-box;" 
+                   required>
+            <datalist id="client-options">
+                {"".join([f'<option value="{html.escape(k)}">' for k in client_data_map.keys()])}
+            </datalist>
         </div>
 
         <div class="form-group">
@@ -461,7 +470,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         with open(CONSENT_TEMPLATE, "r", encoding="utf-8") as f:
             raw_markdown = f.read()
     except FileNotFoundError:
-        raw_markdown = "# Tarrant Advisors LLC\n## CONSENT TO DISCLOSE TAX RETURN INFORMATION"
+        raw_markdown = "# Tarrant Advisors LLC\n1875 Campus Commons Dr., Suite 203, Reston, VA 20191\n75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464\n## CONSENT TO DISCLOSE TAX RETURN INFORMATION"
 
     jinja_tmpl = Template(raw_markdown)
     markdown_content = jinja_tmpl.render(
@@ -476,17 +485,114 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     )
 
     pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=45, leftMargin=45, topMargin=45, bottomMargin=45, title=f"7216 Consent - {local_legal_name}")
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40, title=f"7216 Consent - {local_legal_name}")
     styles = getSampleStyleSheet()
 
-    body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#222222'))
-    h1_style = ParagraphStyle('CustomH1', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#0078d4'), spaceAfter=10)
-    h2_style = ParagraphStyle('CustomH2', parent=styles['Heading2'], fontSize=12, leading=16, textColor=colors.HexColor('#111111'), spaceBefore=10, spaceAfter=6)
+    HEADER_BLUE = colors.HexColor('#0078d4')
+
+    company_style = ParagraphStyle(
+        'CompanyHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        leading=22,
+        textColor=HEADER_BLUE
+    )
+
+    address_style = ParagraphStyle(
+        'AddressHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Oblique',
+        fontSize=8,
+        leading=11,
+        textColor=HEADER_BLUE
+    )
+
+    body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
+    h1_style = ParagraphStyle('CustomH1', parent=styles['Heading1'], fontSize=20, leading=24, textColor=HEADER_BLUE, spaceAfter=12)
+    h2_style = ParagraphStyle('CustomH2', parent=styles['Heading2'], fontSize=14, leading=18, textColor=colors.HexColor('#111111'), spaceBefore=14, spaceAfter=8)
     h3_style = ParagraphStyle('CustomH3', parent=styles['Heading3'], fontSize=11, leading=15, textColor=colors.HexColor('#111111'), spaceBefore=8, spaceAfter=4)
 
     story = []
 
-    for line in markdown_content.split('\n'):
+    # ---------------------------------------------------------
+    # HEADER PARSING: Company Title + Office Addresses + Logo Table
+    # ---------------------------------------------------------
+    header_text_nodes = []
+    content_lines = markdown_content.split('\n')
+    filtered_lines = []
+
+    company_title_found = False
+
+    for line in content_lines:
+        line_str = line.strip()
+        if not line_str or line_str.startswith("{%") or line_str.startswith("%}"):
+            continue
+
+        # 1. Match company title line (# Tarrant Advisors LLC)
+        if line_str.startswith("# ") and not company_title_found:
+            company_title_found = True
+            header_text_nodes.append(Paragraph(xml_safe_escape(line_str[2:].strip()), company_style))
+            header_text_nodes.append(Spacer(1, 3))
+            continue
+        
+        # 2. Match office address lines (stop when hitting ##, Date, or Client)
+        if company_title_found and len(header_text_nodes) < 5:
+            if line_str.startswith("##") or re.match(r'^[A-Z][a-z]+\s+\d{1,2},\s+\d{4}', line_str):
+                filtered_lines.append(line)
+                company_title_found = False
+                continue
+            header_text_nodes.append(Paragraph(xml_safe_escape(line_str), address_style))
+            continue
+
+        filtered_lines.append(line)
+
+    # Fallback safety if template header was missing
+    if not header_text_nodes:
+        header_text_nodes = [
+            Paragraph("Tarrant Advisors LLC", company_style),
+            Spacer(1, 3),
+            Paragraph("1875 Campus Commons Dr., Suite 203, Reston, VA 20191", address_style),
+            Paragraph("75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464", address_style)
+        ]
+
+    # ---------------------------------------------------------
+    # PROPORTIONAL LOGO SCALING
+    # ---------------------------------------------------------
+    logo_path = os.environ.get("DOCUMENT_ROOT", ".") + "/images/logo.png"
+    if os.path.exists(logo_path):
+        logo_img = Image(logo_path)
+        max_w, max_h = 160.0, 60.0
+        aspect = logo_img.imageWidth / float(logo_img.imageHeight)
+        
+        if aspect > (max_w / max_h):
+            logo_img.drawWidth = max_w
+            logo_img.drawHeight = max_w / aspect
+        else:
+            logo_img.drawHeight = max_h
+            logo_img.drawWidth = max_h * aspect
+
+        logo_img.hAlign = 'RIGHT'
+    else:
+        logo_img = Paragraph("", styles['Normal'])
+
+    # Build Top Header Table
+    header_table = Table([[header_text_nodes, logo_img]], colWidths=[370, 160])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+    ]))
+
+    story.append(header_table)
+    story.append(Spacer(1, 10))
+
+    # ---------------------------------------------------------
+    # RENDER BODY CONTENT IN CORRECT SEQUENCE
+    # ---------------------------------------------------------
+    for line in filtered_lines:
         line_str = line.strip()
         if not line_str:
             story.append(Spacer(1, 4))

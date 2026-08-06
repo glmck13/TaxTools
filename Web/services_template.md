@@ -9,7 +9,7 @@ default text that auto-populates the "Scope Specification / Notes" table column.
 ## 2026 Federal & State Tax Returns
 - ID: 48
 - Type: both
-- Fee: 750.00
+- Fee: 0
 - Migrates-From: 19
 
 Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal income tax return and 2026 state income tax return for your state of residence. We will assist with routine tax questions that do not require additional research and will assist with the preparation of federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
@@ -46,7 +46,7 @@ Our Services for 2024 are expected to include the following: Preparation of the 
 ## Amended Return
 - ID: 25
 - Type: both
-- Fee: 450.00
+- Fee: 0
 
 Preparation of the amended income tax return. We will assist with routine tax questions that do not require additional research. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
@@ -54,13 +54,13 @@ Preparation of the amended income tax return. We will assist with routine tax qu
 ## Client Discount
 - ID: 18
 - Type: both
-- Fee: 250.00
+- Fee: 0
 
 
 ## Consultation
 - ID: 21
 - Type: both
-- Fee: 175.00
+- Fee: 0
 
 
 ## Estimated payments
@@ -122,7 +122,7 @@ Monthly services will include but not be limited to:<br/>
 ## Preparation of FBAR
 - ID: 34
 - Type: both
-- Fee: 200.00
+- Fee: 0
 
 
 ## Quarterly Financials
@@ -134,7 +134,13 @@ Monthly services will include but not be limited to:<br/>
 ## QuickBooks Assistance
 - ID: 45
 - Type: both
-- Fee: 300.00
+- Fee: 0
+
+
+## QuickBooks Licensing Fee
+- ID: 49
+- Type: both
+- Fee: 0
 
 
 ## Reimbursement for state taxes paid on your behalf
@@ -152,7 +158,7 @@ Monthly services will include but not be limited to:<br/>
 ## S Corp - Planning & Analysis
 - ID: 46
 - Type: organization
-- Fee: 950.00
+- Fee: 0
 
 Planning and Analysis related to setup of the S Corporation. This work will include the following:<br/>
 - Tax analysis and comparison operating as an S Corp, partnership or Sole proprietor <br/>
@@ -164,6 +170,6 @@ Planning and Analysis related to setup of the S Corporation. This work will incl
 ## Deposit Due
 - ID: 00000
 - Type: both
-- Fee: 250.00
+- Fee: 0
 
 Initial retainer payment received toward professional engagement services.

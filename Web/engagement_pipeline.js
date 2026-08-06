@@ -1,16 +1,25 @@
 /**
  * 2026 Engagement Utility Front-End Orchestrator (QBO Dynamic Builder Edition)
  * Controls profile auto-auditing, dynamic row expansion/contraction, 
- * contextual filtering, real-time totals, dynamic submit actions, and read-only draft locking.
+ * contextual filtering, real-time totals, dynamic submit actions, batch processing,
+ * single & batch scope cloning, and read-only draft locking.
  */
 
 let rowCounter = 0;
+
+// Global Configuration
+const BATCH_THROTTLE_DELAY_MS = 500; // Pause between batch requests (in milliseconds)
+
+/**
+ * Utility helper to pause execution for a given duration in milliseconds.
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Utility helper to sanitize dynamic text strings before DOM insertion.
  */
 function escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -29,6 +38,231 @@ function unescapeHtml(str) {
 }
 
 /**
+ * Toggles visibility of the Single Client Inline Copy Toolbar.
+ */
+function toggleInlineCopyBar(show) {
+    const toolbar = document.getElementById('inline-copy-toolbar');
+    if (toolbar) {
+        toolbar.style.display = show ? 'block' : 'none';
+        if (!show) {
+            const input = document.getElementById('clone-source-input');
+            if (input) input.value = '';
+        }
+    }
+}
+
+/**
+ * Toggles visibility of the Batch Bulk Copy Toolbar in the Batch Dashboard.
+ */
+function toggleBatchBulkCopyToolbar(show) {
+    const toolbar = document.getElementById('batch-bulk-copy-toolbar');
+    if (toolbar) {
+        toolbar.style.display = show ? 'block' : 'none';
+        if (!show) {
+            const input = document.getElementById('batch-bulk-source-input');
+            if (input) input.value = '';
+        }
+    }
+}
+
+/**
+ * Single Workspace: Clones service lines, prices, notes, and out-of-scope selections 
+ * from a chosen source client into the current active workspace.
+ */
+function applyClonedScopeFromSource() {
+    const sourceInput = document.getElementById('clone-source-input');
+    const targetSelect = document.getElementById('client-select');
+
+    if (!sourceInput || !targetSelect || !sourceInput.value) {
+        alert("Please select a valid source client to copy scope from.");
+        return;
+    }
+
+    const sourceKey = unescapeHtml(sourceInput.value.trim());
+    const targetKey = targetSelect.value;
+
+    if (!window.clientData || !window.clientData[sourceKey]) {
+        alert("Unable to locate draft records for the chosen source client.");
+        return;
+    }
+
+    const sourceRecord = window.clientData[sourceKey];
+    const sourceDraft = sourceRecord.saved_draft;
+
+    if (!sourceDraft || !sourceDraft.rows || sourceDraft.rows.length === 0) {
+        alert("Selected source client has no saved service offerings to copy.");
+        return;
+    }
+
+    // Safeguard confirmation if target workspace already contains lines
+    const tbody = document.getElementById('service-tbody');
+    const existingRows = tbody ? tbody.querySelectorAll('tr') : [];
+    if (existingRows.length > 0) {
+        if (!confirm("Applying scope from source client will replace current line items and out-of-scope selections in this workspace. Continue?")) {
+            return;
+        }
+    }
+
+    // 1. Clear current service table rows
+    if (tbody) tbody.innerHTML = '';
+    rowCounter = 0;
+
+    // 2. Clone service line rows
+    sourceDraft.rows.forEach(row => {
+        addServiceRow(row, false);
+    });
+
+    // 3. Clone out-of-scope items
+    if (sourceDraft.out_of_scope_items) {
+        rehydrateOutOfScopeItems(sourceDraft.out_of_scope_items, false);
+    }
+
+    // 4. Clone estimate date option if present
+    if (sourceDraft.estimate_date_option) {
+        const estDateSelect = document.getElementById('estimate-date-option');
+        if (estDateSelect) estDateSelect.value = sourceDraft.estimate_date_option;
+    }
+
+    // Recalculate workspace financial totals
+    calculateGridTotals();
+
+    // Hide copy bar and clear input
+    toggleInlineCopyBar(false);
+}
+
+/**
+ * Batch Dashboard: Bulk applies a source client's scope setup across all checked 
+ * clients in the Batch Grid and issues background AJAX draft saves.
+ */
+async function applyBatchBulkClonedScope() {
+    const sourceInput = document.getElementById('batch-bulk-source-input');
+    const checkedCheckboxes = document.querySelectorAll('.batch-checkbox:checked');
+
+    if (!sourceInput || !sourceInput.value) {
+        alert("Please select a valid source client or draft package.");
+        return;
+    }
+
+    if (checkedCheckboxes.length === 0) {
+        alert("Please select at least one batch client to receive the cloned scope.");
+        return;
+    }
+
+    const sourceKey = unescapeHtml(sourceInput.value.trim());
+    if (!window.clientData || !window.clientData[sourceKey]) {
+        alert("Unable to locate draft records for the chosen source client.");
+        return;
+    }
+
+    const sourceDraft = window.clientData[sourceKey].saved_draft;
+    if (!sourceDraft || !sourceDraft.rows || sourceDraft.rows.length === 0) {
+        alert("Selected source client has no saved service offerings to copy.");
+        return;
+    }
+
+    if (!confirm(`Apply cloned scope (${sourceDraft.rows.length} item(s)) to ${checkedCheckboxes.length} checked batch client(s)?`)) {
+        return;
+    }
+
+    toggleBatchBulkCopyToolbar(false);
+
+    // Show Progress Overlay during bulk update
+    const progressOverlay = document.getElementById('batch-progress-overlay');
+    const progressBar = document.getElementById('batch-progress-fill');
+    const terminalLog = document.getElementById('batch-terminal-log');
+    const doneBtn = document.getElementById('btn-close-progress');
+
+    progressOverlay.style.display = 'flex';
+    doneBtn.style.display = 'none';
+    terminalLog.innerHTML = `Cloning scope from [${sourceKey.split(' (Customer')[0]}] to ${checkedCheckboxes.length} client(s)...\n`;
+
+    let completed = 0;
+
+    for (const cb of checkedCheckboxes) {
+        const qboId = cb.getAttribute('data-qbo-id');
+        const clientKey = Object.keys(window.clientData).find(k => window.clientData[k].id === qboId);
+        
+        if (!clientKey) continue;
+
+        const targetClient = window.clientData[clientKey];
+        const existingDraft = targetClient.saved_draft || {};
+
+        terminalLog.innerHTML += `\n[${completed + 1}/${checkedCheckboxes.length}] Applying scope to ${clientKey.split(' (Customer')[0]}... `;
+
+        const urlParams = new URLSearchParams();
+        urlParams.append('action', 'save_draft_only');
+        urlParams.append('ajax', 'true');
+        urlParams.append('client_name', clientKey);
+
+        urlParams.append('estimate_date_option', sourceDraft.estimate_date_option || existingDraft.estimate_date_option || 'next_year');
+        urlParams.append('friendly_name', existingDraft.friendly_name || clientKey.split(' (Customer')[0]);
+        urlParams.append('heal_legal_name', existingDraft.heal_legal_name || clientKey.split(' (Customer')[0]);
+        urlParams.append('meta_entity_type', existingDraft.meta_entity_type || targetClient.metadata.entity_type || 'individual');
+        urlParams.append('meta_signature_type', existingDraft.meta_signature_type || targetClient.metadata.signature_type || 'single');
+        urlParams.append('meta_co_signer_name', existingDraft.meta_co_signer_name || targetClient.metadata.co_signer_name || '');
+        urlParams.append('delivery_format', existingDraft.delivery_format || targetClient.delivery_format || 'electronic');
+
+        // Copy Service Rows from Source
+        sourceDraft.rows.forEach((r, idx) => {
+            const rid = idx + 1;
+            urlParams.append('selected_rows', rid);
+            urlParams.append(`row_item_id_${rid}`, r.item_id);
+            urlParams.append(`row_service_${rid}`, r.service);
+            urlParams.append(`row_fee_${rid}`, Math.round(parseFloat(r.fee || 0)));
+            urlParams.append(`row_notes_${rid}`, r.notes || '');
+            urlParams.append(`row_bp_${rid}`, r.bp || 'individual');
+        });
+
+        // Copy Out-of-Scope Items from Source
+        if (sourceDraft.out_of_scope_items) {
+            Object.keys(sourceDraft.out_of_scope_items).forEach(k => {
+                urlParams.append(k, sourceDraft.out_of_scope_items[k]);
+            });
+        }
+
+        try {
+            const resp = await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest' 
+                },
+                body: urlParams
+            });
+
+            if (resp.ok) {
+                const resData = await resp.json();
+                if (resData.status === 'success' && resData.draft) {
+                    // Update in-memory draft state
+                    targetClient.saved_draft = resData.draft;
+                    terminalLog.innerHTML += `SUCCESS ✓`;
+                } else {
+                    terminalLog.innerHTML += `FAILED ❌ (${resData.message || 'Error'})`;
+                }
+            } else {
+                terminalLog.innerHTML += `FAILED ❌ (HTTP ${resp.status})`;
+            }
+        } catch (err) {
+            terminalLog.innerHTML += `ERROR ❌ (${err.message})`;
+        }
+
+        completed++;
+        progressBar.style.width = `${(completed / checkedCheckboxes.length) * 100}%`;
+        terminalLog.scrollTop = terminalLog.scrollHeight;
+
+        if (completed < checkedCheckboxes.length && BATCH_THROTTLE_DELAY_MS > 0) {
+            await sleep(BATCH_THROTTLE_DELAY_MS);
+        }
+    }
+
+    terminalLog.innerHTML += `\n\n========================================\nScope clone execution complete!`;
+    doneBtn.style.display = 'inline-block';
+
+    // Refresh Batch Dashboard grid with updated fee totals and readiness states
+    renderBatchTableGrid();
+}
+
+/**
  * Appends or rehydrates a custom out-of-scope checklist item dynamically.
  */
 function addCustomOutOfScopeItem(customValue = '', customKey = '', isLocked = false) {
@@ -44,7 +278,7 @@ function addCustomOutOfScopeItem(customValue = '', customKey = '', isLocked = fa
     if (customKey) {
         nameAttr = customKey.startsWith('out_of_scope_item_') ? customKey : `out_of_scope_item_${customKey}`;
     } else {
-        const uniqueId = `custom_${Date.now()}_${container.querySelectorAll('.custom-out-of-scope-item').length}`;
+        const uniqueId = `custom_${Date.now()}`;
         nameAttr = `out_of_scope_item_${uniqueId}`;
     }
 
@@ -139,6 +373,9 @@ function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr
 function onClientChange() {
     const clientSelect = document.getElementById('client-select');
     if (!clientSelect) return;
+
+    // Ensure clone toolbar resets when switching active client
+    toggleInlineCopyBar(false);
     
     const selectedClient = clientSelect.value;
     const table = document.getElementById('service-table');
@@ -174,8 +411,9 @@ function onClientChange() {
     const isLocked = Boolean(draftData.is_locked);
     const lockedMtime = draftData.locked_mtime || 'recently';
 
-    // Decode HTML entities (e.g., &amp; -> &) before parsing name
-    const rawOptionText = unescapeHtml(clientSelect.options[clientSelect.selectedIndex].text);
+    // Decode HTML entities (e.g., &amp; -> &) before parsing name (handles both <input> and <select>)
+    const rawText = clientSelect.value || (clientSelect.options && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex].text : '');
+    const rawOptionText = unescapeHtml(rawText);
     const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
     // Priority hierarchy for state recovery: Preserved Form > Disk Draft
@@ -274,7 +512,6 @@ function onClientChange() {
  * Renders the editable data correction form layout.
  */
 function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail) {
-    // Extract coSignerEmailVal only if signature_type contains an '@'
     const coSignerEmailVal = meta.signature_type && meta.signature_type.includes('@') ? meta.signature_type : '';
     const coSignerNameVal = meta.co_signer_name || '';
 
@@ -379,7 +616,6 @@ function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, 
                 <div><strong>Billing Address:</strong><br><span style="color:#555;">${escapeHtml(formattedAddress)}</span></div>
                 <div><strong>Email:</strong><br><span style="color:#555; font-family: monospace; font-size: 12px;">${clientEmail ? escapeHtml(clientEmail) : '[None Sourced]'}</span></div>
                 <div><strong>Classification:</strong><br><span class="badge ${isOrg ? 'badge-organization' : 'badge-individual'}">${escapeHtml(displayClassification)}</span></div>
-                <!-- Verify additional signer badge via '@' symbol presence -->
                 <div><strong>Signature Grid:</strong><br><span style="color:#555;">${meta.signature_type && meta.signature_type.includes('@') ? 'Additional Signer: ' + escapeHtml(coSignerDisplayName) : 'Single Signer'}</span></div>
             </div>
             <p style="margin: 12px 0 0 0; font-size: 11px; color: #888; font-style: italic;">
@@ -402,8 +638,8 @@ function toggleProfileEditMode() {
     const friendlyInput = document.querySelector('input[name="friendly_name"]');
     const legalInput = document.querySelector('input[name="heal_legal_name"]');
     
-    // Decode HTML entities before parsing default names
-    const rawOptionText = unescapeHtml(selectEl.options[selectEl.selectedIndex].text);
+    const rawText = selectEl.value || (selectEl.options && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex].text : '');
+    const rawOptionText = unescapeHtml(rawText);
     const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
     const defaultFriendlyName = friendlyInput ? friendlyInput.value : rawCustomerName;
@@ -443,7 +679,8 @@ function onProfileEntityChange() {
             exposedServices.forEach(svc => {
                 const svcType = svc.type ? svc.type.toLowerCase() : '';
                 if (!currentRawEntity || svcType === 'both' || svcType === currentContextType) {
-                    optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" data-fee="${svc.fee || '0.00'}">${escapeHtml(svc.name)}</option>`;
+                    const wholeFee = Math.round(parseFloat(svc.fee || 0));
+                    optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" data-fee="${wholeFee}">${escapeHtml(svc.name)}</option>`;
                 }
             });
             selectEl.innerHTML = optionsHtml;
@@ -483,7 +720,7 @@ function addServiceRow(rowData = null, isLocked = false) {
     let targetService = rowData ? rowData.service : '';
     try { if (targetService) targetService = decodeURIComponent(targetService); } catch(e) {}
 
-    const feeValue = rowData ? rowData.fee : '0.00';
+    const feeValue = rowData ? Math.round(parseFloat(rowData.fee || 0)) : '0';
     const notesValue = rowData ? rowData.notes : '';
     const bpValue = rowData ? rowData.bp : 'individual';
     const targetItemId = rowData ? String(rowData.item_id) : '';
@@ -504,7 +741,8 @@ function addServiceRow(rowData = null, isLocked = false) {
 
         if (isAllowedByEntity || isMatch) {
             const isSelected = isMatch ? 'selected' : '';
-            optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" data-fee="${svc.fee || '0.00'}" ${isSelected}>${escapeHtml(svc.name)}</option>`;
+            const wholeFee = Math.round(parseFloat(svc.fee || 0));
+            optionsHtml += `<option value="${svc.id}" data-type="${svc.type}" data-fee="${wholeFee}" ${isSelected}>${escapeHtml(svc.name)}</option>`;
         }
     });
 
@@ -525,7 +763,7 @@ function addServiceRow(rowData = null, isLocked = false) {
         </td>
         <td style="white-space: nowrap; width: 135px;">
             <span style="position: relative; font-family: monospace; font-size: 15px; top: 4px;">
-                $ <input type="number" name="row_fee_${currentId}" id="row_fee_${currentId}" step="0.01" min="-99999.99" value="${escapeHtml(feeValue)}" oninput="calculateGridTotals()" style="width: 90px; padding: 6px;" required ${disabledAttr}>
+                $ <input type="number" name="row_fee_${currentId}" id="row_fee_${currentId}" step="1" min="-99999" value="${escapeHtml(feeValue)}" oninput="calculateGridTotals()" style="width: 90px; padding: 6px;" required ${disabledAttr}>
             </span>
         </td>
         <td class="notes-cell">
@@ -534,9 +772,6 @@ function addServiceRow(rowData = null, isLocked = false) {
     `;
 
     tbody.appendChild(tr);
-
-    // Always trigger onRowItemChange to keep hidden input fields 
-    // (row_service_X and row_bp_X) in perfect sync with the DOM select element
     onRowItemChange(currentId, Boolean(rowData));
 }
 
@@ -569,7 +804,7 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
         if (bpInput) bpInput.value = 'individual';
         if (svcNameInput) svcNameInput.value = '';
         if (notesTextarea) notesTextarea.value = '';
-        if (feeInput) feeInput.value = '0.00';
+        if (feeInput) feeInput.value = '0';
         calculateGridTotals();
         return;
     }
@@ -602,8 +837,8 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
     }
 
     if (!bypassDefaultNotes) {
-        const defaultFee = selectedOption.getAttribute('data-fee') || '0.00';
-        if (feeInput) feeInput.value = defaultFee;
+        const defaultFee = selectedOption.getAttribute('data-fee') || '0';
+        if (feeInput) feeInput.value = (defaultFee !== undefined && defaultFee !== null && defaultFee !== '') ? defaultFee : '0';
 
         if (notesTextarea && selectedClient && window.clientData && window.clientData[selectedClient]) {
             const exposedServices = window.clientData[selectedClient].exposed_services || [];
@@ -616,7 +851,7 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
 }
 
 /**
- * Compiles live financial totals for display in table footer.
+ * Compiles live financial totals for display in table footer (whole numbers only).
  */
 function calculateGridTotals() {
     let totalBaseFee = 0.0;
@@ -647,63 +882,668 @@ function calculateGridTotals() {
     const discountNode = document.getElementById('ui-total-discount');
     const balanceNode = document.getElementById('ui-total-balance');
 
-    if (discountNode) discountNode.innerText = discountAmount > 0 ? `-$${discountAmount.toFixed(2)}` : `$0.00`;
-    if (balanceNode) balanceNode.innerText = `$${totalNet.toFixed(2)}`;
+    // Render clean whole dollar amounts with thousands separators
+    if (discountNode) discountNode.innerText = discountAmount > 0 ? `-$${Math.round(discountAmount).toLocaleString()}` : `$0`;
+    if (balanceNode) balanceNode.innerText = `$${Math.round(totalNet).toLocaleString()}`;
 }
 
-// Global Form Submit Safeguard
-document.addEventListener('DOMContentLoaded', () => {
-    const form = document.querySelector('form');
-    if (!form) return;
+/* ==========================================================================
+   BATCH DASHBOARD & DUAL-MODE ORCHESTRATOR EXTENSION
+   ========================================================================== */
 
-    form.addEventListener('submit', (e) => {
-        const table = document.getElementById('service-table');
-        if (table) {
-            table.querySelectorAll('input, select, textarea').forEach(el => {
-                el.disabled = false;
-            });
+let activeModalQboId = null;
+
+/**
+ * Toggles between 'On-Demand Intake' mode and 'Seasonal Batch' mode.
+ */
+function switchWorkspaceMode(mode) {
+    const singleView = document.getElementById('single-client-workspace');
+    const batchView = document.getElementById('batch-dashboard-workspace');
+    const tabSingle = document.getElementById('tab-btn-single');
+    const tabBatch = document.getElementById('tab-btn-batch');
+
+    if (mode === 'batch') {
+        if (singleView) singleView.style.display = 'none';
+        if (batchView) batchView.style.display = 'block';
+        if (tabSingle) tabSingle.classList.remove('active');
+        if (tabBatch) tabBatch.classList.add('active');
+        renderBatchTableGrid();
+    } else {
+        if (batchView) batchView.style.display = 'none';
+        if (singleView) singleView.style.display = 'block';
+        if (tabBatch) tabBatch.classList.remove('active');
+        if (tabSingle) tabSingle.classList.add('active');
+    }
+}
+
+/**
+ * Builds the batch data grid table using clientData and saved_drafts,
+ * analyzing client JSON readiness and preserving user manual selections.
+ */
+function renderBatchTableGrid() {
+    const tbody = document.getElementById('batch-tbody');
+    if (!tbody || !window.clientData) return;
+
+    // Preserve user manual checkbox states prior to re-render
+    const currentSelections = {};
+    document.querySelectorAll('.batch-checkbox').forEach(cb => {
+        const id = cb.getAttribute('data-qbo-id');
+        if (id) {
+            currentSelections[id] = cb.checked;
+        }
+    });
+
+    tbody.innerHTML = '';
+
+    Object.keys(window.clientData).forEach(clientKey => {
+        const client = window.clientData[clientKey];
+        const draft = client.saved_draft || {};
+        const qboId = client.id;
+        const meta = client.metadata || {};
+        const clientAddr = client.address || {};
+        const isLocked = Boolean(draft.is_locked);
+        
+        // Sourced delivery_format (defaulting to 'electronic' if not present)
+        const rawFormat = (draft.delivery_format || client.delivery_format || 'electronic').toLowerCase();
+        const isPaper = rawFormat.includes('paper');
+        
+        // Calculate Total Fees
+        let clientFee = 0.0;
+        if (draft.rows && draft.rows.length > 0) {
+            draft.rows.forEach(r => { clientFee += parseFloat(r.fee || 0); });
         }
 
+        // Priority check: Use draft healed values if present, fallback to raw QBO record (defensive object lookup)
+        const street = draft.heal_street || clientAddr.street || '';
+        const city = draft.heal_city || clientAddr.city || '';
+        const entityType = draft.meta_entity_type || meta.entity_type;
+        const email = client.email;
+
+        // Comprehensive Readiness Evaluation:
+        // 1. JSON Exists: draft object must exist and contain at least one valid row
+        const isJsonPresent = Boolean(client.saved_draft && Object.keys(client.saved_draft).length > 0);
+        const hasServiceRows = Boolean(draft.rows && Array.isArray(draft.rows) && draft.rows.length > 0);
+        
+        // 2. Required Fields present: address, entity type, email
+        const isAddressMissing = !street || !city;
+        const isConfigMissing = !entityType;
+        const isEmailMissing = !email;
+
+        const isDataIncomplete = !isJsonPresent || !hasServiceRows || isAddressMissing || isConfigMissing || isEmailMissing;
+
+        let statusBadge = '<span class="badge badge-electronic">Ready</span>';
+        let checkboxDisabled = '';
+
+        if (isLocked) {
+            statusBadge = '<span class="badge badge-locked">🔒 Sent</span>';
+            checkboxDisabled = 'disabled';
+        } else if (isDataIncomplete) {
+            statusBadge = '<span class="badge badge-warning">⚠️ Data Incomplete</span>';
+            checkboxDisabled = 'disabled';
+        }
+
+        // Use saved selection state if present; otherwise default to ready condition
+        let isChecked = false;
+        if (Object.prototype.hasOwnProperty.call(currentSelections, qboId)) {
+            isChecked = currentSelections[qboId];
+        } else {
+            isChecked = (!isLocked && !isDataIncomplete);
+        }
+
+        const checkedAttr = isChecked ? 'checked' : '';
+
+        // Interactive Format Badge (Click to Toggle Paper vs Electronic)
+        const formatBadgeClass = isPaper ? 'badge-paper' : 'badge-electronic';
+        const formatText = isPaper ? 'Paper' : 'Electronic';
+        const disabledCursor = isLocked ? 'cursor: default;' : 'cursor: pointer;';
+        
+        const formatBadgeHtml = `
+            <span class="badge ${formatBadgeClass}" 
+                  onclick="${isLocked ? '' : `toggleClientDeliveryFormat('${qboId}')`}" 
+                  title="${isLocked ? 'Locked' : 'Click to toggle delivery format'}" 
+                  style="${disabledCursor} user-select: none;">
+                ${formatText} 🔄
+            </span>
+        `;
+
+        const tr = document.createElement('tr');
+        tr.id = `batch_row_${qboId}`;
+        tr.className = `batch-row-item format-${isPaper ? 'paper' : 'electronic'}`;
+        tr.innerHTML = `
+            <td style="text-align: center;">
+                <input type="checkbox" class="batch-checkbox" data-qbo-id="${qboId}" ${checkboxDisabled} ${checkedAttr} onchange="updateBatchSummaryMetrics()">
+            </td>
+            <td style="font-family: monospace; font-size: 12px; color: #555;">${qboId}</td>
+            <td>
+                <strong>${escapeHtml(draft.friendly_name || clientKey.split(' (Customer')[0])}</strong>
+                <br/><small style="color: #666;">${escapeHtml(draft.heal_legal_name || '')}</small>
+            </td>
+            <td><span class="badge ${entityType === 'individual' ? 'badge-individual' : 'badge-organization'}">${escapeHtml(entityType || 'individual')}</span></td>
+            <td style="font-size: 12px; color: #444;">${meta.signature_type && meta.signature_type.includes('@') ? 'Joint (' + escapeHtml(meta.co_signer_name) + ')' : 'Single'}</td>
+            <td style="text-align: right; font-family: monospace; font-weight: bold; font-size: 14px;">$${Math.round(clientFee).toLocaleString()}</td>
+            <td>${formatBadgeHtml}</td>
+            <td>${statusBadge}</td>
+            <td style="text-align: center;">
+                <button type="button" class="btn-add-row" onclick="openBatchEditModal('${qboId}')" style="padding: 4px 10px; font-size: 12px;">✏️ Edit</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    updateBatchSummaryMetrics();
+}
+
+/**
+ * Toggles a client's delivery format (Paper <-> Electronic) directly in the Batch Grid,
+ * updates memory, re-renders the row, and saves the setting to disk via AJAX.
+ */
+async function toggleClientDeliveryFormat(qboId) {
+    const clientKey = Object.keys(window.clientData).find(k => window.clientData[k].id === qboId);
+    if (!clientKey) return;
+
+    const client = window.clientData[clientKey];
+    client.saved_draft = client.saved_draft || {};
+
+    const currentFmt = (client.saved_draft.delivery_format || client.delivery_format || 'electronic').toLowerCase();
+    const newFmt = currentFmt.includes('paper') ? 'electronic' : 'paper';
+
+    // 1. Update browser memory state
+    client.saved_draft.delivery_format = newFmt;
+    client.delivery_format = newFmt;
+
+    // 2. Refresh UI Grid immediately
+    renderBatchTableGrid();
+
+    // 3. Persist new choice to disk via AJAX
+    const urlParams = new URLSearchParams();
+    urlParams.append('action', 'save_draft_only');
+    urlParams.append('ajax', 'true'); // Explicit AJAX flag
+    urlParams.append('client_name', clientKey);
+    urlParams.append('delivery_format', newFmt);
+
+    // Pass existing draft parameters so nothing gets wiped
+    const draft = client.saved_draft;
+    urlParams.append('friendly_name', draft.friendly_name || '');
+    urlParams.append('heal_legal_name', draft.heal_legal_name || '');
+    urlParams.append('meta_entity_type', draft.meta_entity_type || 'individual');
+    urlParams.append('meta_signature_type', draft.meta_signature_type || 'single');
+    urlParams.append('meta_co_signer_name', draft.meta_co_signer_name || '');
+
+    if (draft.rows) {
+        draft.rows.forEach((r, idx) => {
+            const rid = idx + 1;
+            urlParams.append('selected_rows', rid);
+            urlParams.append(`row_item_id_${rid}`, r.item_id);
+            urlParams.append(`row_service_${rid}`, r.service);
+            urlParams.append(`row_fee_${rid}`, Math.round(parseFloat(r.fee || 0)));
+            urlParams.append(`row_notes_${rid}`, r.notes || '');
+            urlParams.append(`row_bp_${rid}`, r.bp || 'individual');
+        });
+    }
+
+    if (draft.out_of_scope_items) {
+        Object.keys(draft.out_of_scope_items).forEach(k => {
+            urlParams.append(k, draft.out_of_scope_items[k]);
+        });
+    }
+
+    try {
+        await fetch(window.location.href, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: urlParams
+        });
+    } catch (err) {
+        console.error("Failed to persist delivery_format override:", err);
+    }
+}
+
+/**
+ * Updates selected row counter and total fees in table footer summary.
+ */
+function updateBatchSummaryMetrics() {
+    const checkedBoxes = document.querySelectorAll('.batch-checkbox:checked');
+    let totalFee = 0.0;
+    let electronicCount = 0;
+    let paperCount = 0;
+
+    checkedBoxes.forEach(cb => {
+        const qboId = cb.getAttribute('data-qbo-id');
+        const clientKey = Object.keys(window.clientData).find(k => window.clientData[k].id === qboId);
+        if (clientKey) {
+            const client = window.clientData[clientKey];
+            const draft = client.saved_draft || {};
+            const isPaper = (draft.delivery_format || client.delivery_format || 'electronic').toLowerCase().includes('paper');
+            
+            if (isPaper) paperCount++; else electronicCount++;
+
+            if (draft.rows) {
+                draft.rows.forEach(r => { totalFee += parseFloat(r.fee || 0); });
+            }
+        }
+    });
+
+    const summaryNode = document.getElementById('batch-summary-bar');
+    if (summaryNode) {
+        summaryNode.innerHTML = `
+            <strong>Selected:</strong> ${checkedBoxes.length} client(s) &nbsp;|&nbsp;
+            <strong>Electronic:</strong> ${electronicCount} &nbsp;|&nbsp;
+            <strong>Paper:</strong> ${paperCount} &nbsp;|&nbsp;
+            <strong>Batch Total:</strong> $${Math.round(totalFee).toLocaleString()}
+        `;
+    }
+}
+
+/**
+ * Filter batch grid table by text search and delivery format.
+ */
+function filterBatchTableGrid() {
+    const searchQuery = (document.getElementById('batch-search-input')?.value || '').toLowerCase();
+    const formatFilter = document.getElementById('batch-format-filter')?.value || 'all';
+
+    document.querySelectorAll('#batch-tbody tr').forEach(tr => {
+        const text = tr.innerText.toLowerCase();
+        const isPaper = tr.classList.contains('format-paper');
+        
+        const matchesSearch = text.includes(searchQuery);
+        let matchesFormat = true;
+        if (formatFilter === 'paper') matchesFormat = isPaper;
+        if (formatFilter === 'electronic') matchesFormat = !isPaper;
+
+        tr.style.display = (matchesSearch && matchesFormat) ? '' : 'none';
+    });
+}
+
+/**
+ * Select or Deselect all non-disabled rows in batch view.
+ */
+function selectAllBatchRows(shouldSelect) {
+    document.querySelectorAll('.batch-checkbox:not([disabled])').forEach(cb => {
+        cb.checked = shouldSelect;
+    });
+    updateBatchSummaryMetrics();
+}
+
+/**
+ * Opens the Modal Popup editor to inspect/modify a single client draft.
+ */
+function openBatchEditModal(qboId) {
+    activeModalQboId = qboId;
+    const clientKey = Object.keys(window.clientData).find(k => window.clientData[k].id === qboId);
+    if (!clientKey) return;
+
+    const modal = document.getElementById('batch-edit-modal');
+    const modalContentContainer = document.getElementById('modal-workspace-container');
+    const clientSelect = document.getElementById('client-select');
+
+    if (clientSelect) {
+        clientSelect.value = clientKey;
+        onClientChange();
+    }
+
+    // Move working form components into modal workspace container
+    modalContentContainer.appendChild(document.getElementById('profile-healing-container'));
+    modalContentContainer.appendChild(document.getElementById('service-table'));
+    modalContentContainer.appendChild(document.getElementById('actions-container'));
+    modalContentContainer.appendChild(document.getElementById('out-of-scope-container'));
+
+    document.getElementById('modal-client-title').innerText = `Edit Draft — ${clientKey.split(' (Customer')[0]}`;
+    modal.style.display = 'flex';
+}
+
+/**
+ * Helper: Safely returns interactive DOM form components back to the single-client workspace container.
+ */
+function returnElementsToSingleWorkspace() {
+    const singleForm = document.querySelector('#single-client-workspace form');
+    if (singleForm) {
+        const profileContainer = document.getElementById('profile-healing-container');
+        const serviceTable = document.getElementById('service-table');
+        const actionsContainer = document.getElementById('actions-container');
+        const oosContainer = document.getElementById('out-of-scope-container');
+        const submitContainer = singleForm.querySelector('.submit-container');
+
+        if (submitContainer) {
+            singleForm.insertBefore(profileContainer, submitContainer);
+            singleForm.insertBefore(serviceTable, submitContainer);
+            singleForm.insertBefore(actionsContainer, submitContainer);
+            singleForm.insertBefore(oosContainer, submitContainer);
+        } else {
+            singleForm.appendChild(profileContainer);
+            singleForm.appendChild(serviceTable);
+            singleForm.appendChild(actionsContainer);
+            singleForm.appendChild(oosContainer);
+        }
+    }
+}
+
+/**
+ * Discards uncommitted modal edits and closes overlay WITHOUT sending a server update.
+ */
+function cancelBatchEditModal() {
+    const modal = document.getElementById('batch-edit-modal');
+    if (!modal) return;
+
+    // Return DOM components back to single workspace without executing background save
+    returnElementsToSingleWorkspace();
+
+    modal.style.display = 'none';
+    activeModalQboId = null;
+    
+    // Refresh the batch grid so UI reflects original unedited state
+    renderBatchTableGrid();
+}
+
+/**
+ * Explicitly saves modal inputs to disk via AJAX, updates client memory, and returns elements to document flow.
+ */
+async function closeBatchEditModal() {
+    const modal = document.getElementById('batch-edit-modal');
+    const clientSelect = document.getElementById('client-select');
+    const activeClientKey = clientSelect ? clientSelect.value : '';
+
+    // Save modal inputs via background AJAX
+    if (activeClientKey && window.clientData[activeClientKey]) {
+        const urlParams = new URLSearchParams();
+        urlParams.append('action', 'save_draft_only');
+        urlParams.append('ajax', 'true'); // Explicit AJAX flag
+        urlParams.append('client_name', activeClientKey);
+
+        const estDateSelect = document.getElementById('estimate-date-option');
+        if (estDateSelect) urlParams.append('estimate_date_option', estDateSelect.value);
+
+        const friendlyInput = document.querySelector('input[name="friendly_name"]');
+        const legalInput = document.querySelector('input[name="heal_legal_name"]');
+        const entitySelect = document.querySelector('select[name="meta_entity_type"]');
+        const sigInput = document.querySelector('input[name="meta_additional_signer"]');
+        const coSignerInput = document.querySelector('input[name="meta_co_signer_name"]');
+        const streetInput = document.querySelector('input[name="heal_street"]');
+        const cityInput = document.querySelector('input[name="heal_city"]');
+        const stateInput = document.querySelector('input[name="heal_state"]');
+        const zipInput = document.querySelector('input[name="heal_zip"]');
+        const healFlagInput = document.querySelector('input[name="heal_profile_flag"]');
+
+        if (friendlyInput) urlParams.append('friendly_name', friendlyInput.value);
+        if (legalInput) urlParams.append('heal_legal_name', legalInput.value);
+        if (entitySelect) urlParams.append('meta_entity_type', entitySelect.value);
+        if (sigInput) urlParams.append('meta_additional_signer', sigInput.value);
+        if (coSignerInput) urlParams.append('meta_co_signer_name', coSignerInput.value);
+        if (streetInput) urlParams.append('heal_street', streetInput.value);
+        if (cityInput) urlParams.append('heal_city', cityInput.value);
+        if (stateInput) urlParams.append('heal_state', stateInput.value);
+        if (zipInput) urlParams.append('heal_zip', zipInput.value);
+        if (healFlagInput) urlParams.append('heal_profile_flag', healFlagInput.value);
+
+        // Preserve delivery_format preference
+        const currentDraft = window.clientData[activeClientKey].saved_draft || {};
+        const currentFmt = currentDraft.delivery_format || window.clientData[activeClientKey].delivery_format || 'electronic';
+        urlParams.append('delivery_format', currentFmt);
+
+        // Gather Service Rows
+        document.querySelectorAll('input[name="selected_rows"]').forEach(r => {
+            const rid = r.value;
+            const itemSelect = document.querySelector(`select[name="row_item_id_${rid}"]`);
+            const feeInput = document.getElementById(`row_fee_${rid}`);
+            const notesInput = document.querySelector(`textarea[name="row_notes_${rid}"]`);
+            const bpInput = document.getElementById(`row_bp_${rid}`);
+            const svcInput = document.getElementById(`row_service_${rid}`);
+
+            if (itemSelect && itemSelect.value) {
+                urlParams.append('selected_rows', rid);
+                urlParams.append(`row_item_id_${rid}`, itemSelect.value);
+                urlParams.append(`row_service_${rid}`, svcInput ? svcInput.value : '');
+                urlParams.append(`row_fee_${rid}`, feeInput ? Math.round(parseFloat(feeInput.value || 0)) : '0');
+                urlParams.append(`row_notes_${rid}`, notesInput ? notesInput.value : '');
+                urlParams.append(`row_bp_${rid}`, bpInput ? bpInput.value : 'individual');
+            }
+        });
+
+        // Gather Out-of-Scope Items
         const oosContainer = document.getElementById('out-of-scope-checklist-container');
         if (oosContainer) {
-            oosContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                cb.disabled = false;
+            oosContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+                urlParams.append(cb.name, cb.value);
             });
         }
 
-        const action = e.submitter ? e.submitter.value : '';
-        if (action === 'revert_to_workspace') return true;
-
-        const clientSelect = document.getElementById('client-select');
-        if (!clientSelect || !clientSelect.value) return true;
-
-        const clientRecord = window.clientData[clientSelect.value];
-        if (clientRecord && clientRecord.saved_draft && clientRecord.saved_draft.is_locked) return true;
-
-        const addSignerInput = document.querySelector('input[name="meta_additional_signer"]');
-        const coSignerNameInput = document.querySelector('input[name="meta_co_signer_name"]');
-
-        const CLEAR_KEYWORDS = ["none", "null", "single", "n/a"];
-        const hasEmail = addSignerInput && addSignerInput.value.trim() !== "" && !CLEAR_KEYWORDS.includes(addSignerInput.value.trim().toLowerCase());
-        const hasName = coSignerNameInput && coSignerNameInput.value.trim() !== "" && !CLEAR_KEYWORDS.includes(coSignerNameInput.value.trim().toLowerCase());
-
-        if (hasEmail || hasName) {
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (hasEmail && !emailRegex.test(addSignerInput.value.trim())) {
-                alert("Please enter a valid email address for the Additional Signer field.");
-                e.preventDefault();
-                return false;
+        try {
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: urlParams
+            });
+            if (response.ok) {
+                const resData = await response.json();
+                if (resData.status === 'success' && resData.draft) {
+                    // Update browser memory state with newly written draft
+                    window.clientData[activeClientKey].saved_draft = resData.draft;
+                    if (resData.draft.meta_entity_type) {
+                        window.clientData[activeClientKey].metadata = window.clientData[activeClientKey].metadata || {};
+                        window.clientData[activeClientKey].metadata.entity_type = resData.draft.meta_entity_type;
+                    }
+                }
             }
-            if (hasEmail && !hasName) {
-                alert("Please enter the Co-Signer's Full Name along with their email address.");
-                e.preventDefault();
-                return false;
+        } catch (err) {
+            console.error("Failed to execute background draft save:", err);
+        }
+    }
+
+    const activeQboId = activeModalQboId;
+
+    // Return DOM components back to single-client workspace
+    returnElementsToSingleWorkspace();
+
+    modal.style.display = 'none';
+    activeModalQboId = null;
+    
+    // Refresh the batch table grid to reflect updated total fees and saved state
+    renderBatchTableGrid();
+
+    // If edited row is now valid/ready, ensure its checkbox becomes checked
+    if (activeQboId) {
+        const editedCb = document.querySelector(`.batch-checkbox[data-qbo-id="${activeQboId}"]`);
+        if (editedCb && !editedCb.disabled) {
+            editedCb.checked = true;
+            updateBatchSummaryMetrics();
+        }
+    }
+}
+
+/**
+ * Iterates sequentially through selected rows and submits payloads via Fetch/AJAX.
+ */
+async function executeBatchPipelineSubmission() {
+    const selectedCheckboxes = document.querySelectorAll('.batch-checkbox:checked');
+    if (selectedCheckboxes.length === 0) {
+        alert("Please select at least one client to process.");
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to process and dispatch ${selectedCheckboxes.length} client engagement(s)?`)) return;
+
+    const progressOverlay = document.getElementById('batch-progress-overlay');
+    const progressBar = document.getElementById('batch-progress-fill');
+    const terminalLog = document.getElementById('batch-terminal-log');
+    const doneBtn = document.getElementById('btn-close-progress');
+
+    progressOverlay.style.display = 'flex';
+    doneBtn.style.display = 'none';
+    terminalLog.innerHTML = `Starting batch process for ${selectedCheckboxes.length} client(s)...\n`;
+
+    let completed = 0;
+
+    for (const cb of selectedCheckboxes) {
+        const qboId = cb.getAttribute('data-qbo-id');
+        const clientKey = Object.keys(window.clientData).find(k => window.clientData[k].id === qboId);
+        const client = window.clientData[clientKey];
+        const draft = client.saved_draft || {};
+        
+        const isPaper = (draft.delivery_format || client.delivery_format || 'electronic').toLowerCase().includes('paper');
+        const targetAction = isPaper ? 'execute_transactional_pipeline_paper' : 'execute_transactional_pipeline';
+
+        terminalLog.innerHTML += `\n[${completed + 1}/${selectedCheckboxes.length}] Processing QBO ID ${qboId} (${isPaper ? 'PAPER' : 'E-SIGN'})... `;
+
+        const urlParams = new URLSearchParams();
+        urlParams.append('action', targetAction);
+        urlParams.append('ajax', 'true'); // Explicit AJAX flag
+        urlParams.append('client_name', clientKey);
+        urlParams.append('delivery_method', isPaper ? 'paper' : '');
+
+        urlParams.append('friendly_name', draft.friendly_name || '');
+        urlParams.append('heal_legal_name', draft.heal_legal_name || '');
+        urlParams.append('meta_entity_type', draft.meta_entity_type || 'individual');
+        urlParams.append('meta_signature_type', draft.meta_signature_type || 'single');
+        urlParams.append('meta_co_signer_name', draft.meta_co_signer_name || '');
+
+        if (draft.rows) {
+            draft.rows.forEach((r, idx) => {
+                const rid = idx + 1;
+                urlParams.append('selected_rows', rid);
+                urlParams.append(`row_item_id_${rid}`, r.item_id);
+                urlParams.append(`row_service_${rid}`, r.service);
+                urlParams.append(`row_fee_${rid}`, Math.round(parseFloat(r.fee || 0)));
+                urlParams.append(`row_notes_${rid}`, r.notes || '');
+                urlParams.append(`row_bp_${rid}`, r.bp || 'individual');
+            });
+        }
+
+        if (draft.out_of_scope_items) {
+            Object.keys(draft.out_of_scope_items).forEach(k => {
+                urlParams.append(k, draft.out_of_scope_items[k]);
+            });
+        }
+
+        try {
+            const resp = await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest' 
+                },
+                body: urlParams
+            });
+
+            if (resp.ok) {
+                const resData = await resp.json();
+                if (resData.status === 'success') {
+                    terminalLog.innerHTML += `SUCCESS ✓ (Estimate #${resData.estimate_id})`;
+                } else {
+                    terminalLog.innerHTML += `FAILED ❌ (${resData.message || 'Unknown error'})`;
+                }
+            } else {
+                let errorDetails = `HTTP ${resp.status}`;
+                try {
+                    const errData = await resp.json();
+                    if (errData.message) errorDetails = errData.message;
+                } catch (e) {
+                    // Not JSON error body
+                }
+                terminalLog.innerHTML += `FAILED ❌ (${errorDetails})`;
             }
-            if (hasName && !hasEmail) {
-                alert("Please enter the Co-Signer's Email Address along with their full name.");
-                e.preventDefault();
-                return false;
+        } catch (err) {
+            terminalLog.innerHTML += `ERROR ❌ (${err.message})`;
+        }
+
+        completed++;
+        progressBar.style.width = `${(completed / selectedCheckboxes.length) * 100}%`;
+        terminalLog.scrollTop = terminalLog.scrollHeight;
+
+        // Apply configurable throttle pause between API calls (skips after last item)
+        if (completed < selectedCheckboxes.length && BATCH_THROTTLE_DELAY_MS > 0) {
+            await sleep(BATCH_THROTTLE_DELAY_MS);
+        }
+    }
+
+    terminalLog.innerHTML += `\n\n========================================\nBatch execution complete!`;
+    doneBtn.style.display = 'inline-block';
+}
+
+// Global Form Submit Safeguard & Key Listener
+document.addEventListener('DOMContentLoaded', () => {
+    // Audit Python App Config to toggle Batch interface visibility
+    const isBatchEnabled = Boolean(window.APP_CONFIG && window.APP_CONFIG.enableBatchMode === true);
+    const modeTabsContainer = document.querySelector('.mode-tabs');
+
+    if (!isBatchEnabled) {
+        if (modeTabsContainer) {
+            modeTabsContainer.classList.add('mode-tabs-hidden');
+            modeTabsContainer.style.display = 'none';
+        }
+        switchWorkspaceMode('single');
+    }
+
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            const table = document.getElementById('service-table');
+            if (table) {
+                table.querySelectorAll('input, select, textarea').forEach(el => {
+                    el.disabled = false;
+                });
             }
+
+            const oosContainer = document.getElementById('out-of-scope-checklist-container');
+            if (oosContainer) {
+                oosContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.disabled = false;
+                });
+            }
+
+            const action = e.submitter ? e.submitter.value : '';
+            if (action === 'revert_to_workspace' || action === 'save_draft_only') return true;
+
+            const clientSelect = document.getElementById('client-select');
+            if (!clientSelect || !clientSelect.value) return true;
+
+            const clientRecord = window.clientData[clientSelect.value];
+            if (clientRecord && clientRecord.saved_draft && clientRecord.saved_draft.is_locked) return true;
+
+            const addSignerInput = document.querySelector('input[name="meta_additional_signer"]');
+            const coSignerNameInput = document.querySelector('input[name="meta_co_signer_name"]');
+
+            const CLEAR_KEYWORDS = ["none", "null", "single", "n/a"];
+            const hasEmail = addSignerInput && addSignerInput.value.trim() !== "" && !CLEAR_KEYWORDS.includes(addSignerInput.value.trim().toLowerCase());
+            const hasName = coSignerNameInput && coSignerNameInput.value.trim() !== "" && !CLEAR_KEYWORDS.includes(coSignerNameInput.value.trim().toLowerCase());
+
+            if (hasEmail || hasName) {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (hasEmail && !emailRegex.test(addSignerInput.value.trim())) {
+                    alert("Please enter a valid email address for the Additional Signer field.");
+                    e.preventDefault();
+                    return false;
+                }
+                if (hasEmail && !hasName) {
+                    alert("Please enter the Co-Signer's Full Name along with their email address.");
+                    e.preventDefault();
+                    return false;
+                }
+                if (hasName && !hasEmail) {
+                    alert("Please enter the Co-Signer's Email Address along with their full name.");
+                    e.preventDefault();
+                    return false;
+                }
+            }
+        });
+    }
+
+    // Keyboard Escape key shortcut cancels modal without saving
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && activeModalQboId) {
+            cancelBatchEditModal();
+        }
+    });
+
+    // Clicking outside the modal card cancels without saving
+    window.addEventListener('click', (e) => {
+        const modal = document.getElementById('batch-edit-modal');
+        if (e.target === modal && activeModalQboId) {
+            cancelBatchEditModal();
         }
     });
 });
