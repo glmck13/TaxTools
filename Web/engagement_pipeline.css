@@ -114,15 +114,31 @@ select {
     line-height: 1.4;
 }
 
-.profile-grid-layout {
+/* Profile Form Grid Layouts */
+.profile-editable-grid-top {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 15px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.profile-editable-grid-middle {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.profile-editable-grid-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
 }
 
 .form-field-group {
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 .field-label {
@@ -132,19 +148,42 @@ select {
     margin-bottom: 4px;
 }
 
-.profile-editable-grid input[type="text"],
-.profile-editable-grid input[type="email"],
-.profile-editable-grid select {
-    padding: 8px 12px;
+.profile-card input[type="text"],
+.profile-card input[type="email"],
+.profile-card select {
+    padding: 8px 10px;
     font-size: 13px;
     border: 1px solid #cbd5e0;
     border-radius: 4px;
     background: #fff;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease-in-out;
 }
 
-/* Profile Editor Layout Cleanup */
-.profile-editable-grid .form-field-group:nth-child(3) {
-    grid-column: 1 / -1; /* Makes Street Address span full row width */
+.profile-card input[type="text"]:focus,
+.profile-card input[type="email"]:focus,
+.profile-card select:focus {
+    border-color: #0078d4;
+    outline: none;
+    box-shadow: 0 0 4px rgba(0, 120, 212, 0.15);
+}
+
+.profile-card input:disabled,
+.profile-card select:disabled {
+    background-color: #f7fafc;
+    color: #718096;
+    cursor: not-allowed;
+    border-color: #e2e8f0;
+}
+
+/* Verified View 2-Column Row 2 Grid */
+.verified-bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    border-top: 1px dashed #c6f6d5;
+    padding-top: 12px;
 }
 
 /* ==========================================================================
@@ -757,4 +796,19 @@ select {
     border-radius: 4px;
     white-space: pre-wrap;
     line-height: 1.4;
+}
+
+/* Greyed-out styling for Verified Mode Read-Only Inputs */
+.profile-card input.read-only-input {
+    background-color: #f1f5f9 !important;
+    color: #475569 !important;
+    border: 1px solid #cbd5e0 !important;
+    cursor: default !important;
+    box-shadow: none !important;
+}
+
+.profile-card input.read-only-input:focus {
+    border-color: #cbd5e0 !important;
+    outline: none !important;
+    box-shadow: none !important;
 }

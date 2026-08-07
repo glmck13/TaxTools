@@ -59,6 +59,29 @@ QBO_TOKEN = os.environ.get("QBO_ACCESS_TOKEN", "")
 ADOBE_APIBASE = os.environ.get("ADOBE_APIBASE", "")
 ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
 
+# Centralized Organization Entity Classification Config
+ORGANIZATION_ENTITY_TYPES = {
+    "sm_llc",
+    "s_corp",
+    "partnership",
+    "c_corp",
+    "non_profit",
+    "trust",
+    "organization",
+}
+
+# ==========================================
+# CACHE BUSTING ASSET HELPER
+# ==========================================
+def get_asset_url(filename):
+    """Generates an asset URL appended with a file modification timestamp query parameter."""
+    subfolder = "js" if filename.endswith(".js") else "css"
+    filepath = os.path.join(os.environ.get("DOCUMENT_ROOT", "."), subfolder, filename)
+    if os.path.exists(filepath):
+        mtime = int(os.path.getmtime(filepath))
+        return f"{filename}?v={mtime}"
+    return f"{filename}?v={int(time.time())}"
+
 # ==========================================
 # FORM DATA EXTRACTION & AJAX DETECTION HELPERS
 # ==========================================
@@ -234,7 +257,7 @@ def parse_acct_num(acct_num_str):
             meta["signature_type"] = v
         elif k == "ENTITY":
             raw_ent = v.lower()
-            meta["entity_type"] = raw_ent if raw_ent in ["individual", "s_corp", "partnership", "c_corp", "non_profit", "trust", "organization"] else "individual"
+            meta["entity_type"] = raw_ent if (raw_ent == "individual" or raw_ent in ORGANIZATION_ENTITY_TYPES) else "individual"
         elif k == "COSIGNER":
             meta["co_signer_name"] = v
     return meta
@@ -308,15 +331,18 @@ def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
         print(f"Adobe Sign HTTP Error [{e.code}]: {error_body}", file=sys.stderr)
         raise Exception(f"Adobe Sign Call Failed: {error_body}")
 
-def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, additional_signer_email=None, is_organization=False):
-    """Handles envelope transmission and routing parameters for Adobe Sign."""
+def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, additional_signer_email=None, is_organization=False, primary_email_override=None):
+    """Handles envelope transmission and routing parameters for Adobe Sign, returning (success, agreement_id_or_error)."""
     try:
-        fresh_customer = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
-        raw_email = fresh_customer.get("PrimaryEmailAddr", {}).get("Address", "")
-        primary_email = raw_email.split(",")[0].strip() if raw_email else ""
+        primary_email = primary_email_override.strip() if primary_email_override and primary_email_override.strip() else ""
 
         if not primary_email:
-            return False, "Customer record is missing a valid Primary Email Address inside QBO."
+            fresh_customer = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
+            raw_email = fresh_customer.get("PrimaryEmailAddr", {}).get("Address", "")
+            primary_email = raw_email.split(",")[0].strip() if raw_email else ""
+
+        if not primary_email:
+            return False, "Customer record is missing a valid Primary Email Address inside QBO and no override was provided."
 
         files_payload = (f"Tax_Engagement_Terms_Est_{estimate_id}.pdf", "application/pdf", pdf_binary_data)
         transient_res = adobe_sign_api_request("transientDocuments", method="POST", files=files_payload)
@@ -362,19 +388,7 @@ def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, a
         agreement_id = agreement_res.get("id")
 
         if agreement_id:
-            time.sleep(3)
-            for attempt in range(5):
-                try:
-                    signing_urls_res = adobe_sign_api_request(f"agreements/{agreement_id}/signingUrls", method="GET")
-                    urls_set = signing_urls_res.get("signingUrlSetInfos", [])
-                    if urls_set and urls_set[0].get("signingUrls"):
-                        live_signing_url = urls_set[0]["signingUrls"][0].get("esignUrl", "")
-                        if live_signing_url:
-                            return True, live_signing_url
-                except Exception as url_err:
-                    print(f"DEBUG: Attempt {attempt + 1} - Link generation pending: {url_err}", file=sys.stderr)
-                time.sleep(2)
-            return True, ""
+            return True, agreement_id
 
         return False, "Adobe Sign accepted envelope configuration but failed to allocate an Agreement ID."
     except Exception as ex:
@@ -475,7 +489,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     reconstructed_rows_json = "[]"
     preserved_heal_data_json = "{}"
     out_of_scope_items = extract_base_out_of_scope_boilerplate()
-    estimate_date_option = "next_year"
+    estimate_date_option = "today"
 
     custom_items_to_render = {}
 
@@ -489,6 +503,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         heal_data = {
             "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
             "heal_legal_name": html.unescape(get_form_val(preserved_form, "heal_legal_name")),
+            "heal_email": get_form_val(preserved_form, "heal_email"),
             "heal_street": get_form_val(preserved_form, "heal_street"),
             "heal_city": get_form_val(preserved_form, "heal_city"),
             "heal_state": get_form_val(preserved_form, "heal_state"),
@@ -525,6 +540,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                     custom_items_to_render[k] = val
 
     checklist_html = '<div id="out-of-scope-checklist-container" style="background: #fafbfc; border: 1px solid #cbd5e0; border-radius: 4px; padding: 15px; margin-top: 10px;">\n'
+    checklist_html += '            <input type="hidden" name="oos_submitted" value="true">\n'
     if out_of_scope_items:
         for idx, item in enumerate(out_of_scope_items):
             item_key = f"out_of_scope_item_{idx}"
@@ -576,7 +592,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 <head>
     <meta charset="utf-8">
     <title>Tarrant Advisors - 2026 Engagement Portal</title>
-    <link rel="stylesheet" type="text/css" href="/css/{CSS_FILE}">
+    <link rel="stylesheet" type="text/css" href="/css/{get_asset_url(CSS_FILE)}">
     <script>
         window.APP_CONFIG = {{
             "enableBatchMode": {batch_mode_js}
@@ -592,7 +608,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             }}
         }});
     </script>
-    <script src="/js/{JS_FILE}"></script>
+    <script src="/js/{get_asset_url(JS_FILE)}"></script>
 </head>
 <body>
 <div class="wrapper">
@@ -807,6 +823,7 @@ def handle_generate_preview(form):
 
     meta_ent = get_form_val(form, "meta_entity_type", "individual")
 
+    heal_email = get_form_val(form, "heal_email")
     heal_street = get_form_val(form, "heal_street")
     heal_city = get_form_val(form, "heal_city")
     heal_state = get_form_val(form, "heal_state")
@@ -838,17 +855,24 @@ def handle_generate_preview(form):
     if not heal_legal_name:
         heal_legal_name = clean_client_title
 
+    if not heal_email and existing_draft.get("heal_email"):
+        heal_email = existing_draft.get("heal_email")
+
     if not heal_street:
         try:
             fresh_c = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
             c_addr = fresh_c.get("BillAddr", {})
+            if not heal_email:
+                raw_c_email = fresh_c.get("PrimaryEmailAddr", {}).get("Address", "")
+                heal_email = raw_c_email.split(",")[0].strip() if raw_c_email else ""
             heal_street, heal_city = c_addr.get("Line1", ""), c_addr.get("City", "")
             heal_state, heal_zip = c_addr.get("CountrySubDivisionCode", ""), c_addr.get("PostalCode", "")
         except Exception as fe:
             print(f"DEBUG: QBO fallback data extraction failed: {str(fe)}", file=sys.stderr)
 
+    oos_explicitly_submitted = get_form_val(form, "oos_submitted") == "true" or any(k.startswith("out_of_scope_item_") or k.startswith("custom_") for k in form)
     posted_oos = {k: get_form_val(form, k) for k in form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
-    if not posted_oos and existing_draft.get("out_of_scope_items"):
+    if not oos_explicitly_submitted and not posted_oos and existing_draft.get("out_of_scope_items"):
         posted_oos = existing_draft["out_of_scope_items"]
 
     disk_rows_list = existing_draft.get("rows", [])
@@ -882,6 +906,7 @@ def handle_generate_preview(form):
                 "estimate_date_option": estimate_date_option,
                 "friendly_name": friendly_name,
                 "heal_legal_name": heal_legal_name,
+                "heal_email": heal_email,
                 "heal_profile_flag": heal_profile_flag,
                 "meta_additional_signer": meta_sig if "@" in meta_sig else "",
                 "meta_signature_type": meta_sig if meta_sig else "single",
@@ -905,6 +930,7 @@ def handle_generate_preview(form):
     iframe_src = f"{SCRIPT_URL}?action=render_live_pdf&client_name={urllib.parse.quote(client_name)}"
 
     hidden_checklist_fields = f'<input type="hidden" name="estimate_date_option" value="{html.escape(estimate_date_option)}">\n'
+    hidden_checklist_fields += '<input type="hidden" name="oos_submitted" value="true">\n'
     for k, v in posted_oos.items():
         hidden_checklist_fields += f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">\n'
 
@@ -914,7 +940,7 @@ def handle_generate_preview(form):
 <head>
     <meta charset="utf-8">
     <title>Review Proposed Engagement Document</title>
-    <link rel="stylesheet" type="text/css" href="/css/{CSS_FILE}">
+    <link rel="stylesheet" type="text/css" href="/css/{get_asset_url(CSS_FILE)}">
 </head>
 <body>
 <div class="split-container">
@@ -923,6 +949,7 @@ def handle_generate_preview(form):
             <input type="hidden" name="client_name" value="{html.escape(client_name)}">
             <input type="hidden" name="friendly_name" value="{html.escape(friendly_name)}">
             <input type="hidden" name="heal_legal_name" value="{html.escape(heal_legal_name)}">
+            <input type="hidden" name="heal_email" value="{html.escape(heal_email)}">
             <input type="hidden" name="heal_profile_flag" value="{html.escape(heal_profile_flag)}">
             <input type="hidden" name="meta_additional_signer" value="{html.escape(meta_sig if '@' in meta_sig else '')}">
             <input type="hidden" name="meta_signature_type" value="{html.escape(meta_sig if meta_sig else 'single')}">
@@ -979,6 +1006,7 @@ def handle_save_draft_only(form):
 
     meta_ent = get_form_val(form, "meta_entity_type", "individual")
 
+    heal_email = get_form_val(form, "heal_email")
     heal_street = get_form_val(form, "heal_street")
     heal_city = get_form_val(form, "heal_city")
     heal_state = get_form_val(form, "heal_state")
@@ -1002,6 +1030,8 @@ def handle_save_draft_only(form):
 
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
     heal_legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip() or clean_client_title
+    if not heal_email and existing_draft.get("heal_email"):
+        heal_email = existing_draft.get("heal_email")
 
     posted_oos = {k: get_form_val(form, k) for k in form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
 
@@ -1031,6 +1061,7 @@ def handle_save_draft_only(form):
             "estimate_date_option": estimate_date_option,
             "friendly_name": friendly_name,
             "heal_legal_name": heal_legal_name,
+            "heal_email": heal_email,
             "heal_profile_flag": heal_profile_flag,
             "meta_additional_signer": meta_sig if "@" in meta_sig else "",
             "meta_signature_type": meta_sig if meta_sig else "single",
@@ -1190,7 +1221,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     if deposit_val > 0: 
         table_rows_data.append(["DEPOSIT DUE UPON COMMENCEMENT OF SERVICE:", f"${int(round(deposit_val)):,}"])
 
-    is_org_type = meta_ent.lower() in ["s_corp", "partnership", "c_corp", "non_profit", "trust", "organization"]
+    is_org_type = meta_ent.lower() in ORGANIZATION_ENTITY_TYPES
 
     out_of_scope_list = []
     
@@ -1448,6 +1479,7 @@ def handle_render_live_pdf(form):
                 # Hydrate form parameters in-memory directly from disk draft JSON
                 form["friendly_name"] = [disk_draft.get("friendly_name", "")]
                 form["heal_legal_name"] = [disk_draft.get("heal_legal_name", "")]
+                form["heal_email"] = [disk_draft.get("heal_email", "")]
                 form["heal_street"] = [disk_draft.get("heal_street", "")]
                 form["heal_city"] = [disk_draft.get("heal_city", "")]
                 form["heal_state"] = [disk_draft.get("heal_state", "")]
@@ -1468,7 +1500,7 @@ def handle_render_live_pdf(form):
                         form[f"row_notes_{rid}"] = [r.get("notes", "")]
                         form[f"row_bp_{rid}"] = [r.get("bp", "individual")]
                         
-                if disk_draft.get("out_of_scope_items"):
+                if "out_of_scope_items" in disk_draft:
                     form["out_of_scope_items"] = disk_draft["out_of_scope_items"]
         except Exception as ex:
             print(f"DEBUG: Preview disk draft read error: {str(ex)}", file=sys.stderr)
@@ -1502,6 +1534,7 @@ def execute_transactional_pipeline(form):
     row_ids = get_form_list(form, "selected_rows")
     friendly_name = get_form_val(form, "friendly_name")
     heal_legal_name = get_form_val(form, "heal_legal_name")
+    heal_email = get_form_val(form, "heal_email")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
 
     heal_flag = get_form_val(form, "heal_profile_flag", "false")
@@ -1512,7 +1545,7 @@ def execute_transactional_pipeline(form):
 
     delivery_method = get_form_val(form, "delivery_method")
     is_paper_mode = (delivery_method == "paper")
-    is_org_type = meta_ent.lower() in ["s_corp", "partnership", "c_corp", "non_profit", "trust", "organization"]
+    is_org_type = meta_ent.lower() in ORGANIZATION_ENTITY_TYPES
 
     # ---------------------------------------------------------------------
     # SAFE PRIOR ESTIMATE DELETION LOGIC
@@ -1521,14 +1554,17 @@ def execute_transactional_pipeline(form):
     draft_path = os.path.join(DRAFTS_DIR, f"client_{client_qbo_id}.json")
     is_locked, _ = is_draft_locked(draft_path)
 
-    # Fallback to reading draft file if prior_estimate_id was omitted from form payload
-    if not prior_estimate_id and os.path.exists(draft_path):
+    # Fallback to reading draft file if prior_estimate_id or heal_email was omitted from form payload
+    if os.path.exists(draft_path):
         try:
             with open(draft_path, "r", encoding="utf-8") as df:
                 disk_draft = json.load(df)
-                prior_estimate_id = str(disk_draft.get("estimate_id", "")).strip()
+                if not prior_estimate_id:
+                    prior_estimate_id = str(disk_draft.get("estimate_id", "")).strip()
+                if not heal_email:
+                    heal_email = disk_draft.get("heal_email", "")
         except Exception as e:
-            print(f"DEBUG: Could not read prior estimate ID from draft: {e}", file=sys.stderr)
+            print(f"DEBUG: Could not read prior estimate ID or email from draft: {e}", file=sys.stderr)
 
     if prior_estimate_id:
         try:
@@ -1554,7 +1590,11 @@ def execute_transactional_pipeline(form):
     current_notes = fresh_customer.get("Notes", "")
     current_addr = fresh_customer.get("BillAddr", {})
     current_name = fresh_customer.get("DisplayName", "")
+    raw_primary_email = fresh_customer.get("PrimaryEmailAddr", {}).get("Address", "")
+    qbo_primary_email = raw_primary_email.split(",")[0].strip() if raw_primary_email else ""
     
+    effective_primary_email = heal_email.strip() if heal_email and heal_email.strip() else qbo_primary_email
+
     proposed_notes = compile_acct_num(meta_sig if meta_sig else "single", meta_ent, meta_co_signer_name)
     form_street = get_form_val(form, "heal_street") or current_addr.get("Line1", "")
     form_city = get_form_val(form, "heal_city") or current_addr.get("City", "")
@@ -1590,6 +1630,7 @@ def execute_transactional_pipeline(form):
 
     estimate_lines = []
     deposit_val = 0.0
+    total_fee_sum = 0.0
 
     disk_rows_list = []
     if os.path.exists(draft_path):
@@ -1620,6 +1661,8 @@ def execute_transactional_pipeline(form):
 
         if "discount" in svc_lower or "referral" in svc_lower:
             fee = -abs(fee)
+
+        total_fee_sum += fee
 
         description = f"{svc_name} | Scope: {notes}" if notes else svc_name
         estimate_lines.append({
@@ -1667,6 +1710,7 @@ def execute_transactional_pipeline(form):
             with open(draft_path, "r", encoding="utf-8") as df:
                 active_draft = json.load(df)
             active_draft["estimate_id"] = estimate_id
+            active_draft["heal_email"] = effective_primary_email
             with open(draft_path, "w", encoding="utf-8") as df:
                 json.dump(active_draft, df, indent=2)
             lock_draft(draft_path)    # Re-locks draft file permissions
@@ -1676,6 +1720,7 @@ def execute_transactional_pipeline(form):
     live_pdf_buffer = compile_reportlab_pdf_buffer(form, include_esign_tags=not is_paper_mode)
     live_pdf_buffer.seek(0)
 
+    adobe_agreement_id = ""
     if is_paper_mode:
         adobe_sign_routing_success, adobe_error_context = True, ""
     else:
@@ -1684,8 +1729,11 @@ def execute_transactional_pipeline(form):
             estimate_id=estimate_id,
             pdf_binary_data=live_pdf_buffer.read(),
             additional_signer_email=meta_sig,
-            is_organization=is_org_type
+            is_organization=is_org_type,
+            primary_email_override=effective_primary_email
         )
+        if adobe_sign_routing_success:
+            adobe_agreement_id = adobe_error_context
 
     if not adobe_sign_routing_success:
         try:
@@ -1701,79 +1749,141 @@ def execute_transactional_pipeline(form):
             "status": "success",
             "estimate_id": estimate_id,
             "qbo_id": client_qbo_id,
-            "delivery_method": delivery_method
+            "delivery_method": delivery_method,
+            "adobe_agreement_id": adobe_agreement_id
         }))
         return
+
+    # Build Download Link Query Params for Paper Mode
+    dl_query_args = [
+        ("action", "download_final_pdf"), ("estimate_id", estimate_id),
+        ("client_name", client_name), ("friendly_name", friendly_name),
+        ("heal_legal_name", heal_legal_name), ("heal_email", effective_primary_email),
+        ("delivery_method", "paper"), ("heal_profile_flag", "false"),
+        ("meta_additional_signer", meta_sig if "@" in meta_sig else ""),
+        ("meta_signature_type", meta_sig if meta_sig else "single"), 
+        ("meta_co_signer_name", meta_co_signer_name),
+        ("meta_entity_type", meta_ent)
+    ]
+    for k in form:
+        if k.startswith("out_of_scope_item_") or k.startswith("custom_"):
+            dl_query_args.append((k, get_form_val(form, k)))
+
+    for rid in row_ids:
+        dl_query_args.append(("selected_rows", rid))
+        dl_query_args.extend([
+            (f"row_item_id_{rid}", get_form_val(form, f"row_item_id_{rid}")),
+            (f"row_service_{rid}", get_form_val(form, f"row_service_{rid}")),
+            (f"row_fee_{rid}", get_form_val(form, f"row_fee_{rid}", "0")),
+            (f"row_notes_{rid}", get_form_val(form, f"row_notes_{rid}")),
+            (f"row_bp_{rid}", get_form_val(form, f"row_bp_{rid}", "individual"))
+        ])
+        
+    paper_dl_link = f"{SCRIPT_URL}?{urllib.parse.urlencode(dl_query_args)}"
+
+    # Build Signing Sequence Chain Tree Markup
+    has_co_signer = bool(meta_sig and "@" in meta_sig)
+    co_signer_label = meta_co_signer_name.strip() if meta_co_signer_name.strip() else meta_sig.strip()
+
+    signer_sequence_html = f"""
+    <div style="font-weight: 600; font-size: 13px; color: #475569; margin-top: 15px; margin-bottom: 8px;">Signing Workflow Sequence:</div>
+    <div style="font-family: monospace; font-size: 13px; line-height: 1.6; color: #334155; background: #ffffff; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0;">
+        <div style="margin-bottom: 8px;">
+            <strong>1. Primary Client Signature</strong><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(friendly_name)} ({html.escape(effective_primary_email)})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #0284c7; font-weight: 600;">📩 Email Dispatched (Awaiting Signature)</span>
+        </div>
+    """
+
+    next_step_num = 2
+    if has_co_signer:
+        signer_sequence_html += f"""
+        <div style="margin-bottom: 8px;">
+            <strong>{next_step_num}. Additional Signer Signature</strong><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(co_signer_label)} ({html.escape(meta_sig)})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #64748b; font-weight: 600;">⏳ Pending Step 1 Completion</span>
+        </div>
+        """
+        next_step_num += 1
+
+    if is_org_type:
+        signer_sequence_html += f"""
+        <div>
+            <strong>{next_step_num}. Firm Counter-Signature</strong><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(OWNER_SIGNATURE)} ({html.escape(OWNER_EMAIL)})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #64748b; font-weight: 600;">⏳ Pending Client Execution</span>
+        </div>
+        """
+
+    signer_sequence_html += "</div>"
+
+    # Second Card Rendering: Electronic vs Paper
+    if is_paper_mode:
+        delivery_card_html = f"""
+        <div style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 20px; text-align: left; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-weight: 700; font-size: 16px; color: #166534; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                📄 Physical Paper Delivery Prepared
+            </div>
+            <p style="margin: 0 0 15px 0; font-size: 13px; color: #475569; line-height: 1.5;">
+                This engagement agreement has been flagged for wet/paper signature execution. Download the official PDF document below to print or archive for client delivery.
+            </p>
+            <div style="text-align: center; margin-top: 15px;">
+                <a href="{html.escape(paper_dl_link)}" style="background: #16a34a; color: white; padding: 12px 24px; text-decoration: none; display: inline-block; border-radius: 4px; font-weight: bold; font-size: 15px;">⬇ Download & Print Final PDF</a>
+            </div>
+        </div>
+        """
+    else:
+        delivery_card_html = f"""
+        <div style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 20px; text-align: left; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-weight: 700; font-size: 16px; color: #0078d4; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                ✍️ Adobe Sign Document Dispatched
+            </div>
+            <div style="font-size: 13px; color: #334155; line-height: 1.6; margin-bottom: 10px;">
+                • <strong>Transaction ID:</strong> <span style="font-family: monospace; background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">{html.escape(adobe_agreement_id if adobe_agreement_id else 'Enqueued')}</span><br>
+                • <strong>Status:</strong> <span style="color: #0284c7; font-weight: 600;">Out for Signature</span>
+            </div>
+            {signer_sequence_html}
+        </div>
+        """
+
+    formatted_fee_sum = f"${int(round(total_fee_sum)):,}"
 
     success_html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Pipeline Execution Complete</title>
-    <link rel="stylesheet" type="text/css" href="/css/{CSS_FILE}">
+    <link rel="stylesheet" type="text/css" href="/css/{get_asset_url(CSS_FILE)}">
 </head>
 <body>
 <div class="success-wrapper">
     <div class="success-card">
         <div class="icon-circle">✓</div>
         <h2>Engagement Dispatched Successfully</h2>
-        <p>
-            QuickBooks Online transaction has been established in a <strong>Pending</strong> state as <strong>Estimate #{html.escape(estimate_id)}</strong>.
+        <p style="color: #64748b; font-size: 14px; margin-top: -8px; margin-bottom: 25px;">
+            All required records have been created and routed to the signature queue.
         </p>
-        <div style="background:#f9fafb; padding:15px; border-radius:4px; border:1px solid #e5e7eb; margin-bottom:20px; text-align:left; font-size:13px; font-family:monospace;">
-            <strong>Execution Summary Matrix:</strong><br>
-            • Customer Index: {html.escape(client_qbo_id)}<br>
-            • Target Account Class: {html.escape(meta_ent.upper())}<br>
-            • Assigned Tracking ID: {html.escape(estimate_id)}<br>
-            • Signature Enforcement Layout: {"JOINT" if (meta_sig and "@" in meta_sig) else "SINGLE"}
+
+        <!-- CARD 1: QUICKBOOKS ONLINE ESTIMATE -->
+        <div style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 20px; text-align: left; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-weight: 700; font-size: 16px; color: #107c41; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                📄 QuickBooks Online Estimate Created
+            </div>
+            <div style="font-size: 13px; color: #334155; line-height: 1.6;">
+                • <strong>Estimate ID:</strong> #{html.escape(estimate_id)}<br>
+                • <strong>Total Amount:</strong> {formatted_fee_sum}<br>
+                • <strong>Status:</strong> Pending Approval
+            </div>
         </div>
-        <a href="{SCRIPT_URL}" class="btn-submit" style="background:#0078d4; text-decoration:none; display:inline-block;">Build New Customer Estimate</a>
+
+        <!-- CARD 2: ADOBE SIGN WORKFLOW OR PAPER DOWNLOAD -->
+        {delivery_card_html}
+
+        <a href="{SCRIPT_URL}" class="btn-submit" style="background:#0078d4; text-decoration:none; display:inline-block; padding: 12px 24px;">← Return to Account Engagement Portal</a>
     </div>
 </div>
 </body>
 </html>"""
-
-    if is_paper_mode:
-        dl_query_args = [
-            ("action", "download_final_pdf"), ("estimate_id", estimate_id),
-            ("client_name", client_name), ("friendly_name", friendly_name),
-            ("heal_legal_name", heal_legal_name),
-            ("delivery_method", "paper"), ("heal_profile_flag", "false"),
-            ("meta_additional_signer", meta_sig if "@" in meta_sig else ""),
-            ("meta_signature_type", meta_sig if meta_sig else "single"), 
-            ("meta_co_signer_name", meta_co_signer_name),
-            ("meta_entity_type", meta_ent)
-        ]
-        for k in form:
-            if k.startswith("out_of_scope_item_") or k.startswith("custom_"):
-                dl_query_args.append((k, get_form_val(form, k)))
-
-        for rid in row_ids:
-            dl_query_args.append(("selected_rows", rid))
-            dl_query_args.extend([
-                (f"row_item_id_{rid}", get_form_val(form, f"row_item_id_{rid}")),
-                (f"row_service_{rid}", get_form_val(form, f"row_service_{rid}")),
-                (f"row_fee_{rid}", get_form_val(form, f"row_fee_{rid}", "0")),
-                (f"row_notes_{rid}", get_form_val(form, f"row_notes_{rid}")),
-                (f"row_bp_{rid}", get_form_val(form, f"row_bp_{rid}", "individual"))
-            ])
-            
-        dl_link = f"{SCRIPT_URL}?{urllib.parse.urlencode(dl_query_args)}"
-        sandbox_button_html = f"""
-        <div style="margin: 20px 0; padding: 20px; background: #f0fdf4; border: 1px solid #16a34a; border-radius: 4px; text-align: center;">
-            <p style="margin-top: 0; font-weight: 600; color: #16a34a; font-size: 14px;">Physical Delivery Flow Activated:</p>
-            <a href="{html.escape(dl_link)}" style="background: #16a34a; color: white; padding: 12px 24px; text-decoration: none; display: inline-block; border-radius: 4px; font-weight: bold; font-size: 15px;">⬇ Download & Print Final PDF</a>
-        </div>
-        """
-        success_html = success_html.replace("</p>", f"</p>{sandbox_button_html}", 1)
-    elif adobe_error_context:
-        sandbox_button_html = f"""
-        <div style="margin: 20px 0; padding: 15px; background: #f0f7ff; border: 1px solid #0078d4; border-radius: 4px; text-align: center;">
-            <p style="margin-top: 0; font-weight: 600; color: #0078d4; font-size: 14px;">Sandbox Environment Link:</p>
-            <a href="{html.escape(adobe_error_context)}" target="_blank" style="background: #107c41; color: white; padding: 10px 20px; text-decoration: none; display: inline-block; border-radius: 4px; font-weight: bold; font-size: 14px;">Open Live Signing Document</a>
-        </div>
-        """
-        success_html = success_html.replace("</p>", f"</p>{sandbox_button_html}", 1)
 
     print("Content-Type: text/html\n")
     print(success_html)

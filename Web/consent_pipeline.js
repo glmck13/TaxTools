@@ -141,11 +141,11 @@ function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaul
 
             <div class="profile-grid-layout">
                 <div class="form-field-group">
-                    <label class="field-label">Friendly Name</label>
+                    <label class="field-label">Signature Name</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required placeholder="e.g., Jack Fleisher">
                 </div>
                 <div class="form-field-group">
-                    <label class="field-label">Legal Name (For Documents)</label>
+                    <label class="field-label">Client Name</label>
                     <input type="text" name="local_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required placeholder="e.g., Jack Fleisher LLC">
                 </div>
                 <div class="form-field-group">
@@ -195,11 +195,11 @@ function renderVerifiedProfilePanel(container, addr, defaultFriendlyName, defaul
 
             <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="form-field-group">
-                    <label class="field-label" style="font-weight: 600; font-size: 13px;">Friendly Name (Override if needed)</label>
+                    <label class="field-label" style="font-weight: 600; font-size: 13px;">Signature Name (Override if needed)</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required>
                 </div>
                 <div class="form-field-group">
-                    <label class="field-label" style="font-weight: 600; font-size: 13px;">Legal Name (Document Override)</label>
+                    <label class="field-label" style="font-weight: 600; font-size: 13px;">Client Name (used in QuickBooks & SharePoint)</label>
                     <input type="text" name="local_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required>
                 </div>
             </div>

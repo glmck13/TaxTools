@@ -12,7 +12,7 @@ default text that auto-populates the "Scope Specification / Notes" table column.
 - Fee: 0
 - Migrates-From: 19
 
-Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal income tax return and 2026 state income tax return for your state of residence. We will assist with routine tax questions that do not require additional research and will assist with the preparation of federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
+Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal and state income tax return and 2026 state income tax return. We will assist with routine tax questions that do not require additional research, we will analyze the benefits of paying state taxes at the entity level and will assist with the preparation of state tax payments based on 100 or 110 percent of prior year tax liability, as applicable.  We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
 
 ## 2025 Federal & State Tax Returns
@@ -41,6 +41,8 @@ Our Services for 2024 are expected to include the following: Preparation of the 
 - ID: 44
 - Type: both
 - Fee: 0
+
+Preparation of the XX income tax return.
 
 
 ## Amended Return
@@ -142,6 +144,8 @@ Monthly services will include but not be limited to:<br/>
 - Type: both
 - Fee: 0
 
+We will also charge you for the licensing fees of $10 a month for QuickBooks Ledger. This fee will be billed annually at the beginning of the license period. Upon cancellation, a proration of any pre-billed amount will be refunded.
+
 
 ## Reimbursement for state taxes paid on your behalf
 - ID: 28
@@ -160,12 +164,8 @@ Monthly services will include but not be limited to:<br/>
 - Type: organization
 - Fee: 0
 
-Planning and Analysis related to setup of the S Corporation. This work will include the following:<br/>
-- Tax analysis and comparison operating as an S Corp, partnership or Sole proprietor <br/>
-- Preparation of necessary election to convert to S Corp, if applicable <br/>
-- Connect you with a payroll service and consultation on level of compensation in 2026 <br/>
-- Set up bookkeeping and accounting for operation as an S Corp or partnership, as needed <br/>
-- Consideration of making state tax payments at the S Corp level. <br/>
+Planning and Analysis related to setup of the S Corporation. This work will include the following: Tax analysis and comparison operating as an S Corp, partnership or Sole proprietor; Preparation of necessary election to convert to S Corp, (if applicable); Analysis of the potential to claim the qualified business Income deduction: Connect you with a payroll service and consultation on level of compensation in 2026; Consideration of making state tax payments at the S Corp level; and/or other tax consultation as needed. 
+
 
 ## Deposit Due
 - ID: 00000

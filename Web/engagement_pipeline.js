@@ -10,6 +10,19 @@ let rowCounter = 0;
 // Global Configuration
 const BATCH_THROTTLE_DELAY_MS = 500; // Pause between batch requests (in milliseconds)
 
+// Centralized Entity Classification Configuration
+const ORGANIZATION_ENTITY_TYPES = ['sm_llc', 's_corp', 'partnership', 'c_corp', 'non_profit', 'trust'];
+
+const ENTITY_DISPLAY_NAMES = {
+    'individual': 'Individual',
+    'sm_llc': 'Single Member LLC',
+    's_corp': 'S-Corporation',
+    'partnership': 'Partnership',
+    'c_corp': 'C-Corporation',
+    'non_profit': 'Tax-Exempt Org',
+    'trust': 'Trust / Estate'
+};
+
 /**
  * Utility helper to pause execution for a given duration in milliseconds.
  */
@@ -197,6 +210,7 @@ async function applyBatchBulkClonedScope() {
         urlParams.append('estimate_date_option', sourceDraft.estimate_date_option || existingDraft.estimate_date_option || 'next_year');
         urlParams.append('friendly_name', existingDraft.friendly_name || clientKey.split(' (Customer')[0]);
         urlParams.append('heal_legal_name', existingDraft.heal_legal_name || clientKey.split(' (Customer')[0]);
+        urlParams.append('heal_email', existingDraft.heal_email || targetClient.email || '');
         urlParams.append('meta_entity_type', existingDraft.meta_entity_type || targetClient.metadata.entity_type || 'individual');
         urlParams.append('meta_signature_type', existingDraft.meta_signature_type || targetClient.metadata.signature_type || 'single');
         urlParams.append('meta_co_signer_name', existingDraft.meta_co_signer_name || targetClient.metadata.co_signer_name || '');
@@ -214,6 +228,7 @@ async function applyBatchBulkClonedScope() {
         });
 
         // Copy Out-of-Scope Items from Source
+        urlParams.append('oos_submitted', 'true');
         if (sourceDraft.out_of_scope_items) {
             Object.keys(sourceDraft.out_of_scope_items).forEach(k => {
                 urlParams.append(k, sourceDraft.out_of_scope_items[k]);
@@ -341,7 +356,7 @@ function rehydrateOutOfScopeItems(oosDict, isLocked = false) {
 /**
  * Injects global hidden input fields for complete records to fulfill runtime form submission requirements.
  */
-function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr, healLegalName) {
+function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr, healLegalName, healEmail) {
     let container = document.getElementById('hidden-master-context');
     if (!container) {
         container = document.createElement('div');
@@ -360,6 +375,7 @@ function injectHiddenMasterContext(signatureType, entityType, coSignerName, addr
         <input type="hidden" name="meta_entity_type" value="${entityType || ''}">
         <input type="hidden" name="meta_co_signer_name" value="${coSignerName || ''}">
         <input type="hidden" name="heal_legal_name" value="${escapeHtml(healLegalName || '')}">
+        <input type="hidden" name="heal_email" value="${escapeHtml(healEmail || '')}">
         <input type="hidden" name="heal_street" value="${addr.street || ''}">
         <input type="hidden" name="heal_city" value="${addr.city || ''}">
         <input type="hidden" name="heal_state" value="${addr.state || ''}">
@@ -421,6 +437,7 @@ function onClientChange() {
     const healData = hasPreservedHeal ? window.preservedHealData : draftData;
 
     const defaultLegalName = healData.heal_legal_name || rawCustomerName;
+    const effectiveEmail = healData.heal_email || draftData.heal_email || clientRecord.email || '';
 
     // Render locked banner if agreement was already dispatched
     if (isLocked && lockBannerContainer) {
@@ -443,10 +460,10 @@ function onClientChange() {
     if (profileContainer) {
         profileContainer.style.display = 'block';
         if (isProfileIncomplete) {
-            renderEditableProfilePanel(profileContainer, address, metadata, rawCustomerName, defaultLegalName, clientRecord.email);
+            renderEditableProfilePanel(profileContainer, address, metadata, rawCustomerName, defaultLegalName, effectiveEmail);
         } else {
-            renderReadOnlyProfilePanel(profileContainer, address, metadata, rawCustomerName, defaultLegalName, clientRecord.email);
-            injectHiddenMasterContext(metadata.signature_type, metadata.entity_type, metadata.co_signer_name, address, defaultLegalName);
+            renderReadOnlyProfilePanel(profileContainer, address, metadata, rawCustomerName, defaultLegalName, effectiveEmail, isLocked);
+            injectHiddenMasterContext(metadata.signature_type, metadata.entity_type, metadata.co_signer_name, address, defaultLegalName, effectiveEmail);
         }
     }
 
@@ -466,7 +483,7 @@ function onClientChange() {
     }
 
     // Populate preserved field states
-    ['friendly_name', 'heal_legal_name', 'heal_street', 'heal_city', 'heal_state', 'heal_zip', 'meta_co_signer_name'].forEach(fieldName => {
+    ['friendly_name', 'heal_legal_name', 'heal_email', 'heal_street', 'heal_city', 'heal_state', 'heal_zip', 'meta_co_signer_name'].forEach(fieldName => {
         const input = document.querySelector(`input[name="${fieldName}"]`);
         if (input && healData[fieldName]) input.value = healData[fieldName];
     });
@@ -509,7 +526,7 @@ function onClientChange() {
 }
 
 /**
- * Renders the editable data correction form layout.
+ * Renders the editable data correction form layout (Logical Hierarchy Order).
  */
 function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail) {
     const coSignerEmailVal = meta.signature_type && meta.signature_type.includes('@') ? meta.signature_type : '';
@@ -523,21 +540,39 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
                 Submitting this form will permanently heal the customer record before establishing the Estimate.
             </p>
 
-            <div style="margin-bottom: 15px; padding: 10px; background: #fffcf5; border-left: 3px solid #b76200; font-size: 13px;">
-                <strong>Adobe Sign Target Destination:</strong> 
-                <span style="font-family: monospace; color: #222;">${clientEmail ? clientEmail : '<span style="color: #e53e3e; font-weight: bold;">⚠️ MISSING EMAIL IN QBO!</span>'}</span>
-            </div>
-
             <input type="hidden" name="heal_profile_flag" value="true">
-            <div class="profile-grid-layout profile-editable-grid">
+            
+            <!-- TIER 1: CORE ACCOUNT IDENTITY (4 TOP-OF-MIND ITEMS) -->
+            <div class="profile-editable-grid-top">
                 <div class="form-field-group">
-                    <label class="field-label">Friendly Name</label>
+                    <label class="field-label">Client Name (QBO/SharePoint)</label>
+                    <input type="text" name="heal_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required placeholder="e.g., Susan Smith LLC">
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label">Signature Name</label>
                     <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" required placeholder="e.g., Susan Smith">
                 </div>
                 <div class="form-field-group">
-                    <label class="field-label">Legal Name (For Documents)</label>
-                    <input type="text" name="heal_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" required placeholder="e.g., Susan Smith LLC">
+                    <label class="field-label">Engagement Email</label>
+                    <input type="email" name="heal_email" value="${escapeHtml(clientEmail || '')}" required placeholder="client@example.com">
                 </div>
+                <div class="form-field-group">
+                    <label class="field-label">Account Classification</label>
+                    <select name="meta_entity_type" id="heal_entity_type" onchange="onProfileEntityChange()" required>
+                        <option value="">-- Choose Classification --</option>
+                        <option value="individual" ${meta.entity_type === 'individual' ? 'selected' : ''}>Individual (Form 1040)</option>
+                        <option value="sm_llc" ${meta.entity_type === 'sm_llc' ? 'selected' : ''}>Single Member LLC (Schedule C)</option>
+                        <option value="s_corp" ${meta.entity_type === 's_corp' ? 'selected' : ''}>S-Corporation (Form 1120S)</option>
+                        <option value="partnership" ${meta.entity_type === 'partnership' ? 'selected' : ''}>Partnership (Form 1065)</option>
+                        <option value="c_corp" ${meta.entity_type === 'c_corp' ? 'selected' : ''}>C-Corporation (Form 1120)</option>
+                        <option value="non_profit" ${meta.entity_type === 'non_profit' ? 'selected' : ''}>Tax-Exempt Org (Form 990)</option>
+                        <option value="trust" ${meta.entity_type === 'trust' ? 'selected' : ''}>Trust / Estate (Form 1041)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- TIER 2: LOCATION METADATA -->
+            <div class="profile-editable-grid-middle">
                 <div class="form-field-group">
                     <label class="field-label">Street Address</label>
                     <input type="text" name="heal_street" value="${escapeHtml(addr.street)}" required placeholder="e.g., 123 Main St">
@@ -554,18 +589,10 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
                     <label class="field-label">Zip Code</label>
                     <input type="text" name="heal_zip" value="${escapeHtml(addr.zip)}" required placeholder="76102">
                 </div>
-                <div class="form-field-group">
-                    <label class="field-label">Account Classification</label>
-                    <select name="meta_entity_type" id="heal_entity_type" onchange="onProfileEntityChange()" required>
-                        <option value="">-- Choose Classification --</option>
-                        <option value="individual" ${meta.entity_type === 'individual' ? 'selected' : ''}>Individual (Form 1040)</option>
-                        <option value="s_corp" ${meta.entity_type === 's_corp' ? 'selected' : ''}>S-Corporation (Form 1120S)</option>
-                        <option value="partnership" ${meta.entity_type === 'partnership' ? 'selected' : ''}>Partnership (Form 1065)</option>
-                        <option value="c_corp" ${meta.entity_type === 'c_corp' ? 'selected' : ''}>C-Corporation (Form 1120)</option>
-                        <option value="non_profit" ${meta.entity_type === 'non_profit' ? 'selected' : ''}>Tax-Exempt Org (Form 990)</option>
-                        <option value="trust" ${meta.entity_type === 'trust' ? 'selected' : ''}>Trust / Estate (Form 1041)</option>
-                    </select>
-                </div>
+            </div>
+
+            <!-- TIER 3: SECONDARY INVESTIGATION / ADDITIONAL SIGNER -->
+            <div class="profile-editable-grid-bottom">
                 <div class="form-field-group">
                     <label class="field-label">Additional Signer Full Name</label>
                     <input type="text" name="meta_co_signer_name" value="${escapeHtml(coSignerNameVal)}" placeholder="e.g., Jane Doe">
@@ -580,46 +607,60 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
 }
 
 /**
- * Renders an immutable read-only view block when customer parameters are satisfied.
+ * Renders a complete profile view (Logical Hierarchy Order) with greyed-out read-only inputs.
  */
-function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail) {
+function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail, isLocked = false) {
     const formattedAddress = `${addr.street || ''}, ${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`;
-    const displayMap = {
-        'individual': 'Individual',
-        's_corp': 'S-Corporation',
-        'partnership': 'Partnership',
-        'c_corp': 'C-Corporation',
-        'non_profit': 'Tax-Exempt Org',
-        'trust': 'Trust / Estate'
-    };
-    const displayClassification = displayMap[meta.entity_type] || meta.entity_type || 'Individual';
-    const isOrg = ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust'].includes(meta.entity_type);
-    const coSignerDisplayName = meta.co_signer_name ? `${meta.co_signer_name} (${meta.signature_type})` : meta.signature_type;
+    const displayClassification = ENTITY_DISPLAY_NAMES[meta.entity_type] || meta.entity_type || 'Individual';
+    const isOrg = ORGANIZATION_ENTITY_TYPES.includes(meta.entity_type);
+    const coSignerDisplayName = meta.co_signer_name ? `${meta.co_signer_name} (${meta.signature_type})` : (meta.signature_type && meta.signature_type.includes('@') ? meta.signature_type : 'Single Signer');
+    
+    // Always apply readonly attribute in the verified display panel
+    const readonlyAttr = 'readonly tabindex="-1"';
 
     container.innerHTML = `
         <div class="profile-card profile-card-complete">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <div class="profile-card-title" style="color: #107c41; margin-bottom: 0;">✓ Customer Profile Verified</div>
-                <button type="button" class="btn-add-row btn-edit-profile" onclick="toggleProfileEditMode()" style="font-size: 12px; padding: 4px 10px;">✏️ Edit Profile Parameters</button>
+                ${isLocked ? '' : '<button type="button" class="btn-add-row btn-edit-profile" onclick="toggleProfileEditMode()" style="font-size: 12px; padding: 4px 10px;">✏️ Edit Profile Parameters</button>'}
             </div>
-            <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            
+            <!-- TIER 1: CORE ACCOUNT IDENTITY GRID (4 COLUMNS - GREYED OUT READONLY) -->
+            <div class="profile-editable-grid-top" style="margin-bottom: 12px;">
                 <div class="form-field-group">
-                    <label class="field-label" style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Friendly Name (Override text if needed)</label>
-                    <input type="text" name="friendly_name" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;" required>
+                    <label class="field-label">Client Name (QBO/SharePoint)</label>
+                    <input type="text" name="heal_legal_name" class="read-only-input" value="${escapeHtml(unescapeHtml(defaultLegalName))}" ${readonlyAttr}>
                 </div>
                 <div class="form-field-group">
-                    <label class="field-label" style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">Legal Name (Document Override)</label>
-                    <input type="text" name="heal_legal_name" value="${escapeHtml(unescapeHtml(defaultLegalName))}" style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;" required>
+                    <label class="field-label">Signature Name</label>
+                    <input type="text" name="friendly_name" class="read-only-input" value="${escapeHtml(unescapeHtml(defaultFriendlyName))}" ${readonlyAttr}>
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label">Engagement Email</label>
+                    <input type="email" name="heal_email" class="read-only-input" value="${escapeHtml(clientEmail || '')}" ${readonlyAttr}>
+                </div>
+                <div class="form-field-group">
+                    <label class="field-label">Account Classification</label>
+                    <div style="padding-top: 6px;">
+                        <span class="badge ${isOrg ? 'badge-organization' : 'badge-individual'}">${escapeHtml(displayClassification)}</span>
+                    </div>
                 </div>
             </div>
-            <div class="profile-grid-layout markdown-verified-grid">
-                <div><strong>Billing Address:</strong><br><span style="color:#555;">${escapeHtml(formattedAddress)}</span></div>
-                <div><strong>Email:</strong><br><span style="color:#555; font-family: monospace; font-size: 12px;">${clientEmail ? escapeHtml(clientEmail) : '[None Sourced]'}</span></div>
-                <div><strong>Classification:</strong><br><span class="badge ${isOrg ? 'badge-organization' : 'badge-individual'}">${escapeHtml(displayClassification)}</span></div>
-                <div><strong>Signature Grid:</strong><br><span style="color:#555;">${meta.signature_type && meta.signature_type.includes('@') ? 'Additional Signer: ' + escapeHtml(coSignerDisplayName) : 'Single Signer'}</span></div>
+
+            <!-- TIER 2 & TIER 3: LOCATION METADATA & CO-SIGNER GRID -->
+            <div class="verified-bottom-grid">
+                <div>
+                    <strong style="font-size: 12px; color: #4a5568;">Billing Address:</strong><br>
+                    <span style="color:#555; font-size: 13px;">${escapeHtml(formattedAddress)}</span>
+                </div>
+                <div>
+                    <strong style="font-size: 12px; color: #4a5568;">Signature Grid:</strong><br>
+                    <span style="color:#555; font-size: 13px;">${meta.signature_type && meta.signature_type.includes('@') ? 'Additional Signer: ' + escapeHtml(coSignerDisplayName) : 'Single Signer'}</span>
+                </div>
             </div>
+
             <p style="margin: 12px 0 0 0; font-size: 11px; color: #888; font-style: italic;">
-                To alter verified master address or classification properties, modify the customer card directly within the QuickBooks Online dashboard interface or click Edit Profile Parameters above.
+                Modifying the Engagement Email above updates Adobe Sign target delivery for this agreement without changing QuickBooks Online master customer records.
             </p>
         </div>
     `;
@@ -637,6 +678,7 @@ function toggleProfileEditMode() {
     const record = window.clientData[selectedClient];
     const friendlyInput = document.querySelector('input[name="friendly_name"]');
     const legalInput = document.querySelector('input[name="heal_legal_name"]');
+    const emailInput = document.querySelector('input[name="heal_email"]');
     
     const rawText = selectEl.value || (selectEl.options && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex].text : '');
     const rawOptionText = unescapeHtml(rawText);
@@ -644,8 +686,9 @@ function toggleProfileEditMode() {
 
     const defaultFriendlyName = friendlyInput ? friendlyInput.value : rawCustomerName;
     const defaultLegalName = legalInput ? legalInput.value : rawCustomerName;
+    const defaultEmail = emailInput ? emailInput.value : (record.email || '');
 
-    renderEditableProfilePanel(container, record.address || {}, record.metadata || {}, defaultFriendlyName, defaultLegalName, record.email);
+    renderEditableProfilePanel(container, record.address || {}, record.metadata || {}, defaultFriendlyName, defaultLegalName, defaultEmail);
     
     const healFlagInput = container.querySelector('input[name="heal_profile_flag"]');
     if (healFlagInput) healFlagInput.value = "true";
@@ -668,7 +711,7 @@ function onProfileEntityChange() {
         window.clientData[selectedClient].metadata.entity_type = currentRawEntity;
     }
 
-    const currentContextType = ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust'].includes(currentRawEntity) ? 'organization' : 'individual';
+    const currentContextType = ORGANIZATION_ENTITY_TYPES.includes(currentRawEntity) ? 'organization' : 'individual';
 
     document.querySelectorAll('input[name="selected_rows"]').forEach(r => {
         const id = r.value;
@@ -710,7 +753,7 @@ function addServiceRow(rowData = null, isLocked = false) {
         currentRawEntity = window.clientData[selectedClient].metadata.entity_type.toLowerCase();
     }
 
-    const currentContextType = ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust'].includes(currentRawEntity) ? 'organization' : 'individual';
+    const currentContextType = ORGANIZATION_ENTITY_TYPES.includes(currentRawEntity) ? 'organization' : 'individual';
 
     rowCounter++;
     const currentId = rowCounter;
@@ -826,7 +869,7 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
             const meta = window.clientData[selectedClient].metadata || {};
             currentRawEntity = (meta.entity_type || 'individual').toLowerCase();
         }
-        resolvedType = ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust'].includes(currentRawEntity) ? 'organization' : 'individual';
+        resolvedType = ORGANIZATION_ENTITY_TYPES.includes(currentRawEntity) ? 'organization' : 'individual';
     }
 
     if (bpInput) bpInput.value = resolvedType;
@@ -957,7 +1000,7 @@ function renderBatchTableGrid() {
         const street = draft.heal_street || clientAddr.street || '';
         const city = draft.heal_city || clientAddr.city || '';
         const entityType = draft.meta_entity_type || meta.entity_type;
-        const email = client.email;
+        const email = draft.heal_email || client.email;
 
         // Comprehensive Readiness Evaluation:
         // 1. JSON Exists: draft object must exist and contain at least one valid row
@@ -1065,6 +1108,7 @@ async function toggleClientDeliveryFormat(qboId) {
     const draft = client.saved_draft;
     urlParams.append('friendly_name', draft.friendly_name || '');
     urlParams.append('heal_legal_name', draft.heal_legal_name || '');
+    urlParams.append('heal_email', draft.heal_email || client.email || '');
     urlParams.append('meta_entity_type', draft.meta_entity_type || 'individual');
     urlParams.append('meta_signature_type', draft.meta_signature_type || 'single');
     urlParams.append('meta_co_signer_name', draft.meta_co_signer_name || '');
@@ -1081,6 +1125,7 @@ async function toggleClientDeliveryFormat(qboId) {
         });
     }
 
+    urlParams.append('oos_submitted', 'true');
     if (draft.out_of_scope_items) {
         Object.keys(draft.out_of_scope_items).forEach(k => {
             urlParams.append(k, draft.out_of_scope_items[k]);
@@ -1257,6 +1302,7 @@ async function closeBatchEditModal() {
 
         const friendlyInput = document.querySelector('input[name="friendly_name"]');
         const legalInput = document.querySelector('input[name="heal_legal_name"]');
+        const emailInput = document.querySelector('input[name="heal_email"]');
         const entitySelect = document.querySelector('select[name="meta_entity_type"]');
         const sigInput = document.querySelector('input[name="meta_additional_signer"]');
         const coSignerInput = document.querySelector('input[name="meta_co_signer_name"]');
@@ -1268,6 +1314,7 @@ async function closeBatchEditModal() {
 
         if (friendlyInput) urlParams.append('friendly_name', friendlyInput.value);
         if (legalInput) urlParams.append('heal_legal_name', legalInput.value);
+        if (emailInput) urlParams.append('heal_email', emailInput.value);
         if (entitySelect) urlParams.append('meta_entity_type', entitySelect.value);
         if (sigInput) urlParams.append('meta_additional_signer', sigInput.value);
         if (coSignerInput) urlParams.append('meta_co_signer_name', coSignerInput.value);
@@ -1302,6 +1349,7 @@ async function closeBatchEditModal() {
         });
 
         // Gather Out-of-Scope Items
+        urlParams.append('oos_submitted', 'true');
         const oosContainer = document.getElementById('out-of-scope-checklist-container');
         if (oosContainer) {
             oosContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
@@ -1397,6 +1445,7 @@ async function executeBatchPipelineSubmission() {
 
         urlParams.append('friendly_name', draft.friendly_name || '');
         urlParams.append('heal_legal_name', draft.heal_legal_name || '');
+        urlParams.append('heal_email', draft.heal_email || client.email || '');
         urlParams.append('meta_entity_type', draft.meta_entity_type || 'individual');
         urlParams.append('meta_signature_type', draft.meta_signature_type || 'single');
         urlParams.append('meta_co_signer_name', draft.meta_co_signer_name || '');
@@ -1413,6 +1462,7 @@ async function executeBatchPipelineSubmission() {
             });
         }
 
+        urlParams.append('oos_submitted', 'true');
         if (draft.out_of_scope_items) {
             Object.keys(draft.out_of_scope_items).forEach(k => {
                 urlParams.append(k, draft.out_of_scope_items[k]);
@@ -1503,6 +1553,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const clientRecord = window.clientData[clientSelect.value];
             if (clientRecord && clientRecord.saved_draft && clientRecord.saved_draft.is_locked) return true;
+
+            const primaryEmailInput = document.querySelector('input[name="heal_email"]');
+            if (primaryEmailInput && primaryEmailInput.value.trim() !== "") {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(primaryEmailInput.value.trim())) {
+                    alert("Please enter a valid primary engagement email address.");
+                    e.preventDefault();
+                    return false;
+                }
+            }
 
             const addSignerInput = document.querySelector('input[name="meta_additional_signer"]');
             const coSignerNameInput = document.querySelector('input[name="meta_co_signer_name"]');
