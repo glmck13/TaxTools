@@ -371,6 +371,53 @@ def extract_out_of_scope_dict(form, existing_draft_oos=None):
 
     return oos_dict
 
+def populate_form_from_disk_draft(form, c_id, eng_id):
+    """Rehydrates form fields directly from the saved JSON draft file on disk."""
+    draft_path = get_draft_file_path(c_id, eng_id)
+    if not os.path.exists(draft_path):
+        return form
+
+    try:
+        with open(draft_path, "r", encoding="utf-8") as df:
+            disk_draft = json.load(df)
+
+        p_signer = disk_draft.get("primary_signer", {}) if isinstance(disk_draft.get("primary_signer"), dict) else {}
+        co_signer = disk_draft.get("co_signer", {}) if isinstance(disk_draft.get("co_signer"), dict) else {}
+        b_addr = disk_draft.get("billing_address", {}) if isinstance(disk_draft.get("billing_address"), dict) else {}
+
+        form["friendly_name"] = [p_signer.get("friendly_name", "")]
+        form["legal_name"] = [p_signer.get("legal_name", "")]
+        form["primary_signer_email"] = [p_signer.get("email", "")]
+
+        form["street"] = [b_addr.get("street", "")]
+        form["city"] = [b_addr.get("city", "")]
+        form["state"] = [b_addr.get("state", "")]
+        form["zip"] = [b_addr.get("zip", "")]
+
+        form["entity_type"] = [disk_draft.get("entity_type", "individual")]
+        form["co_signer_email"] = [co_signer.get("email", "")]
+        form["co_signer_name"] = [co_signer.get("name", "")]
+
+        if disk_draft.get("rows"):
+            form["selected_rows"] = []
+            for idx, r in enumerate(disk_draft["rows"]):
+                rid = str(idx + 1)
+                form["selected_rows"].append(rid)
+                form[f"row_item_id_{rid}"] = [r.get("item_id", "")]
+                form[f"row_service_{rid}"] = [r.get("service", "")]
+                form[f"row_fee_{rid}"] = [sanitize_fee_int(r.get("fee", 0))]
+                form[f"row_notes_{rid}"] = [r.get("notes", "")]
+                form[f"row_bp_{rid}"] = [r.get("bp", "individual")]
+
+        if "out_of_scope_items" in disk_draft and isinstance(disk_draft["out_of_scope_items"], dict):
+            form["oos_submitted"] = ["true"]
+            for k, v in disk_draft["out_of_scope_items"].items():
+                form[k] = [v]
+    except Exception as ex:
+        print(f"DEBUG: Disk draft rehydration error for {c_id}_{eng_id}: {str(ex)}", file=sys.stderr)
+
+    return form
+
 def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
     url = f"{ADOBE_APIBASE}/{endpoint}"
     headers = {"Authorization": f"Bearer {ADOBE_TOKEN}"}
@@ -440,7 +487,7 @@ def submit_adobe_sign_transaction(client_qbo_id, engagement_id, estimate_id, pdf
                 "role": "SIGNER"
             })
 
-        external_meta = { "doc_type": f"Tax Agreement {TAX_YEAR}", "qbo_id": str(client_qbo_id), "engagement_id": str(engagement_id) }
+        external_meta = { "doc_type": "Tax Agreement", "qbo_id": str(client_qbo_id), "engagement_id": str(engagement_id) }
 
         agreement_payload = {
             "fileInfos": [{"transientDocumentId": transient_id}],
@@ -1352,21 +1399,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     is_org_type = entity_type.lower() in ORGANIZATION_ENTITY_TYPES
 
-    # STREAMLINED OUT-OF-SCOPE LOGIC
     posted_oos_dict = extract_out_of_scope_dict(form)
-    oos_submitted = get_form_val(form, "oos_submitted") == "true"
-
-    if not oos_submitted or posted_oos_dict is None:
-        try:
-            c_id = extract_qbo_id(raw_client_name)
-            eng_id = get_form_val(form, "engagement_id", "0")
-            draft_path = get_draft_file_path(c_id, eng_id)
-            if os.path.exists(draft_path):
-                with open(draft_path, "r", encoding="utf-8") as df:
-                    disk_draft = json.load(df)
-                    posted_oos_dict = disk_draft.get("out_of_scope_items")
-        except Exception:
-            pass
 
     out_of_scope_list = list(posted_oos_dict.values()) if isinstance(posted_oos_dict, dict) else None
     
@@ -1585,44 +1618,7 @@ def handle_render_live_pdf(form):
     if raw_client_val and eng_id != "0":
         try:
             c_id = extract_qbo_id(raw_client_val)
-            draft_path = get_draft_file_path(c_id, eng_id)
-            if os.path.exists(draft_path):
-                with open(draft_path, "r", encoding="utf-8") as df:
-                    disk_draft = json.load(df)
-                    
-                p_signer = disk_draft.get("primary_signer", {}) if isinstance(disk_draft.get("primary_signer"), dict) else {}
-                co_signer = disk_draft.get("co_signer", {}) if isinstance(disk_draft.get("co_signer"), dict) else {}
-                b_addr = disk_draft.get("billing_address", {}) if isinstance(disk_draft.get("billing_address"), dict) else {}
-
-                form["friendly_name"] = [p_signer.get("friendly_name", "")]
-                form["legal_name"] = [p_signer.get("legal_name", "")]
-                form["primary_signer_email"] = [p_signer.get("email", "")]
-                
-                form["street"] = [b_addr.get("street", "")]
-                form["city"] = [b_addr.get("city", "")]
-                form["state"] = [b_addr.get("state", "")]
-                form["zip"] = [b_addr.get("zip", "")]
-                
-                form["entity_type"] = [disk_draft.get("entity_type", "individual")]
-                
-                form["co_signer_email"] = [co_signer.get("email", "")]
-                form["co_signer_name"] = [co_signer.get("name", "")]
-                
-                if disk_draft.get("rows"):
-                    form["selected_rows"] = []
-                    for idx, r in enumerate(disk_draft["rows"]):
-                        rid = str(idx + 1)
-                        form["selected_rows"].append(rid)
-                        form[f"row_item_id_{rid}"] = [r.get("item_id", "")]
-                        form[f"row_service_{rid}"] = [r.get("service", "")]
-                        form[f"row_fee_{rid}"] = [sanitize_fee_int(r.get("fee", 0))]
-                        form[f"row_notes_{rid}"] = [r.get("notes", "")]
-                        form[f"row_bp_{rid}"] = [r.get("bp", "individual")]
-                        
-                if "out_of_scope_items" in disk_draft and isinstance(disk_draft["out_of_scope_items"], dict):
-                    form["oos_submitted"] = ["true"]
-                    for k, v in disk_draft["out_of_scope_items"].items():
-                        form[k] = [v]
+            form = populate_form_from_disk_draft(form, c_id, eng_id)
         except Exception as ex:
             print(f"DEBUG: Preview disk draft read error: {str(ex)}", file=sys.stderr)
 
@@ -1632,7 +1628,15 @@ def handle_render_live_pdf(form):
 
 def handle_download_pdf(form, prefix="DRAFT"):
     raw_client_val = get_form_val(form, "client_name", "Unknown Client")
-    
+    eng_id = get_form_val(form, "engagement_id", "0")
+
+    if raw_client_val and eng_id != "0":
+        try:
+            c_id = extract_qbo_id(raw_client_val)
+            form = populate_form_from_disk_draft(form, c_id, eng_id)
+        except Exception as ex:
+            print(f"DEBUG: Download PDF disk draft read error: {str(ex)}", file=sys.stderr)
+
     clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
     clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
     clean_client_title = clean_client_title.split(' — ')[0].strip()
@@ -1859,30 +1863,10 @@ def execute_transactional_pipeline(form):
         return
 
     dl_query_args = [
-        ("action", "download_final_pdf"), ("estimate_id", estimate_id),
-        ("client_name", raw_client_val), ("engagement_id", eng_id),
-        ("friendly_name", friendly_name), ("legal_name", legal_name), 
-        ("primary_signer_email", effective_primary_email), ("delivery_method", "paper"), 
-        ("profile_verified", "false"),
-        ("co_signer_email", co_signer_email),
-        ("co_signer_name", co_signer_name),
-        ("entity_type", entity_type)
+        ("action", "download_final_pdf"),
+        ("client_name", raw_client_val),
+        ("engagement_id", eng_id)
     ]
-    
-    posted_oos_dict = extract_out_of_scope_dict(form)
-    if isinstance(posted_oos_dict, dict):
-        for k, v in posted_oos_dict.items():
-            dl_query_args.append((k, v))
-
-    for rid in row_ids:
-        dl_query_args.append(("selected_rows", rid))
-        dl_query_args.extend([
-            (f"row_item_id_{rid}", get_form_val(form, f"row_item_id_{rid}")),
-            (f"row_service_{rid}", get_form_val(form, f"row_service_{rid}")),
-            (f"row_fee_{rid}", sanitize_fee_int(get_form_val(form, f"row_fee_{rid}"))),
-            (f"row_notes_{rid}", get_form_val(form, f"row_notes_{rid}")),
-            (f"row_bp_{rid}", get_form_val(form, f"row_bp_{rid}", "individual"))
-        ])
         
     paper_dl_link = f"{SCRIPT_URL}?{urllib.parse.urlencode(dl_query_args)}"
 
