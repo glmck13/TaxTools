@@ -26,10 +26,13 @@ The Scope of Services is expected to include the following:
 {{DYNAMIC_SERVICES_TEXT}}
 
 Tax services in addition to those described above and/or in addition to those provided in the prior year will be charged based on the time incurred at our agreed upon hourly rates:
-{% if out_of_scope_items %}
+
+{% if out_of_scope_items is not none %}
+{% if out_of_scope_items|length > 0 %}
 {% for item in out_of_scope_items %}
 * {{ item }}
 {% endfor %}
+{% endif %}
 {% else %}
 * Additional state returns
 * Additional Schedule K-1's or new rental properties or sales
@@ -49,7 +52,7 @@ This document establishes the terms under which Tarrant Advisors LLC will render
 4. You agree to provide all needed information with your tax organizer. Please include all W-2's, 1099's and summary year-end statements from your securities accounts and other tax return information, as applicable. Please provide K-1's as soon as received.
 5. You agree to respond to our written request for missing information in a timely manner <b>in writing via e-mail, fax or regular mail</b>.
 6. <b>You agree to review your returns carefully before signing and submitting Form 8879</b>. We will e-file your returns as soon as possible after receipt of your signed Form 8879. WE ENCOURAGE THE USE OF ADOBE SIGN FOR EXPEDITING THE REVIEW AND TAX FILING.
-7. <b>We do not file extensions unless you ask us to do so. If you want us to file an extension, contact us by April 1, {{NEXT_YEAR}}. <i><u>Filing an extension does not relieve you of the obligation to pay all of your taxes by April 15, {{NEXT_YEAR}}</u></i></b> (it is an EXTENSION of time to FILE - not an extension of time to PAY). Penalties will apply to any substantial payments made after that date. Extension payments can be made electronically as long as we have your bank information. If your return is extended, you agree to provide all necessary information to complete your return as soon as available but no later than September 1, {{NEXT_YEAR}}, or you may be charged additional fees. Final returns are due by October 15th, and it is your responsibility to ensure we have all the required documentation to enable us to prepare and file your returns prior to this deadline.
+7. <b>We do not file extensions unless you ask us to do so. If you want us to file an extension, contact us by April 1, {{NEXT_YEAR}}. <i><u>Filing an extension does not relieve you of the obligation to pay all of your taxes by April 15, {{NEXT_YEAR}}</u></i></b> (it is an EXTENSION of time to FILE - not an extension of time to PAY). Penalties will apply to any substantial payments made after that date. Extension payments can be made electronically as long as we have your bank information. If your return is extended, you agree to provide all necessary information to complete your return as soon as available but no later than September 15, {{NEXT_YEAR}}, or you may be charged additional fees. Final returns are due by October 15th, and it is your responsibility to ensure we have all the required documentation to enable us to prepare and file your returns prior to this deadline.
 8. You are aware of IRS record keeping and documentation requirements and represent that you have the necessary records required. We do not audit or verify information, but we may ask for additional clarification.
 9. In the event your return is selected for audit, it will be your responsibility to produce documentation, records, and other evidence to substantiate items you claimed as income and/or deductions. We can serve as your representative at our agreed upon hourly rates.
 10. You are responsible for penalties on underpayment, late filing, late payment and interest. If you are assessed a penalty because of <b><i>our error</i></b> and we cannot get the penalty abated, we will reimburse you or credit your account at your option for penalties. Generally, interest will not be reimbursed. Any liability of Tarrant Advisors LLC for penalty reimbursement and any other claim related to the Services will be limited to 3 times the fees paid by Client related to the Services performed under this Agreement.

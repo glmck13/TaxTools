@@ -56,8 +56,18 @@ select {
 }
 
 /* ==========================================================================
-   PROFILE HEALING & LOCK CONTAINERS (DYNAMIC INJECTION)
+   ENGAGEMENT TITLE & PROFILE CONTAINERS (DYNAMIC INJECTION)
    ========================================================================== */
+.engagement-title-card {
+    background: #f8fafc;
+    border: 1px solid #cbd5e0;
+    border-left: 4px solid #0078d4;
+    padding: 16px;
+    border-radius: 6px;
+    margin-bottom: 25px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+}
+
 .profile-card {
     padding: 20px;
     border-radius: 6px;
@@ -120,6 +130,11 @@ select {
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
     margin-bottom: 15px;
+}
+
+/* Force Engagement Title to span the entire top row */
+.engagement-title-group {
+    grid-column: 1 / -1;
 }
 
 .profile-editable-grid-middle {
@@ -291,6 +306,12 @@ select {
 .badge-organization {
     background: #faf5ff;
     color: #553c9a;
+}
+
+.badge-new {
+    background: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
 }
 
 /* Footer Financial Calculation Styles */

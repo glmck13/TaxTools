@@ -14,7 +14,6 @@ import stat
 
 from jinja2 import Template
 
-# ReportLab Layout Engine & Platypus Flowable Components
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image
@@ -26,7 +25,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 PIPELINE_SANDBOX = os.environ.get("PIPELINE_SANDBOX")
 if PIPELINE_SANDBOX:
-    ENABLE_BATCH_MODE = False # Set to True when ready to expose/bill batch capabilities
+    ENABLE_BATCH_MODE = True
     JS_FILE = "engagement_sandbox.js"
     CSS_FILE = "engagement_sandbox.css"
     ENGAGEMENT_TEMPLATE = "engagement_sandbox.md"
@@ -37,7 +36,7 @@ if PIPELINE_SANDBOX:
     CARBON_COPIES = []
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox"
 else:
-    ENABLE_BATCH_MODE = False  # Set to True when ready to expose/bill batch capabilities
+    ENABLE_BATCH_MODE = False
     JS_FILE = "engagement_pipeline.js"
     CSS_FILE = "engagement_pipeline.css"
     ENGAGEMENT_TEMPLATE = "engagement_template.md"
@@ -59,7 +58,6 @@ QBO_TOKEN = os.environ.get("QBO_ACCESS_TOKEN", "")
 ADOBE_APIBASE = os.environ.get("ADOBE_APIBASE", "")
 ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
 
-# Centralized Organization Entity Classification Config
 ORGANIZATION_ENTITY_TYPES = {
     "sm_llc",
     "s_corp",
@@ -70,11 +68,23 @@ ORGANIZATION_ENTITY_TYPES = {
     "organization",
 }
 
-# ==========================================
-# CACHE BUSTING ASSET HELPER
-# ==========================================
+TAG_NEW   = "[+] "
+TAG_DRAFT = "[D] "
+TAG_FINAL = "[F] "
+
+def sanitize_fee_int(raw_fee):
+    """Converts any fee input ('$1,000.00', '1000.00', 1000) directly to a clean integer."""
+    if raw_fee is None:
+        return 0
+    clean_str = str(raw_fee).replace('$', '').replace(',', '').strip()
+    if not clean_str:
+        return 0
+    try:
+        return int(round(float(clean_str)))
+    except (ValueError, TypeError):
+        return 0
+
 def get_asset_url(filename):
-    """Generates an asset URL appended with a file modification timestamp query parameter."""
     subfolder = "js" if filename.endswith(".js") else "css"
     filepath = os.path.join(os.environ.get("DOCUMENT_ROOT", "."), subfolder, filename)
     if os.path.exists(filepath):
@@ -82,11 +92,7 @@ def get_asset_url(filename):
         return f"{filename}?v={mtime}"
     return f"{filename}?v={int(time.time())}"
 
-# ==========================================
-# FORM DATA EXTRACTION & AJAX DETECTION HELPERS
-# ==========================================
 def get_form_val(form, key, default=""):
-    """Safely extracts a string value from form data dictionary regardless of list wrapping."""
     if not form or key not in form:
         return default
     val = form[key]
@@ -95,7 +101,6 @@ def get_form_val(form, key, default=""):
     return str(val) if val is not None else default
 
 def get_form_list(form, key):
-    """Safely extracts a list of values from form data dictionary."""
     if not form or key not in form:
         return []
     val = form[key]
@@ -104,13 +109,11 @@ def get_form_list(form, key):
     return [str(val)]
 
 def is_ajax_request(form):
-    """Combo detection: Checks HTTP_X_REQUESTED_WITH header or explicit ajax=true form/query parameter."""
     header_ajax = os.environ.get("HTTP_X_REQUESTED_WITH", "").lower() == "xmlhttprequest"
     param_ajax = get_form_val(form, "ajax", "false").lower() in ["true", "1", "yes"]
     return header_ajax or param_ajax
 
 def render_pipeline_error(form, error_msg, http_code=400):
-    """Context-aware error handler: returns JSON for AJAX requests, HTML for direct POSTs."""
     if is_ajax_request(form):
         status_header = "400 Bad Request" if http_code == 400 else "500 Internal Server Error"
         print(f"Status: {status_header}")
@@ -119,11 +122,25 @@ def render_pipeline_error(form, error_msg, http_code=400):
         return
     render_phase1_workspace(error_msg=error_msg)
 
-# ==========================================
-# POSIX FILE PERMISSION HELPERS
-# ==========================================
+def get_draft_file_path(qbo_id, engagement_id):
+    return os.path.join(DRAFTS_DIR, f"{qbo_id}_{engagement_id}.json")
+
+def allocate_next_engagement_id(qbo_id):
+    os.makedirs(DRAFTS_DIR, exist_ok=True)
+    existing_ids = []
+    prefix = f"{qbo_id}_"
+    
+    for filename in os.listdir(DRAFTS_DIR):
+        if filename.startswith(prefix) and filename.endswith(".json"):
+            eng_part = filename[len(prefix):-5]
+            if eng_part.isdigit():
+                existing_ids.append(int(eng_part))
+                
+    if not existing_ids:
+        return "1"
+    return str(max(existing_ids) + 1)
+
 def is_draft_locked(draft_path):
-    """Checks if draft exists and has revoked write permissions (chmod ug-w)."""
     if not os.path.exists(draft_path):
         return False, None
     st = os.stat(draft_path)
@@ -132,24 +149,20 @@ def is_draft_locked(draft_path):
     return is_readonly, mtime_str
 
 def lock_draft(draft_path):
-    """Revokes user and group write permissions on draft (chmod ug-w)."""
     if os.path.exists(draft_path):
         current_mode = os.stat(draft_path).st_mode
         os.chmod(draft_path, current_mode & ~(stat.S_IWUSR | stat.S_IWGRP))
 
 def unlock_draft(draft_path):
-    """Restores user and group write permissions on draft (chmod ug+w)."""
     if os.path.exists(draft_path):
         current_mode = os.stat(draft_path).st_mode
         os.chmod(draft_path, current_mode | (stat.S_IWUSR | stat.S_IWGRP))
 
 def load_exposed_services_from_template():
-    """Parses services template dynamically on startup to build EXPOSED_SERVICES."""
     services = []
     template_path = SERVICES_TEMPLATE
     
     if not os.path.exists(template_path):
-        print(f"DEBUG: {template_path} not found. Fallback initialized.", file=sys.stderr)
         return []
 
     try:
@@ -166,7 +179,7 @@ def load_exposed_services_from_template():
             service_name = lines[0].strip()
             item_id = ""
             entity_type = "both"
-            fee_val = "0"
+            fee_val = 0
             notes_lines = []
             
             for line in lines[1:]:
@@ -179,16 +192,13 @@ def load_exposed_services_from_template():
                 id_match = re.match(r'^-\s*ID:\s*(\d+)', clean_line, re.IGNORECASE)
                 type_match = re.match(r'^-\s*Type:\s*(\w+)', clean_line, re.IGNORECASE)
                 fee_match = re.match(r'^-\s*Fee:\s*([0-9.]+)', clean_line, re.IGNORECASE)
-                migrates_match = re.match(r'^-\s*Migrates-From:', clean_line, re.IGNORECASE)
                 
                 if id_match:
                     item_id = id_match.group(1)
                 elif type_match:
                     entity_type = type_match.group(1).lower()
                 elif fee_match:
-                    fee_val = f"{int(round(float(fee_match.group(1))))}"
-                elif migrates_match:
-                    pass
+                    fee_val = sanitize_fee_int(fee_match.group(1))
                 else:
                     notes_lines.append(clean_line)
             
@@ -208,11 +218,7 @@ def load_exposed_services_from_template():
 
 EXPOSED_SERVICES = load_exposed_services_from_template()
 
-# ==========================================
-# QUICKBOOKS ONLINE REST WRAPPERS
-# ==========================================
 def qbo_api_request(endpoint, method="GET", payload=None):
-    """Executes REST calls directly against QuickBooks Online endpoints."""
     if "?" in endpoint:
         path, query = endpoint.split("?", 1)
         endpoint = f"{path}?{urllib.parse.quote(query, safe='=/')}"
@@ -238,43 +244,102 @@ def qbo_api_request(endpoint, method="GET", payload=None):
         raise Exception(f"QBO API Call Failed: {error_body}")
 
 def extract_qbo_id(client_name_str):
-    """Extracts numeric QuickBooks ID from the composite selection label."""
-    match = re.search(r'Customer ID:\s*(\d+)', client_name_str)
+    if not client_name_str:
+        raise ValueError("Client selection string is empty.")
+
+    if client_name_str.isdigit():
+        return client_name_str
+    
+    if ":" in client_name_str and not ("QBO ID:" in client_name_str or "Customer ID:" in client_name_str):
+        parts = client_name_str.split(":")
+        if parts[0].isdigit():
+            return parts[0]
+
+    match = re.search(r'(?:QBO|Customer)\s*ID:\s*(\d+)', client_name_str, re.IGNORECASE)
     if match:
         return match.group(1)
-    raise ValueError(f"Unable to parse unique Customer ID from label: {client_name_str}")
+    
+    match_alt = re.search(r'^(\d+):', client_name_str)
+    if match_alt:
+        return match_alt.group(1)
+    
+    clean_name = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', client_name_str)
+    clean_name = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_name)
+    clean_name = clean_name.split(' — ')[0].strip()
+    
+    escaped_name = clean_name.replace("'", "\\'")
+    try:
+        query_res = qbo_api_request(f"query?query=select Id from Customer where DisplayName='{escaped_name}'")
+        custs = query_res.get("QueryResponse", {}).get("Customer", [])
+        if custs:
+            return str(custs[0]["Id"])
+    except Exception:
+        pass
+
+    raise ValueError(f"Unable to parse unique Customer ID from selection: {client_name_str}")
 
 def parse_acct_num(acct_num_str):
-    """Extracts signature configurations and entity definitions from QBO Notes."""
-    meta = {"signature_type": "single", "entity_type": "individual", "co_signer_name": ""}
-    if not acct_num_str:
+    meta = {
+        "entity_type": "individual",
+        "friendly_name": "",
+        "primary_signer_email": "",
+        "co_signer_name": "",
+        "co_signer_email": ""
+    }
+    if not acct_num_str or not acct_num_str.strip():
         return meta
 
-    matches = re.findall(r'(SIGNATURE|ENTITY|COSIGNER):([^,\n]+)', acct_num_str, re.IGNORECASE)
-    for key, value in matches:
-        k, v = key.upper(), value.strip()
-        if k == "SIGNATURE":
-            meta["signature_type"] = v
-        elif k == "ENTITY":
-            raw_ent = v.lower()
-            meta["entity_type"] = raw_ent if (raw_ent == "individual" or raw_ent in ORGANIZATION_ENTITY_TYPES) else "individual"
-        elif k == "COSIGNER":
-            meta["co_signer_name"] = v
+    try:
+        data = json.loads(acct_num_str.strip())
+        raw_ent = str(data.get("entity", "")).lower().strip()
+        meta["entity_type"] = raw_ent if raw_ent in ORGANIZATION_ENTITY_TYPES else "individual"
+        
+        signers = data.get("signers", [])
+        if isinstance(signers, list) and len(signers) > 0:
+            p_signer = signers[0] if isinstance(signers[0], dict) else {}
+            meta["friendly_name"] = str(p_signer.get("name", "")).strip()
+            meta["primary_signer_email"] = str(p_signer.get("email", "")).strip()
+
+            if len(signers) > 1:
+                s_signer = signers[1] if isinstance(signers[1], dict) else {}
+                meta["co_signer_name"] = str(s_signer.get("name", "")).strip()
+                meta["co_signer_email"] = str(s_signer.get("email", "")).strip()
+    except Exception as e:
+        print(f"DEBUG: QBO Notes is not valid JSON or failed parsing: {str(e)}", file=sys.stderr)
+
     return meta
 
-def compile_acct_num(signature_type, entity_type, co_signer_name=""):
-    """Serializes structured parameters into standard QBO Notes string."""
-    clean_sig = signature_type.strip()
-    if clean_sig.lower() in ["undefined", "null", "none", ""]:
-        clean_sig = "single"
+def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_email="", entity_type="individual"):
+    CLEAR_KEYWORDS = {"none", "null", "single", "n/a", ""}
     
-    notes_str = f"SIGNATURE:{clean_sig},ENTITY:{entity_type.strip().lower()}"
-    if co_signer_name and co_signer_name.strip():
-        notes_str += f",COSIGNER:{co_signer_name.strip()}"
-    return notes_str
+    clean_p_name = friendly_name.strip()
+    clean_p_email = primary_email.strip()
+    clean_c_name = co_signer_name.strip()
+    clean_c_email = co_signer_email.strip()
+
+    signers = [
+        {
+            "name": clean_p_name,
+            "email": clean_p_email
+        }
+    ]
+    
+    has_co_name = clean_c_name.lower() not in CLEAR_KEYWORDS
+    has_co_email = clean_c_email.lower() not in CLEAR_KEYWORDS
+
+    if has_co_name or has_co_email:
+        signers.append({
+            "name": clean_c_name if has_co_name else "",
+            "email": clean_c_email if has_co_email else ""
+        })
+
+    payload = {
+        "entity": entity_type.strip().lower(),
+        "signers": signers
+    }
+    return json.dumps(payload)
 
 def extract_base_out_of_scope_boilerplate():
-    """Reads engagement_template.md to extract standard out-of-scope items from the Jinja2 else block."""
     try:
         if os.path.exists(ENGAGEMENT_TEMPLATE):
             with open(ENGAGEMENT_TEMPLATE, "r", encoding="utf-8") as f:
@@ -283,23 +348,30 @@ def extract_base_out_of_scope_boilerplate():
             else_match = re.search(r'\{%\s*else\s*%\}(.*?)\{%\s*endif\s*\%}', content, re.DOTALL)
             if else_match:
                 raw_block = else_match.group(1).strip()
-                items = [line.strip("* ").strip() for line in raw_block.split("\n") if line.strip().startswith("*")]
+                items = [re.sub(r'^\*\s*', '', line.strip()).strip() for line in raw_block.split("\n") if line.strip().startswith("*")]
                 if items:
                     return items
-            else:
-                print(f"ERROR: Could not find Jinja2 {{% else %}} block inside {ENGAGEMENT_TEMPLATE}", file=sys.stderr)
-        else:
-            print(f"ERROR: Template file {ENGAGEMENT_TEMPLATE} does not exist.", file=sys.stderr)
     except Exception as e:
-        print(f"ERROR: Failed parsing out-of-scope items from {ENGAGEMENT_TEMPLATE}: {str(e)}", file=sys.stderr)
+        print(f"ERROR: Failed parsing out-of-scope items: {str(e)}", file=sys.stderr)
         
     return []
 
-# ==========================================
-# ADOBE SIGN API WRAPPERS
-# ==========================================
+def extract_out_of_scope_dict(form, existing_draft_oos=None):
+    oos_submitted = get_form_val(form, "oos_submitted") == "true"
+
+    if not oos_submitted:
+        return existing_draft_oos
+
+    oos_dict = {}
+    for k in form:
+        if k.startswith("out_of_scope_item_") or "custom" in k:
+            val = get_form_val(form, k).strip()
+            if val:
+                oos_dict[k] = val
+
+    return oos_dict
+
 def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
-    """Executes communications directly with the Adobe Sign v6 REST API."""
     url = f"{ADOBE_APIBASE}/{endpoint}"
     headers = {"Authorization": f"Bearer {ADOBE_TOKEN}"}
 
@@ -331,8 +403,7 @@ def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
         print(f"Adobe Sign HTTP Error [{e.code}]: {error_body}", file=sys.stderr)
         raise Exception(f"Adobe Sign Call Failed: {error_body}")
 
-def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, additional_signer_email=None, is_organization=False, primary_email_override=None):
-    """Handles envelope transmission and routing parameters for Adobe Sign, returning (success, agreement_id_or_error)."""
+def submit_adobe_sign_transaction(client_qbo_id, engagement_id, estimate_id, pdf_binary_data, co_signer_email=None, is_organization=False, primary_email_override=None):
     try:
         primary_email = primary_email_override.strip() if primary_email_override and primary_email_override.strip() else ""
 
@@ -354,9 +425,9 @@ def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, a
         participant_sets = [{"memberInfos": [{"email": primary_email}], "order": 1, "role": "SIGNER"}]
         current_order = 2
 
-        if additional_signer_email and "@" in additional_signer_email:
+        if co_signer_email and "@" in co_signer_email:
             participant_sets.append({
-                "memberInfos": [{"email": additional_signer_email.strip()}],
+                "memberInfos": [{"email": co_signer_email.strip()}],
                 "order": current_order,
                 "role": "SIGNER"
             })
@@ -369,11 +440,13 @@ def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, a
                 "role": "SIGNER"
             })
 
+        external_meta = { "doc_type": f"Tax Agreement {TAX_YEAR}", "qbo_id": str(client_qbo_id), "engagement_id": str(engagement_id) }
+
         agreement_payload = {
             "fileInfos": [{"transientDocumentId": transient_id}],
             "name": f"Tarrant Advisors {TAX_YEAR} Engagement Agreement",
             "participantSetsInfo": participant_sets,
-            "externalId": {"id": f"Tax Agreement:{client_qbo_id}"},
+            "externalId": {"id": json.dumps(external_meta)},
             "signatureType": "ESIGN",
             "state": "IN_PROCESS"
         }
@@ -394,11 +467,7 @@ def submit_adobe_sign_transaction(client_qbo_id, estimate_id, pdf_binary_data, a
     except Exception as ex:
         return False, str(ex)
 
-# ==========================================
-# CGI FORM DATA PARSER
-# ==========================================
 def get_form_data():
-    """Extracts CGI parameters from QUERY_STRING or POST body reliably."""
     form_data = {}
     query_string = os.environ.get("QUERY_STRING", "")
     if query_string:
@@ -417,11 +486,7 @@ def get_form_data():
                 form_data[k] = v
     return form_data
 
-# ==========================================
-# INTERACTIVE WORKSPACE RENDERERS
-# ==========================================
 def render_phase1_workspace(error_msg=None, preserved_form=None):
-    """Phase 1: Displays QBO customers and constructs the dual-mode interactive workspace."""
     print("Content-Type: text/html\n")
 
     try:
@@ -432,43 +497,63 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         error_msg = f"Failed to retrieve customer catalog from QBO. Verify tokens. Details: {str(e)}"
 
     client_data_map = {}
-    draft_clients_map = {}
+    clone_options_map = {}
+
+    os.makedirs(DRAFTS_DIR, exist_ok=True)
 
     for c in customers:
-        c_id = c["Id"]
+        c_id = str(c["Id"])
         c_name = html.unescape(c["DisplayName"])
         acct_num = c.get("Notes", "")
         addr_obj = c.get("BillAddr", {})
-        c_email = c.get("PrimaryEmailAddr", {}).get("Address", "")
+        raw_c_email = c.get("PrimaryEmailAddr", {}).get("Address", "")
+        qbo_primary_email = raw_c_email.split(",")[0].strip() if raw_c_email else ""
 
         meta = parse_acct_num(acct_num)
-        has_addr = addr_obj.get("Line1") and addr_obj.get("City") and addr_obj.get("CountrySubDivisionCode") and addr_obj.get("PostalCode")
-        has_meta = "SIGNATURE" in acct_num and "ENTITY" in acct_num
+        
+        if not meta.get("friendly_name"):
+            meta["friendly_name"] = c_name
+        if not meta.get("primary_signer_email"):
+            meta["primary_signer_email"] = qbo_primary_email
 
-        saved_draft = None
-        draft_path = os.path.join(DRAFTS_DIR, f"client_{c_id}.json")
-        is_locked, locked_mtime = is_draft_locked(draft_path)
+        has_addr = bool(addr_obj.get("Line1") and addr_obj.get("City") and addr_obj.get("CountrySubDivisionCode") and addr_obj.get("PostalCode"))
 
-        if os.path.exists(draft_path):
-            try:
-                with open(draft_path, "r", encoding="utf-8") as df:
-                    saved_draft = json.load(df)
-                    saved_draft["is_locked"] = is_locked
-                    saved_draft["locked_mtime"] = locked_mtime
-            except Exception:
-                pass
+        engagements_map = {}
 
-        delivery_fmt = "electronic"
-        if saved_draft and "delivery_format" in saved_draft:
-            delivery_fmt = saved_draft["delivery_format"]
+        prefix = f"{c_id}_"
+        for filename in os.listdir(DRAFTS_DIR):
+            if filename.startswith(prefix) and filename.endswith(".json"):
+                eng_id = filename[len(prefix):-5]
+                draft_path = os.path.join(DRAFTS_DIR, filename)
+                is_locked, locked_mtime = is_draft_locked(draft_path)
+                try:
+                    with open(draft_path, "r", encoding="utf-8") as df:
+                        eng_draft = json.load(df)
+                        eng_draft["engagement_id"] = eng_id
+                        eng_draft["is_locked"] = is_locked
+                        eng_draft["locked_mtime"] = locked_mtime
+
+                        if eng_draft.get("rows"):
+                            for r in eng_draft["rows"]:
+                                r["fee"] = sanitize_fee_int(r.get("fee", 0))
+
+                        engagements_map[eng_id] = eng_draft
+
+                        if eng_draft.get("rows") and len(eng_draft["rows"]) > 0:
+                            r_count = len(eng_draft["rows"])
+                            t_fee = sum([sanitize_fee_int(r.get("fee", 0)) for r in eng_draft["rows"]])
+                            title = eng_draft.get("engagement_title", f"Engagement #{eng_id}")
+                            clone_key = f"{c_id}:{eng_id}"
+                            clone_options_map[clone_key] = f"{c_name} — {title} ({r_count} items, ${t_fee:,})"
+                except Exception:
+                    pass
 
         client_key = f"{c_name} (Customer ID: {c_id})"
         client_data_map[client_key] = {
             "id": c_id,
             "sync_token": c.get("SyncToken", ""),
-            "email": c_email,
-            "delivery_format": delivery_fmt,
-            "metadata": meta if (has_addr and has_meta) else {},
+            "email": qbo_primary_email,
+            "metadata": meta,
             "address": {
                 "street": addr_obj.get("Line1", ""),
                 "city": addr_obj.get("City", ""),
@@ -476,43 +561,67 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 "zip": addr_obj.get("PostalCode", "")
             } if has_addr else {},
             "exposed_services": EXPOSED_SERVICES,
-            "saved_draft": saved_draft
+            "engagements": engagements_map
         }
 
-        # Catalog clients that possess a saved draft with at least one service row for cloning
-        if saved_draft and saved_draft.get("rows") and len(saved_draft["rows"]) > 0:
-            row_count = len(saved_draft["rows"])
-            total_fee = sum([float(r.get("fee", 0)) for r in saved_draft["rows"]])
-            draft_clients_map[client_key] = f"{c_name} — {row_count} item(s) (${int(round(total_fee)):,})"
-
-    selected_client = ""
+    selected_client_label = ""
+    selected_eng_id = "0"
     reconstructed_rows_json = "[]"
     preserved_heal_data_json = "{}"
-    out_of_scope_items = extract_base_out_of_scope_boilerplate()
+    boilerplate_items = extract_base_out_of_scope_boilerplate()
     estimate_date_option = "today"
 
-    custom_items_to_render = {}
+    active_oos_dict = None
 
     if preserved_form:
-        selected_client = html.unescape(get_form_val(preserved_form, "client_name"))
+        raw_passed_client = html.unescape(get_form_val(preserved_form, "client_name"))
+        selected_eng_id = get_form_val(preserved_form, "engagement_id", "0")
         estimate_date_option = get_form_val(preserved_form, "estimate_date_option", "next_year")
-        
-        add_signer = get_form_val(preserved_form, "meta_additional_signer")
-        clean_add_signer = add_signer if "@" in add_signer else ""
+
+        selected_client_label = raw_passed_client
+        parsed_qbo_id = ""
+        try:
+            parsed_qbo_id = extract_qbo_id(raw_passed_client)
+        except Exception:
+            pass
+
+        if parsed_qbo_id:
+            for c_key, c_val in client_data_map.items():
+                if c_val["id"] == parsed_qbo_id:
+                    c_title = c_key.split(" (Customer")[0]
+                    if selected_eng_id != "0" and selected_eng_id in c_val.get("engagements", {}):
+                        e_draft = c_val["engagements"][selected_eng_id]
+                        e_title = e_draft.get("engagement_title", f"Engagement #{selected_eng_id}")
+                        tag = TAG_FINAL if e_draft.get("is_locked") else TAG_DRAFT
+                        selected_client_label = f"{tag}{c_title}: {parsed_qbo_id} | {selected_eng_id}: {e_title}"
+                    else:
+                        selected_client_label = f"{TAG_NEW}{c_title}: {parsed_qbo_id}"
+                    break
+
+        co_signer_email_val = get_form_val(preserved_form, "co_signer_email")
+        clean_co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
+
+        active_oos_dict = extract_out_of_scope_dict(preserved_form)
 
         heal_data = {
-            "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
-            "heal_legal_name": html.unescape(get_form_val(preserved_form, "heal_legal_name")),
-            "heal_email": get_form_val(preserved_form, "heal_email"),
-            "heal_street": get_form_val(preserved_form, "heal_street"),
-            "heal_city": get_form_val(preserved_form, "heal_city"),
-            "heal_state": get_form_val(preserved_form, "heal_state"),
-            "heal_zip": get_form_val(preserved_form, "heal_zip"),
-            "meta_entity_type": get_form_val(preserved_form, "meta_entity_type"),
-            "meta_signature_type": get_form_val(preserved_form, "meta_signature_type", "single"),
-            "meta_additional_signer": clean_add_signer,
-            "meta_co_signer_name": html.unescape(get_form_val(preserved_form, "meta_co_signer_name")),
-            "out_of_scope_items": {k: get_form_val(preserved_form, k) for k in preserved_form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
+            "engagement_title": html.unescape(get_form_val(preserved_form, "engagement_title", "2026 Tax Services Agreement")),
+            "primary_signer": {
+                "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
+                "legal_name": html.unescape(get_form_val(preserved_form, "legal_name")),
+                "email": get_form_val(preserved_form, "primary_signer_email")
+            },
+            "co_signer": {
+                "name": html.unescape(get_form_val(preserved_form, "co_signer_name")),
+                "email": clean_co_signer_email
+            },
+            "billing_address": {
+                "street": get_form_val(preserved_form, "street"),
+                "city": get_form_val(preserved_form, "city"),
+                "state": get_form_val(preserved_form, "state"),
+                "zip": get_form_val(preserved_form, "zip")
+            },
+            "entity_type": get_form_val(preserved_form, "entity_type", "individual"),
+            "out_of_scope_items": active_oos_dict
         }
         preserved_heal_data_json = json.dumps(heal_data)
 
@@ -521,41 +630,27 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             {
                 "item_id": get_form_val(preserved_form, f"row_item_id_{rid}"),
                 "service": urllib.parse.unquote(get_form_val(preserved_form, f"row_service_{rid}")),
-                "fee": get_form_val(preserved_form, f"row_fee_{rid}", "0"),
+                "fee": sanitize_fee_int(get_form_val(preserved_form, f"row_fee_{rid}", "0")),
                 "notes": urllib.parse.unquote(get_form_val(preserved_form, f"row_notes_{rid}"))
             }
             for rid in row_ids
         ]
         reconstructed_rows_json = json.dumps(rows_list)
 
-        for k in preserved_form:
-            if "custom" in k:
-                custom_items_to_render[k] = get_form_val(preserved_form, k)
-
-    elif selected_client and selected_client in client_data_map:
-        draft = client_data_map[selected_client].get("saved_draft")
-        if draft and "out_of_scope_items" in draft:
-            for k, val in draft["out_of_scope_items"].items():
-                if "custom" in k:
-                    custom_items_to_render[k] = val
-
     checklist_html = '<div id="out-of-scope-checklist-container" style="background: #fafbfc; border: 1px solid #cbd5e0; border-radius: 4px; padding: 15px; margin-top: 10px;">\n'
     checklist_html += '            <input type="hidden" name="oos_submitted" value="true">\n'
-    if out_of_scope_items:
-        for idx, item in enumerate(out_of_scope_items):
+    
+    if boilerplate_items:
+        for idx, item in enumerate(boilerplate_items):
             item_key = f"out_of_scope_item_{idx}"
-            is_checked = "checked"
             
-            if preserved_form:
-                preserved_vals = [get_form_val(preserved_form, k) for k in preserved_form if k.startswith("out_of_scope_item_")]
-                if item_key not in preserved_form and item not in preserved_vals:
-                    is_checked = ""
-            elif selected_client and selected_client in client_data_map:
-                draft = client_data_map[selected_client].get("saved_draft")
-                if draft and "out_of_scope_items" in draft:
-                    oos_draft = draft["out_of_scope_items"]
-                    if item_key not in oos_draft and item not in oos_draft.values():
-                        is_checked = ""
+            # Default to checked if brand new (None), or check against active dictionary
+            if active_oos_dict is None:
+                is_checked = "checked"
+            elif isinstance(active_oos_dict, dict):
+                is_checked = "checked" if item_key in active_oos_dict else ""
+            else:
+                is_checked = "checked"
 
             checklist_html += f"""            <div style="margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed #e2e8f0;">
                 <label style="font-weight: normal; display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -564,8 +659,10 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 </label>
             </div>\n"""
 
-    for k, val in custom_items_to_render.items():
-        checklist_html += f"""            <div class="out-of-scope-checklist-item custom-out-of-scope-item" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #e2e8f0;">
+    if isinstance(active_oos_dict, dict):
+        for k, val in active_oos_dict.items():
+            if "custom" in k:
+                checklist_html += f"""            <div class="out-of-scope-checklist-item custom-out-of-scope-item" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #e2e8f0;">
                 <label style="font-weight: normal; display: flex; align-items: center; gap: 8px; cursor: pointer; flex-grow: 1;">
                     <input type="checkbox" name="{html.escape(k)}" value="{html.escape(val)}" checked>
                     <span>{html.escape(val)}</span>
@@ -574,6 +671,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             </div>\n"""
 
     checklist_html += "        </div>\n"
+
     checklist_html += """
         <div class="add-out-of-scope-row" style="display: flex; gap: 10px; margin-top: 12px;">
             <input type="text" id="new-out-of-scope-input" placeholder="Enter custom out-of-scope item (e.g., Prior year 1040-X amendment)..." style="flex-grow: 1; padding: 8px 12px; font-size: 13px; border: 1px solid #cbd5e0; border-radius: 4px;">
@@ -584,8 +682,23 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 
     batch_mode_js = "true" if ENABLE_BATCH_MODE else "false"
 
-    # Pre-build datalist options for source cloning (single and batch)
-    clone_options_html = "".join([f'<option value="{html.escape(k)}">{html.escape(v)}</option>' for k, v in draft_clients_map.items()])
+    master_select_options = []
+    for c_key, c_val in client_data_map.items():
+        q_id = c_val["id"]
+        c_title = c_key.split(" (Customer")[0]
+        engs = c_val.get("engagements", {})
+        
+        master_select_options.append(
+            f'<option value="{TAG_NEW}{html.escape(c_title)}: {q_id}" data-value="{q_id}:0"></option>'
+        )
+        for e_id, e_draft in engs.items():
+            e_title = e_draft.get("engagement_title", f"Engagement #{e_id}")
+            tag = TAG_FINAL if e_draft.get("is_locked") else TAG_DRAFT
+            master_select_options.append(
+                f'<option value="{tag}{html.escape(c_title)}: {q_id} | {e_id}: {html.escape(e_title)}" data-value="{q_id}:{e_id}"></option>'
+            )
+
+    clone_options_html = "".join([f'<option value="{html.escape(k)}">{html.escape(v)}</option>' for k, v in clone_options_map.items()])
 
     print(f"""<!DOCTYPE html>
 <html>
@@ -602,9 +715,13 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         window.preservedHealData = {preserved_heal_data_json};
 
         document.addEventListener("DOMContentLoaded", function() {{
-            const clientSelect = document.getElementById('client-select');
-            if (clientSelect && clientSelect.value) {{
-                onClientChange();
+            const inputEl = document.getElementById('client-select-input');
+            if (inputEl && inputEl.value) {{
+                if (typeof onClientInput === 'function') {{
+                    onClientInput();
+                }} else if (typeof onClientChange === 'function') {{
+                    onClientChange();
+                }}
             }}
         }});
     </script>
@@ -614,13 +731,11 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 <div class="wrapper">
     <h1>Tarrant Advisors LLC — Account Engagement Portal</h1>
     
-    <!-- MODE TAB SWITCHER -->
     <div class="mode-tabs">
         <button type="button" id="tab-btn-single" class="tab-btn active" onclick="switchWorkspaceMode('single')">👤 Single Client Intake</button>
         <button type="button" id="tab-btn-batch" class="tab-btn" onclick="switchWorkspaceMode('batch')">📑 Seasonal Batch Dashboard</button>
     </div>
 
-    <!-- WORKSPACE MODE 1: SINGLE CLIENT INTAKE -->
     <div id="single-client-workspace">
         <div id="lock-banner-container" style="display:none;"></div>
 
@@ -628,28 +743,27 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <div class="form-group" style="margin-bottom: 25px;">
                 <label for="estimate-date-option">Date for Estimate:</label>
                 <select name="estimate_date_option" id="estimate-date-option" style="width: 100%; padding: 12px; font-size: 14px; border: 1px solid #ccd1d9; border-radius: 4px;">
-                    <option value="next_year"{" selected" if estimate_date_option == "next_year" else ""}>Next Year</option>
                     <option value="today"{" selected" if estimate_date_option == "today" else ""}>This Year</option>
+                    <option value="next_year"{" selected" if estimate_date_option == "next_year" else ""}>Next Year</option>
                 </select>
             </div>
 
             {f'<div style="background:#fde8e8; border:1px solid #e53e3e; color:#9b2c2c; padding:15px; margin-bottom:20px; border-radius:4px;">{html.escape(error_msg)}</div>' if error_msg else ''}
 
             <div class="form-group">
-                <label for="client-select">Search & Select QuickBooks Online Customer Account Record:</label>
+                <label for="client-select-input">Select Customer & Engagement:</label>
                 <input type="text" 
-                       name="client_name" 
-                       id="client-select" 
-                       list="client-options" 
-                       value="{html.escape(selected_client)}" 
-                       placeholder="Type client name, business entity, or QBO ID (e.g., Smith or 102)..." 
-                       onchange="onClientChange()" 
-                       oninput="onClientChange()" 
+                       id="client-select-input" 
+                       list="client-select-options" 
+                       value="{html.escape(selected_client_label)}"
+                       placeholder="Type or select a customer account or engagement..." 
+                       oninput="onClientInput()" 
                        style="width: 100%; padding: 12px; font-size: 14px; border: 1px solid #ccd1d9; border-radius: 4px; box-sizing: border-box;" 
                        required>
-                <datalist id="client-options">
-                    {"".join([f'<option value="{html.escape(k)}">' for k in client_data_map.keys()])}
+                <datalist id="client-select-options">
+                    {"".join(master_select_options)}
                 </datalist>
+                <input type="hidden" name="client_name" id="client-select" value="{html.escape(selected_client_label)}">
             </div>
 
             <div id="profile-healing-container" style="display:none;"></div>
@@ -681,17 +795,16 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <div id="actions-container" class="actions-container" style="display:none; flex-direction:column; gap:12px;">
                 <div style="display:flex; gap:10px; align-items:center;">
                     <button type="button" class="btn-add-row" onclick="addServiceRow()">+ Add Service Line Item</button>
-                    <button type="button" class="btn-add-row btn-action-copy-trigger" onclick="toggleInlineCopyBar(true)">📋 Copy Scope & Fees from Existing Client...</button>
+                    <button type="button" class="btn-add-row btn-action-copy-trigger" onclick="toggleInlineCopyBar(true)">📋 Copy Scope & Fees from Existing Engagement...</button>
                 </div>
 
-                <!-- INLINE CLONE CONTROL TOOLBAR -->
                 <div id="inline-copy-toolbar" class="inline-copy-toolbar" style="display:none;">
-                    <div style="font-weight:600; font-size:13px; color:#0078d4; margin-bottom:6px;">Copy Scope & Exclusions From Prior Draft:</div>
+                    <div style="font-weight:600; font-size:13px; color:#0078d4; margin-bottom:6px;">Copy Scope & Exclusions From Source Engagement:</div>
                     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                         <input type="text" 
                                id="clone-source-input" 
                                list="clone-client-options" 
-                               placeholder="Type source client name or QBO ID to copy scope from..." 
+                               placeholder="Type source customer or engagement ID to copy scope from..." 
                                style="flex-grow:1; min-width:280px; padding:8px 12px; font-size:13px; border:1px solid #cbd5e0; border-radius:4px;">
                         <datalist id="clone-client-options">
                             {clone_options_html}
@@ -713,7 +826,6 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         </form>
     </div>
 
-    <!-- WORKSPACE MODE 2: SEASONAL BATCH DASHBOARD -->
     <div id="batch-dashboard-workspace" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
             <div style="display: flex; gap: 10px; flex-grow: 1; max-width: 500px;">
@@ -733,14 +845,13 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             </div>
         </div>
 
-        <!-- BATCH BULK CLONE CONTROL TOOLBAR -->
         <div id="batch-bulk-copy-toolbar" class="inline-copy-toolbar" style="display:none; margin-bottom: 20px;">
-            <div style="font-weight:600; font-size:13px; color:#0078d4; margin-bottom:6px;">Bulk Apply Scope & Exclusions to Checked Batch Clients:</div>
+            <div style="font-weight:600; font-size:13px; color:#0078d4; margin-bottom:6px;">Bulk Apply Scope & Exclusions to Checked Batch Engagements:</div>
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                 <input type="text" 
                        id="batch-bulk-source-input" 
                        list="clone-client-options" 
-                       placeholder="Select source client or draft package to apply to checked accounts..." 
+                       placeholder="Select source engagement to apply to checked accounts..." 
                        style="flex-grow:1; min-width:280px; padding:8px 12px; font-size:13px; border:1px solid #cbd5e0; border-radius:4px;">
                 <button type="button" onclick="applyBatchBulkClonedScope()" class="btn-submit" style="width:auto; padding:8px 16px; font-size:13px;">Apply Scope to Checked</button>
                 <button type="button" onclick="toggleBatchBulkCopyToolbar(false)" class="btn-add-row" style="padding:8px 12px; font-size:13px;">Cancel</button>
@@ -752,7 +863,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 <tr>
                     <th style="width: 35px; text-align: center;"><input type="checkbox" onclick="selectAllBatchRows(this.checked)"></th>
                     <th style="width: 80px;">QBO ID</th>
-                    <th>Client / Legal Entity Name</th>
+                    <th>Client / Engagement</th>
                     <th>Class</th>
                     <th>Signers</th>
                     <th style="text-align: right;">Total Fee</th>
@@ -770,11 +881,10 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     </div>
 </div>
 
-<!-- EDIT DRAFT MODAL OVERLAY -->
 <div id="batch-edit-modal" class="modal-overlay">
     <div class="modal-content">
         <button type="button" class="modal-close-btn" onclick="cancelBatchEditModal()">&times;</button>
-        <h2 id="modal-client-title" style="margin-top: 0; color: #0078d4;">Edit Draft Parameters</h2>
+        <h2 id="modal-client-title" style="margin-top: 0; color: #0078d4;">Edit Engagement Parameters</h2>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin-bottom: 20px;">
         
         <div id="modal-workspace-container"></div>
@@ -785,7 +895,6 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     </div>
 </div>
 
-<!-- BATCH SUBMISSION PROGRESS OVERLAY -->
 <div id="batch-progress-overlay" class="progress-overlay">
     <div class="progress-card">
         <h3 style="margin-top: 0; color: #0078d4;">Executing Batch Transaction Pipeline...</h3>
@@ -803,35 +912,41 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 </html>""")
 
 def handle_generate_preview(form):
-    """Phase 2: Renders split preview view with lightweight iframe PDF reference."""
-    raw_client_name = get_form_val(form, "client_name")
-    client_qbo_id = extract_qbo_id(raw_client_name)
+    raw_client_val = get_form_val(form, "client_name")
+    client_qbo_id = extract_qbo_id(raw_client_val)
     
-    clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
-    client_name = raw_client_name
+    eng_id = get_form_val(form, "engagement_id", "0")
+    if eng_id == "0":
+        eng_id = allocate_next_engagement_id(client_qbo_id)
+
+    eng_title = html.unescape(get_form_val(form, "engagement_title", "2026 Tax Services Agreement")).strip()
+    
+    clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
+    clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
+    clean_client_title = clean_client_title.split(' — ')[0].strip()
 
     row_ids = get_form_list(form, "selected_rows")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
-    heal_profile_flag = get_form_val(form, "heal_profile_flag", "false")
+    profile_verified = get_form_val(form, "profile_verified", "false")
 
-    raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type")
-    meta_sig = raw_sig.strip() if "@" in raw_sig else ""
-    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
+    co_signer_email_val = get_form_val(form, "co_signer_email")
+    co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
+    co_signer_name = html.unescape(get_form_val(form, "co_signer_name"))
     
-    if meta_co_signer_name.lower().strip() in ["none", "null", "single", "n/a"] or raw_sig.lower().strip() in ["none", "null", "single", "n/a"]:
-        meta_sig = meta_co_signer_name = ""
+    if co_signer_name.lower().strip() in ["none", "null", "single", "n/a"] or co_signer_email_val.lower().strip() in ["none", "null", "single", "n/a"]:
+        co_signer_email = co_signer_name = ""
 
-    meta_ent = get_form_val(form, "meta_entity_type", "individual")
+    entity_type = get_form_val(form, "entity_type", "individual")
 
-    heal_email = get_form_val(form, "heal_email")
-    heal_street = get_form_val(form, "heal_street")
-    heal_city = get_form_val(form, "heal_city")
-    heal_state = get_form_val(form, "heal_state")
-    heal_zip = get_form_val(form, "heal_zip")
+    primary_email = get_form_val(form, "primary_signer_email")
+    street = get_form_val(form, "street")
+    city = get_form_val(form, "city")
+    state = get_form_val(form, "state")
+    zip_val = get_form_val(form, "zip")
 
     prior_estimate_id = ""
     existing_draft = {}
-    draft_path = os.path.join(DRAFTS_DIR, f"client_{client_qbo_id}.json")
+    draft_path = get_draft_file_path(client_qbo_id, eng_id)
     is_locked = False
 
     try:
@@ -843,37 +958,26 @@ def handle_generate_preview(form):
     except Exception as de:
         print(f"DEBUG: Draft reading failure: {str(de)}", file=sys.stderr)
 
-    friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip()
-    if not friendly_name and existing_draft.get("friendly_name"):
-        friendly_name = html.unescape(existing_draft.get("friendly_name", "")).strip()
-    if not friendly_name:
-        friendly_name = clean_client_title
+    p_signer = existing_draft.get("primary_signer", {}) if isinstance(existing_draft.get("primary_signer"), dict) else {}
+    friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or p_signer.get("friendly_name") or clean_client_title
+    legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or p_signer.get("legal_name") or clean_client_title
 
-    heal_legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip()
-    if not heal_legal_name and existing_draft.get("heal_legal_name"):
-        heal_legal_name = html.unescape(existing_draft.get("heal_legal_name", "")).strip()
-    if not heal_legal_name:
-        heal_legal_name = clean_client_title
+    if not primary_email:
+        primary_email = p_signer.get("email", "")
 
-    if not heal_email and existing_draft.get("heal_email"):
-        heal_email = existing_draft.get("heal_email")
-
-    if not heal_street:
+    if not street:
         try:
             fresh_c = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
             c_addr = fresh_c.get("BillAddr", {})
-            if not heal_email:
+            if not primary_email:
                 raw_c_email = fresh_c.get("PrimaryEmailAddr", {}).get("Address", "")
-                heal_email = raw_c_email.split(",")[0].strip() if raw_c_email else ""
-            heal_street, heal_city = c_addr.get("Line1", ""), c_addr.get("City", "")
-            heal_state, heal_zip = c_addr.get("CountrySubDivisionCode", ""), c_addr.get("PostalCode", "")
+                primary_email = raw_c_email.split(",")[0].strip() if raw_c_email else ""
+            street, city = c_addr.get("Line1", ""), c_addr.get("City", "")
+            state, zip_val = c_addr.get("CountrySubDivisionCode", ""), c_addr.get("PostalCode", "")
         except Exception as fe:
             print(f"DEBUG: QBO fallback data extraction failed: {str(fe)}", file=sys.stderr)
 
-    oos_explicitly_submitted = get_form_val(form, "oos_submitted") == "true" or any(k.startswith("out_of_scope_item_") or k.startswith("custom_") for k in form)
-    posted_oos = {k: get_form_val(form, k) for k in form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
-    if not oos_explicitly_submitted and not posted_oos and existing_draft.get("out_of_scope_items"):
-        posted_oos = existing_draft["out_of_scope_items"]
+    posted_oos_dict = extract_out_of_scope_dict(form, existing_draft.get("out_of_scope_items"))
 
     disk_rows_list = existing_draft.get("rows", [])
 
@@ -886,37 +990,43 @@ def handle_generate_preview(form):
         bp_val = get_form_val(form, f"row_bp_{rid}", "individual")
 
         if (fee_val is None or fee_val.strip() == "") and idx < len(disk_rows_list):
-            fee_val = disk_rows_list[idx].get("fee", "0")
+            fee_val = disk_rows_list[idx].get("fee", 0)
             if not notes_val:
                 notes_val = disk_rows_list[idx].get("notes", "")
 
         processed_rows.append({
             "item_id": item_id,
             "service": svc,
-            "fee": str(int(round(float(fee_val)))) if (fee_val and fee_val.strip()) else "0",
+            "fee": sanitize_fee_int(fee_val),
             "notes": notes_val,
             "bp": bp_val
         })
 
-    # Save active workspace parameters to disk as single source of truth
     if not is_locked:
         try:
             os.makedirs(DRAFTS_DIR, exist_ok=True)
             draft_payload = {
+                "engagement_id": eng_id,
+                "engagement_title": eng_title,
                 "estimate_date_option": estimate_date_option,
-                "friendly_name": friendly_name,
-                "heal_legal_name": heal_legal_name,
-                "heal_email": heal_email,
-                "heal_profile_flag": heal_profile_flag,
-                "meta_additional_signer": meta_sig if "@" in meta_sig else "",
-                "meta_signature_type": meta_sig if meta_sig else "single",
-                "meta_co_signer_name": meta_co_signer_name,
-                "meta_entity_type": meta_ent,
-                "heal_street": heal_street,
-                "heal_city": heal_city,
-                "heal_state": heal_state,
-                "heal_zip": heal_zip,
-                "out_of_scope_items": posted_oos,
+                "primary_signer": {
+                    "friendly_name": friendly_name,
+                    "legal_name": legal_name,
+                    "email": primary_email
+                },
+                "co_signer": {
+                    "name": co_signer_name,
+                    "email": co_signer_email
+                },
+                "entity_type": entity_type,
+                "profile_verified": profile_verified.lower() in ["true", "1", "yes"],
+                "billing_address": {
+                    "street": street,
+                    "city": city,
+                    "state": state,
+                    "zip": zip_val
+                },
+                "out_of_scope_items": posted_oos_dict,
                 "estimate_id": prior_estimate_id,
                 "rows": processed_rows,
                 "delivery_format": existing_draft.get("delivery_format", "electronic")
@@ -926,13 +1036,14 @@ def handle_generate_preview(form):
         except Exception as de:
             print(f"DEBUG: Server-side draft writing handling: {str(de)}", file=sys.stderr)
 
-    # Clean, lightweight iframe source URL (reads full payload from disk)
-    iframe_src = f"{SCRIPT_URL}?action=render_live_pdf&client_name={urllib.parse.quote(client_name)}"
+    iframe_src = f"{SCRIPT_URL}?action=render_live_pdf&client_name={urllib.parse.quote(client_qbo_id)}&engagement_id={eng_id}"
 
     hidden_checklist_fields = f'<input type="hidden" name="estimate_date_option" value="{html.escape(estimate_date_option)}">\n'
     hidden_checklist_fields += '<input type="hidden" name="oos_submitted" value="true">\n'
-    for k, v in posted_oos.items():
-        hidden_checklist_fields += f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">\n'
+    
+    if isinstance(posted_oos_dict, dict):
+        for k, v in posted_oos_dict.items():
+            hidden_checklist_fields += f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">\n'
 
     print("Content-Type: text/html\n")
     print(f"""<!DOCTYPE html>
@@ -946,33 +1057,34 @@ def handle_generate_preview(form):
 <div class="split-container">
     <div class="editor-panel" style="padding:25px; overflow-y:auto;">
         <form method="POST" action="{SCRIPT_URL}">
-            <input type="hidden" name="client_name" value="{html.escape(client_name)}">
+            <input type="hidden" name="client_name" value="{html.escape(raw_client_val)}">
+            <input type="hidden" name="engagement_id" value="{html.escape(eng_id)}">
+            <input type="hidden" name="engagement_title" value="{html.escape(eng_title)}">
             <input type="hidden" name="friendly_name" value="{html.escape(friendly_name)}">
-            <input type="hidden" name="heal_legal_name" value="{html.escape(heal_legal_name)}">
-            <input type="hidden" name="heal_email" value="{html.escape(heal_email)}">
-            <input type="hidden" name="heal_profile_flag" value="{html.escape(heal_profile_flag)}">
-            <input type="hidden" name="meta_additional_signer" value="{html.escape(meta_sig if '@' in meta_sig else '')}">
-            <input type="hidden" name="meta_signature_type" value="{html.escape(meta_sig if meta_sig else 'single')}">
-            <input type="hidden" name="meta_co_signer_name" value="{html.escape(meta_co_signer_name)}">
-            <input type="hidden" name="meta_entity_type" value="{html.escape(meta_ent)}">
+            <input type="hidden" name="legal_name" value="{html.escape(legal_name)}">
+            <input type="hidden" name="primary_signer_email" value="{html.escape(primary_email)}">
+            <input type="hidden" name="profile_verified" value="{html.escape(profile_verified)}">
+            <input type="hidden" name="co_signer_email" value="{html.escape(co_signer_email)}">
+            <input type="hidden" name="co_signer_name" value="{html.escape(co_signer_name)}">
+            <input type="hidden" name="entity_type" value="{html.escape(entity_type)}">
             <input type="hidden" name="estimate_date_option" value="{html.escape(estimate_date_option)}">
             <input type="hidden" name="prior_estimate_id" value="{html.escape(prior_estimate_id)}">
-            <input type="hidden" name="heal_street" value="{html.escape(heal_street)}">
-            <input type="hidden" name="heal_city" value="{html.escape(heal_city)}">
-            <input type="hidden" name="heal_state" value="{html.escape(heal_state)}">
-            <input type="hidden" name="heal_zip" value="{html.escape(heal_zip)}">
+            <input type="hidden" name="street" value="{html.escape(street)}">
+            <input type="hidden" name="city" value="{html.escape(city)}">
+            <input type="hidden" name="state" value="{html.escape(state)}">
+            <input type="hidden" name="zip" value="{html.escape(zip_val)}">
             {hidden_checklist_fields}
 
             {"".join([f'<input type="hidden" name="selected_rows" value="{html.escape(rid)}">' for rid in row_ids])}
             {"".join([f'''
             <input type="hidden" name="row_item_id_{rid}" value="{html.escape(get_form_val(form, f"row_item_id_{rid}"))}">
             <input type="hidden" name="row_service_{rid}" value="{html.escape(get_form_val(form, f"row_service_{rid}"))}">
-            <input type="hidden" name="row_fee_{rid}" value="{int(round(float((get_form_val(form, f"row_fee_{rid}") or "0").replace('$', '').replace(',', '').strip())))}">
+            <input type="hidden" name="row_fee_{rid}" value="{sanitize_fee_int(get_form_val(form, f"row_fee_{rid}"))}">
             <input type="hidden" name="row_notes_{rid}" value="{html.escape(get_form_val(form, f"row_notes_{rid}"))}">
             <input type="hidden" name="row_bp_{rid}" value="{html.escape(get_form_val(form, f"row_bp_{rid}", "individual"))}">
             ''' for rid in row_ids])}
 
-            <div style="display:flex; flex-direction:column; gap:12px; margin-top:15px;">
+            <div style="display:flex; flex-direction:column; gap:12px;">
                 <button type="submit" name="action" value="revert_to_workspace" class="btn-submit btn-action-grey" style="text-align:center; padding:12px;">← Go Back & Make Edits</button>
                 <button type="submit" name="action" value="download_draft_pdf" class="btn-submit btn-action-yellow" style="text-align:center; padding:12px;">⬇ Download Draft Agreement</button>
                 <button type="submit" name="action" value="execute_transactional_pipeline_paper" class="btn-submit btn-action-lightgreen" style="text-align:center; padding:12px;">✓ Submit Agreement for Paper Signature</button>
@@ -988,31 +1100,39 @@ def handle_generate_preview(form):
 </html>""")
 
 def handle_save_draft_only(form):
-    """AJAX Handler: Writes/updates client draft JSON on disk without rendering a preview page."""
-    raw_client_name = get_form_val(form, "client_name")
-    client_qbo_id = extract_qbo_id(raw_client_name)
+    raw_client_val = get_form_val(form, "client_name")
+    client_qbo_id = extract_qbo_id(raw_client_val)
     
-    clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
+    eng_id = get_form_val(form, "engagement_id", "0")
+    if eng_id == "0":
+        eng_id = allocate_next_engagement_id(client_qbo_id)
+
+    eng_title = html.unescape(get_form_val(form, "engagement_title", "2026 Tax Services Agreement")).strip()
+    
+    clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
+    clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
+    clean_client_title = clean_client_title.split(' — ')[0].strip()
+
     row_ids = get_form_list(form, "selected_rows")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
-    heal_profile_flag = get_form_val(form, "heal_profile_flag", "false")
+    profile_verified = get_form_val(form, "profile_verified", "false")
 
-    raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type")
-    meta_sig = raw_sig.strip() if "@" in raw_sig else ""
-    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
+    co_signer_email_val = get_form_val(form, "co_signer_email")
+    co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
+    co_signer_name = html.unescape(get_form_val(form, "co_signer_name"))
     
-    if meta_co_signer_name.lower().strip() in ["none", "null", "single", "n/a"] or raw_sig.lower().strip() in ["none", "null", "single", "n/a"]:
-        meta_sig = meta_co_signer_name = ""
+    if co_signer_name.lower().strip() in ["none", "null", "single", "n/a"] or co_signer_email_val.lower().strip() in ["none", "null", "single", "n/a"]:
+        co_signer_email = co_signer_name = ""
 
-    meta_ent = get_form_val(form, "meta_entity_type", "individual")
+    entity_type = get_form_val(form, "entity_type", "individual")
 
-    heal_email = get_form_val(form, "heal_email")
-    heal_street = get_form_val(form, "heal_street")
-    heal_city = get_form_val(form, "heal_city")
-    heal_state = get_form_val(form, "heal_state")
-    heal_zip = get_form_val(form, "heal_zip")
+    primary_email = get_form_val(form, "primary_signer_email")
+    street = get_form_val(form, "street")
+    city = get_form_val(form, "city")
+    state = get_form_val(form, "state")
+    zip_val = get_form_val(form, "zip")
 
-    draft_path = os.path.join(DRAFTS_DIR, f"client_{client_qbo_id}.json")
+    draft_path = get_draft_file_path(client_qbo_id, eng_id)
     existing_draft = {}
     is_locked = False
 
@@ -1029,11 +1149,13 @@ def handle_save_draft_only(form):
         return
 
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
-    heal_legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip() or clean_client_title
-    if not heal_email and existing_draft.get("heal_email"):
-        heal_email = existing_draft.get("heal_email")
+    legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
+    
+    p_signer = existing_draft.get("primary_signer", {}) if isinstance(existing_draft.get("primary_signer"), dict) else {}
+    if not primary_email:
+        primary_email = p_signer.get("email", "")
 
-    posted_oos = {k: get_form_val(form, k) for k in form if k.startswith("out_of_scope_item_") or k.startswith("custom_")}
+    posted_oos_dict = extract_out_of_scope_dict(form, existing_draft.get("out_of_scope_items"))
 
     processed_rows = []
     for rid in row_ids:
@@ -1046,32 +1168,37 @@ def handle_save_draft_only(form):
         processed_rows.append({
             "item_id": item_id,
             "service": svc,
-            "fee": str(int(round(float(fee_val)))) if (fee_val and fee_val.strip()) else "0",
+            "fee": sanitize_fee_int(fee_val),
             "notes": notes_val,
             "bp": bp_val
         })
 
     try:
         os.makedirs(DRAFTS_DIR, exist_ok=True)
-        
-        # Sourced delivery_format override if passed via AJAX
         target_delivery_fmt = get_form_val(form, "delivery_format") or existing_draft.get("delivery_format", "electronic")
 
         draft_payload = {
+            "engagement_id": eng_id,
+            "engagement_title": eng_title,
             "estimate_date_option": estimate_date_option,
-            "friendly_name": friendly_name,
-            "heal_legal_name": heal_legal_name,
-            "heal_email": heal_email,
-            "heal_profile_flag": heal_profile_flag,
-            "meta_additional_signer": meta_sig if "@" in meta_sig else "",
-            "meta_signature_type": meta_sig if meta_sig else "single",
-            "meta_co_signer_name": meta_co_signer_name,
-            "meta_entity_type": meta_ent,
-            "heal_street": heal_street,
-            "heal_city": heal_city,
-            "heal_state": heal_state,
-            "heal_zip": heal_zip,
-            "out_of_scope_items": posted_oos,
+            "primary_signer": {
+                "friendly_name": friendly_name,
+                "legal_name": legal_name,
+                "email": primary_email
+            },
+            "co_signer": {
+                "name": co_signer_name,
+                "email": co_signer_email
+            },
+            "entity_type": entity_type,
+            "profile_verified": profile_verified.lower() in ["true", "1", "yes"],
+            "billing_address": {
+                "street": street,
+                "city": city,
+                "state": state,
+                "zip": zip_val
+            },
+            "out_of_scope_items": posted_oos_dict,
             "estimate_id": existing_draft.get("estimate_id", ""),
             "rows": processed_rows,
             "delivery_format": target_delivery_fmt
@@ -1080,12 +1207,16 @@ def handle_save_draft_only(form):
             json.dump(draft_payload, df, indent=2)
 
         print("Content-Type: application/json\n")
-        print(json.dumps({"status": "success", "qbo_id": client_qbo_id, "draft": draft_payload}))
+        print(json.dumps({
+            "status": "success", 
+            "qbo_id": client_qbo_id, 
+            "engagement_id": eng_id, 
+            "draft": draft_payload
+        }))
     except Exception as e:
         render_pipeline_error(form, str(e), http_code=500)
 
 def build_salutation_name(friendly_name, co_signer_name=""):
-    """Extracts first names and builds a friendly salutation (e.g., 'Jack and Jane')."""
     prefixes = ("dr.", "dr", "mr.", "mr", "mrs.", "mrs", "ms.", "ms", "prof.", "prof")
 
     def clean_first_name(name_str):
@@ -1118,9 +1249,6 @@ def build_salutation_name(friendly_name, co_signer_name=""):
 
     return primary_first or primary_clean
 
-# ==========================================
-# REPORTLAB PDF GENERATION LEG (PURE / STATELESS)
-# ==========================================
 def xml_safe_escape(text):
     if not text:
         return ""
@@ -1132,25 +1260,27 @@ def xml_safe_escape(text):
     return text.replace("&lt;br/&gt;", "<br/>").replace("&lt;br&gt;", "<br/>")
 
 def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
-    """Pure rendering function: Compiles Markdown template into ReportLab PDF binary buffer."""
     raw_client_name = get_form_val(form, "client_name", "Unknown Client")
     row_ids = get_form_list(form, "selected_rows")
     if not row_ids:
         row_ids = [k.replace("row_item_id_", "") for k in form if k.startswith("row_item_id_")]
 
-    raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type", "single")
-    meta_sig = raw_sig.strip() if "@" in raw_sig else ""
-    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
-    meta_ent = get_form_val(form, "meta_entity_type", "individual")
+    co_signer_email_val = get_form_val(form, "co_signer_email")
+    co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
+    co_signer_name = html.unescape(get_form_val(form, "co_signer_name"))
+    entity_type = get_form_val(form, "entity_type", "individual")
 
-    clean_client_title = re.split(r'\s*\(Customer', html.unescape(raw_client_name))[0].strip()
+    clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_name))
+    clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
+    clean_client_title = clean_client_title.split(' — ')[0].strip()
+
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
-    legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip() or clean_client_title
+    legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
 
-    street = get_form_val(form, "heal_street")
-    city = get_form_val(form, "heal_city")
-    state = get_form_val(form, "heal_state")
-    zip_val = get_form_val(form, "heal_zip")
+    street = get_form_val(form, "street")
+    city = get_form_val(form, "city")
+    state = get_form_val(form, "state")
+    zip_val = get_form_val(form, "zip")
 
     if not street:
         try:
@@ -1164,7 +1294,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     address_parts = [p.strip() for p in [street, city, state, zip_val] if p and p.strip()]
     billing_address = ", ".join(address_parts) if address_parts else "<i>[Billing Address Sourced on Execution]</i>"
-    greeting_name = build_salutation_name(friendly_name, meta_co_signer_name)
+    greeting_name = build_salutation_name(friendly_name, co_signer_name)
 
     try:
         with open(ENGAGEMENT_TEMPLATE, "r", encoding="utf-8") as f:
@@ -1172,7 +1302,9 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     except FileNotFoundError:
         raw_markdown = "# Tarrant Advisors LLC\n1875 Campus Commons Dr., Suite 203, Reston, VA 20191\n75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464\n## {{TAX_YEAR}} ENGAGEMENT AGREEMENT\n{{DYNAMIC_ESTIMATES_TABLE}}\n{{DYNAMIC_SERVICES_TEXT}}"
 
-    total_base = discount_val = deposit_val = 0.0
+    total_base = 0
+    discount_val = 0
+    deposit_val = 0
     table_rows_data = [["Proposed Service Offering", "Fee Amount"]]
     services_annotation_blocks = []
 
@@ -1193,10 +1325,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         if not raw_svc:
             raw_svc = "Service Item"
 
-        try:
-            fee = float(str(raw_fee_val).replace('$', '').replace(',', '').strip()) if (raw_fee_val and str(raw_fee_val).strip()) else 0.0
-        except ValueError:
-            fee = 0.0
+        fee = sanitize_fee_int(raw_fee_val)
 
         svc_lower = raw_svc.lower()
         if "discount" in svc_lower or "referral" in svc_lower:
@@ -1204,44 +1333,42 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         elif "deposit" in svc_lower or "retainer" in svc_lower:
             deposit_val += abs(fee)
         else:
-            table_rows_data.append([raw_svc, f"${int(round(fee)):,}"])
+            table_rows_data.append([raw_svc, f"${fee:,}"])
             total_base += fee
 
         if notes:
-            services_annotation_blocks.append(f"• <strong>{raw_svc}:</strong> {xml_safe_escape(notes)}")
+            services_annotation_blocks.append(f"• <strong>{xml_safe_escape(raw_svc)}:</strong> {xml_safe_escape(notes)}")
         else:
-            services_annotation_blocks.append(f"• <strong>{raw_svc}</strong>")
+            services_annotation_blocks.append(f"• <strong>{xml_safe_escape(raw_svc)}</strong>")
 
     total_net = total_base - discount_val
     if discount_val > 0: 
-        table_rows_data.append(["Client Discount:", f"-${int(round(discount_val)):,}"])
+        table_rows_data.append(["Client Discount:", f"-${discount_val:,}"])
     
-    table_rows_data.append(["TOTAL FEES:", f"${int(round(total_net)):,}"])
+    table_rows_data.append(["TOTAL FEES:", f"${total_net:,}"])
     
     if deposit_val > 0: 
-        table_rows_data.append(["DEPOSIT DUE UPON COMMENCEMENT OF SERVICE:", f"${int(round(deposit_val)):,}"])
+        table_rows_data.append(["DEPOSIT DUE UPON COMMENCEMENT OF SERVICE:", f"${deposit_val:,}"])
 
-    is_org_type = meta_ent.lower() in ORGANIZATION_ENTITY_TYPES
+    is_org_type = entity_type.lower() in ORGANIZATION_ENTITY_TYPES
 
-    out_of_scope_list = []
-    
-    oos_raw = form.get("out_of_scope_items")
-    if isinstance(oos_raw, str) and oos_raw.strip().startswith("{"):
+    # STREAMLINED OUT-OF-SCOPE LOGIC
+    posted_oos_dict = extract_out_of_scope_dict(form)
+    oos_submitted = get_form_val(form, "oos_submitted") == "true"
+
+    if not oos_submitted or posted_oos_dict is None:
         try:
-            oos_raw = json.loads(oos_raw)
+            c_id = extract_qbo_id(raw_client_name)
+            eng_id = get_form_val(form, "engagement_id", "0")
+            draft_path = get_draft_file_path(c_id, eng_id)
+            if os.path.exists(draft_path):
+                with open(draft_path, "r", encoding="utf-8") as df:
+                    disk_draft = json.load(df)
+                    posted_oos_dict = disk_draft.get("out_of_scope_items")
         except Exception:
             pass
 
-    if isinstance(oos_raw, dict):
-        out_of_scope_list = [
-            str(v).strip() for v in oos_raw.values() if v and str(v).strip()
-        ]
-    
-    for k in form:
-        if k.startswith("out_of_scope_item_") or k.startswith("custom_"):
-            val = get_form_val(form, k)
-            if val and val.strip() and val.strip() not in out_of_scope_list:
-                out_of_scope_list.append(val.strip())
+    out_of_scope_list = list(posted_oos_dict.values()) if isinstance(posted_oos_dict, dict) else None
     
     jinja_tmpl = Template(raw_markdown)
     markdown_content = jinja_tmpl.render(
@@ -1252,7 +1379,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         CLIENT_LEGAL_NAME=xml_safe_escape(legal_name),
         FRIENDLY_NAME=xml_safe_escape(friendly_name),
         GREETING_NAME=xml_safe_escape(greeting_name),
-        meta_entity_type=meta_ent.lower(),
+        meta_entity_type=entity_type.lower(),
         out_of_scope_items=out_of_scope_list,
         DYNAMIC_ESTIMATES_TABLE="{{DYNAMIC_ESTIMATES_TABLE}}",
         DYNAMIC_SERVICES_TEXT="{{DYNAMIC_SERVICES_TEXT}}"
@@ -1270,7 +1397,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         fontName='Helvetica-Bold',
         fontSize=18,
         leading=22,
-        textColor=HEADER_BLUE
+        textColor=HEADER_BLUE,
+        alignment=2
     )
 
     address_style = ParagraphStyle(
@@ -1279,7 +1407,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         fontName='Helvetica-Oblique',
         fontSize=8,
         leading=11,
-        textColor=HEADER_BLUE
+        textColor=HEADER_BLUE,
+        alignment=2
     )
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
@@ -1301,9 +1430,6 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     story = []
 
-    # ---------------------------------------------------------
-    # STRICT HEADER PARSING: Title + Company Addresses ONLY
-    # ---------------------------------------------------------
     header_text_nodes = []
     content_lines = markdown_content.split('\n')
     filtered_lines = []
@@ -1315,25 +1441,22 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         if not line_str or line_str.startswith("{%") or line_str.startswith("%}"):
             continue
 
-        # 1. Match company title line (# Tarrant Advisors LLC)
         if line_str.startswith("# ") and not company_title_found:
             company_title_found = True
             header_text_nodes.append(Paragraph(xml_safe_escape(line_str[2:].strip()), company_style))
             header_text_nodes.append(Spacer(1, 3))
             continue
         
-        # 2. Match company office addresses ONLY (stop when hitting ##, Date, or Client)
         if company_title_found and len(header_text_nodes) < 5:
-            if line_str.startswith("##") or line_str.startswith("<b>Date:") or line_str.startswith("Date:"):
+            if line_str.startswith("##") or "Date:" in line_str:
                 filtered_lines.append(line)
-                company_title_found = False # Stop adding to header table
+                company_title_found = False
                 continue
             header_text_nodes.append(Paragraph(xml_safe_escape(line_str), address_style))
             continue
 
         filtered_lines.append(line)
 
-    # Fallback safety if template header was missing
     if not header_text_nodes:
         header_text_nodes = [
             Paragraph("Tarrant Advisors LLC", company_style),
@@ -1342,9 +1465,6 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
             Paragraph("75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464", address_style)
         ]
 
-    # ---------------------------------------------------------
-    # PROPORTIONAL LOGO SCALING
-    # ---------------------------------------------------------
     logo_path = os.environ.get("DOCUMENT_ROOT", ".") + "/images/logo.png"
     if os.path.exists(logo_path):
         logo_img = Image(logo_path)
@@ -1358,14 +1478,14 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
             logo_img.drawHeight = max_h
             logo_img.drawWidth = max_h * aspect
 
-        logo_img.hAlign = 'RIGHT'
+        logo_img.hAlign = 'LEFT'
     else:
         logo_img = Paragraph("", styles['Normal'])
 
-    # Build Top Header Table
-    header_table = Table([[header_text_nodes, logo_img]], colWidths=[370, 160])
+    header_table = Table([[logo_img, header_text_nodes]], colWidths=[160, 370])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('ALIGN', (0,0), (0,0), 'LEFT'),
         ('ALIGN', (1,0), (1,0), 'RIGHT'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0),
@@ -1375,9 +1495,6 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     story.append(header_table)
     story.append(Spacer(1, 10))
 
-    # ---------------------------------------------------------
-    # RENDER BODY CONTENT IN CORRECT SEQUENCE
-    # ---------------------------------------------------------
     for line in filtered_lines:
         line_str = line.strip()
         if not line_str or line_str.startswith("{%") or line_str.startswith("%}"):
@@ -1401,17 +1518,14 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
         elif "{{DYNAMIC_SERVICES_TEXT}}" in line_str:
             if services_annotation_blocks:
-                # Single item: strip leading bullet and render standalone
                 if len(services_annotation_blocks) == 1:
                     single_block = services_annotation_blocks[0]
                     if single_block.startswith("• "):
                         single_block = single_block[2:]
                     story.append(Paragraph(single_block, body_style))
                     story.append(Spacer(1, 4))
-                # Multiple items: render each block with its bullet point
                 else:
                     for block in services_annotation_blocks:
-                        # Ensure bullet point exists for multi-line items
                         bullet_block = block if block.startswith("• ") else f"• {block}"
                         story.append(Paragraph(bullet_block, body_style))
                         story.append(Spacer(1, 4))
@@ -1437,8 +1551,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         Paragraph(signer1_label, body_style),
     ])
 
-    if meta_sig and "@" in meta_sig:
-        co_signer_label = meta_co_signer_name.strip() if meta_co_signer_name.strip() else meta_sig.strip()
+    if co_signer_email and "@" in co_signer_email:
+        co_signer_label = co_signer_name.strip() if co_signer_name.strip() else co_signer_email.strip()
         sig_elements.extend([
             Spacer(1, 15),
             Paragraph(render_sig_line("Signature", "{{_es_signer2_signature}}"), body_style),
@@ -1449,7 +1563,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         ])
 
     if is_org_type:
-        firm_idx = "3" if (meta_sig and "@" in meta_sig) else "2"
+        firm_idx = "3" if (co_signer_email and "@" in co_signer_email) else "2"
         sig_elements.extend([
             Spacer(1, 15),
             Paragraph(render_sig_line("Authorized Signature", f"{{{{_es_signer{firm_idx}_signature}}}}"), body_style),
@@ -1465,29 +1579,34 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     return pdf_buffer
 
 def handle_render_live_pdf(form):
-    """Phase 2: Streams PDF binary to iframe preview by reading active draft state from disk."""
-    raw_client_name = get_form_val(form, "client_name")
+    raw_client_val = get_form_val(form, "client_name")
+    eng_id = get_form_val(form, "engagement_id", "0")
     
-    if raw_client_name:
+    if raw_client_val and eng_id != "0":
         try:
-            c_id = extract_qbo_id(raw_client_name)
-            draft_path = os.path.join(DRAFTS_DIR, f"client_{c_id}.json")
+            c_id = extract_qbo_id(raw_client_val)
+            draft_path = get_draft_file_path(c_id, eng_id)
             if os.path.exists(draft_path):
                 with open(draft_path, "r", encoding="utf-8") as df:
                     disk_draft = json.load(df)
                     
-                # Hydrate form parameters in-memory directly from disk draft JSON
-                form["friendly_name"] = [disk_draft.get("friendly_name", "")]
-                form["heal_legal_name"] = [disk_draft.get("heal_legal_name", "")]
-                form["heal_email"] = [disk_draft.get("heal_email", "")]
-                form["heal_street"] = [disk_draft.get("heal_street", "")]
-                form["heal_city"] = [disk_draft.get("heal_city", "")]
-                form["heal_state"] = [disk_draft.get("heal_state", "")]
-                form["heal_zip"] = [disk_draft.get("heal_zip", "")]
-                form["meta_entity_type"] = [disk_draft.get("meta_entity_type", "individual")]
-                form["meta_signature_type"] = [disk_draft.get("meta_signature_type", "single")]
-                form["meta_additional_signer"] = [disk_draft.get("meta_additional_signer", "")]
-                form["meta_co_signer_name"] = [disk_draft.get("meta_co_signer_name", "")]
+                p_signer = disk_draft.get("primary_signer", {}) if isinstance(disk_draft.get("primary_signer"), dict) else {}
+                co_signer = disk_draft.get("co_signer", {}) if isinstance(disk_draft.get("co_signer"), dict) else {}
+                b_addr = disk_draft.get("billing_address", {}) if isinstance(disk_draft.get("billing_address"), dict) else {}
+
+                form["friendly_name"] = [p_signer.get("friendly_name", "")]
+                form["legal_name"] = [p_signer.get("legal_name", "")]
+                form["primary_signer_email"] = [p_signer.get("email", "")]
+                
+                form["street"] = [b_addr.get("street", "")]
+                form["city"] = [b_addr.get("city", "")]
+                form["state"] = [b_addr.get("state", "")]
+                form["zip"] = [b_addr.get("zip", "")]
+                
+                form["entity_type"] = [disk_draft.get("entity_type", "individual")]
+                
+                form["co_signer_email"] = [co_signer.get("email", "")]
+                form["co_signer_name"] = [co_signer.get("name", "")]
                 
                 if disk_draft.get("rows"):
                     form["selected_rows"] = []
@@ -1496,12 +1615,14 @@ def handle_render_live_pdf(form):
                         form["selected_rows"].append(rid)
                         form[f"row_item_id_{rid}"] = [r.get("item_id", "")]
                         form[f"row_service_{rid}"] = [r.get("service", "")]
-                        form[f"row_fee_{rid}"] = [r.get("fee", "0")]
+                        form[f"row_fee_{rid}"] = [sanitize_fee_int(r.get("fee", 0))]
                         form[f"row_notes_{rid}"] = [r.get("notes", "")]
                         form[f"row_bp_{rid}"] = [r.get("bp", "individual")]
                         
-                if "out_of_scope_items" in disk_draft:
-                    form["out_of_scope_items"] = disk_draft["out_of_scope_items"]
+                if "out_of_scope_items" in disk_draft and isinstance(disk_draft["out_of_scope_items"], dict):
+                    form["oos_submitted"] = ["true"]
+                    for k, v in disk_draft["out_of_scope_items"].items():
+                        form[k] = [v]
         except Exception as ex:
             print(f"DEBUG: Preview disk draft read error: {str(ex)}", file=sys.stderr)
 
@@ -1510,10 +1631,13 @@ def handle_render_live_pdf(form):
     sys.stdout.buffer.write(generated_buffer.read())
 
 def handle_download_pdf(form, prefix="DRAFT"):
-    """Unified handler for PDF downloads (Draft or Final)."""
-    client_name = get_form_val(form, "client_name", "Unknown Client")
-    clean_client_title = re.split(r'\s*\(Customer', html.unescape(client_name))[0].strip()
-    legal_name = html.unescape(get_form_val(form, "heal_legal_name")).strip() or clean_client_title
+    raw_client_val = get_form_val(form, "client_name", "Unknown Client")
+    
+    clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
+    clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
+    clean_client_title = clean_client_title.split(' — ')[0].strip()
+
+    legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
     
     timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
     filename = f"Tax Agreement {legal_name} ({prefix} {timestamp_str}).pdf"
@@ -1523,46 +1647,42 @@ def handle_download_pdf(form, prefix="DRAFT"):
     sys.stdout.buffer.write(f"Content-Disposition: attachment; filename={urllib.parse.quote(filename)}\n\n".encode('utf-8'))
     sys.stdout.buffer.write(generated_buffer.read())
 
-# ==========================================
-# TRANSACTION PIPELINE (PHASE 3)
-# ==========================================
 def execute_transactional_pipeline(form):
-    """Executes QBO Estimate creation and Adobe Sign routing."""
-    raw_client_name = get_form_val(form, "client_name")
-    client_name = html.unescape(raw_client_name)
-    client_qbo_id = extract_qbo_id(client_name)
+    raw_client_val = get_form_val(form, "client_name")
+    client_qbo_id = extract_qbo_id(raw_client_val)
+    
+    eng_id = get_form_val(form, "engagement_id", "0")
+    if eng_id == "0":
+        eng_id = allocate_next_engagement_id(client_qbo_id)
+
+    eng_title = html.unescape(get_form_val(form, "engagement_title", "2026 Tax Services Agreement")).strip()
     row_ids = get_form_list(form, "selected_rows")
     friendly_name = get_form_val(form, "friendly_name")
-    heal_legal_name = get_form_val(form, "heal_legal_name")
-    heal_email = get_form_val(form, "heal_email")
+    legal_name = get_form_val(form, "legal_name")
+    primary_email = get_form_val(form, "primary_signer_email")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
 
-    heal_flag = get_form_val(form, "heal_profile_flag", "false")
-    raw_sig = get_form_val(form, "meta_additional_signer") or get_form_val(form, "meta_signature_type")
-    meta_sig = raw_sig.strip() if "@" in raw_sig else ""
-    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
-    meta_ent = get_form_val(form, "meta_entity_type", "individual")
+    co_signer_email_val = get_form_val(form, "co_signer_email")
+    co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
+    co_signer_name = html.unescape(get_form_val(form, "co_signer_name"))
+    entity_type = get_form_val(form, "entity_type", "individual")
 
     delivery_method = get_form_val(form, "delivery_method")
     is_paper_mode = (delivery_method == "paper")
-    is_org_type = meta_ent.lower() in ORGANIZATION_ENTITY_TYPES
+    is_org_type = entity_type.lower() in ORGANIZATION_ENTITY_TYPES
 
-    # ---------------------------------------------------------------------
-    # SAFE PRIOR ESTIMATE DELETION LOGIC
-    # ---------------------------------------------------------------------
     prior_estimate_id = get_form_val(form, "prior_estimate_id").strip()
-    draft_path = os.path.join(DRAFTS_DIR, f"client_{client_qbo_id}.json")
-    is_locked, _ = is_draft_locked(draft_path)
+    draft_path = get_draft_file_path(client_qbo_id, eng_id)
 
-    # Fallback to reading draft file if prior_estimate_id or heal_email was omitted from form payload
     if os.path.exists(draft_path):
         try:
             with open(draft_path, "r", encoding="utf-8") as df:
                 disk_draft = json.load(df)
                 if not prior_estimate_id:
                     prior_estimate_id = str(disk_draft.get("estimate_id", "")).strip()
-                if not heal_email:
-                    heal_email = disk_draft.get("heal_email", "")
+                if not primary_email:
+                    p_signer = disk_draft.get("primary_signer", {}) if isinstance(disk_draft.get("primary_signer"), dict) else {}
+                    primary_email = p_signer.get("email", "")
         except Exception as e:
             print(f"DEBUG: Could not read prior estimate ID or email from draft: {e}", file=sys.stderr)
 
@@ -1572,7 +1692,6 @@ def execute_transactional_pipeline(form):
             prior_customer_id = str(prior_txn.get("CustomerRef", {}).get("value", ""))
             prior_sync_token = prior_txn.get("SyncToken")
 
-            # Safety check: Ensure estimate belongs to THIS customer before deleting
             if prior_customer_id == str(client_qbo_id) and prior_sync_token:
                 qbo_api_request("estimate?operation=delete", method="POST", payload={
                     "Id": prior_estimate_id, 
@@ -1587,50 +1706,32 @@ def execute_transactional_pipeline(form):
     except Exception as e:
         return render_pipeline_error(form, f"Pipeline Execution Halted: Unable to verify Customer record from QBO. ({str(e)})")
 
-    current_notes = fresh_customer.get("Notes", "")
-    current_addr = fresh_customer.get("BillAddr", {})
-    current_name = fresh_customer.get("DisplayName", "")
     raw_primary_email = fresh_customer.get("PrimaryEmailAddr", {}).get("Address", "")
     qbo_primary_email = raw_primary_email.split(",")[0].strip() if raw_primary_email else ""
-    
-    effective_primary_email = heal_email.strip() if heal_email and heal_email.strip() else qbo_primary_email
+    effective_primary_email = primary_email.strip() if primary_email and primary_email.strip() else qbo_primary_email
 
-    proposed_notes = compile_acct_num(meta_sig if meta_sig else "single", meta_ent, meta_co_signer_name)
-    form_street = get_form_val(form, "heal_street") or current_addr.get("Line1", "")
-    form_city = get_form_val(form, "heal_city") or current_addr.get("City", "")
-    form_state = get_form_val(form, "heal_state") or current_addr.get("CountrySubDivisionCode", "")
-    form_zip = get_form_val(form, "heal_zip") or current_addr.get("PostalCode", "")
-
-    has_notes_drifted = (current_notes.strip() != proposed_notes.strip())
-    has_address_drifted = (
-        current_addr.get("Line1", "") != form_street or
-        current_addr.get("City", "") != form_city or
-        current_addr.get("CountrySubDivisionCode", "") != form_state or
-        current_addr.get("PostalCode", "") != form_zip
+    proposed_notes_json = compile_acct_num(
+        friendly_name=friendly_name,
+        primary_email=effective_primary_email,
+        co_signer_name=co_signer_name,
+        co_signer_email=co_signer_email,
+        entity_type=entity_type
     )
 
-    if heal_flag == "true" or has_notes_drifted or has_address_drifted:
-        try:
-            patch_payload = {
-                "Id": client_qbo_id,
-                "SyncToken": fresh_customer["SyncToken"],
-                "sparse": True,
-                "Notes": proposed_notes,
-                "CompanyName": current_name if is_org_type else "",
-                "BillAddr": {
-                    "Line1": form_street,
-                    "City": form_city,
-                    "CountrySubDivisionCode": form_state,
-                    "PostalCode": form_zip
-                }
-            }
-            qbo_api_request("customer", method="POST", payload=patch_payload)
-        except Exception as e:
-            return render_pipeline_error(form, f"Auto-Sync Data Healing Failure: Unable to update Customer record in QBO. ({str(e)})")
+    try:
+        patch_payload = {
+            "Id": client_qbo_id,
+            "SyncToken": fresh_customer["SyncToken"],
+            "sparse": True,
+            "Notes": proposed_notes_json
+        }
+        #qbo_api_request("customer", method="POST", payload=patch_payload)
+    except Exception as e:
+        return render_pipeline_error(form, f"QBO Customer Notes Sync Failure: Unable to update Customer Notes record in QBO. ({str(e)})")
 
     estimate_lines = []
-    deposit_val = 0.0
-    total_fee_sum = 0.0
+    deposit_val = 0
+    total_fee_sum = 0
 
     disk_rows_list = []
     if os.path.exists(draft_path):
@@ -1648,11 +1749,11 @@ def execute_transactional_pipeline(form):
         notes = urllib.parse.unquote(get_form_val(form, f"row_notes_{rid}"))
 
         if (raw_fee_val is None or raw_fee_val.strip() == "") and idx < len(disk_rows_list):
-            raw_fee_val = disk_rows_list[idx].get("fee", "0")
+            raw_fee_val = disk_rows_list[idx].get("fee", 0)
             if not notes:
                 notes = disk_rows_list[idx].get("notes", "")
 
-        fee = float(raw_fee_val) if (raw_fee_val and raw_fee_val.strip()) else 0.0
+        fee = sanitize_fee_int(raw_fee_val)
 
         svc_lower = svc_name.lower()
         if item_id == "00000" or "deposit" in svc_lower or "retainer" in svc_lower:
@@ -1683,11 +1784,11 @@ def execute_transactional_pipeline(form):
         "CustomerRef": {"value": client_qbo_id},
         "TxnStatus": "Pending",
         "Line": estimate_lines,
-        "CustomField": [{"DefinitionId": "1", "StringValue": "JOINT" if (meta_sig and "@" in meta_sig) else "SINGLE", "Name": "Signers"}]
+        "CustomField": [{"DefinitionId": "1", "StringValue": "JOINT" if (co_signer_email and "@" in co_signer_email) else "SINGLE", "Name": "Signers"}]
     }
 
     if deposit_val > 0:
-        estimate_payload["PrivateNote"] = f"Deposit Due: ${int(round(deposit_val)):,}"
+        estimate_payload["PrivateNote"] = f"Deposit Due: ${deposit_val:,}"
 
     if estimate_date_option == "next_year":
         next_year = datetime.date.today().year + 1
@@ -1701,19 +1802,20 @@ def execute_transactional_pipeline(form):
     except Exception as e:
         return render_pipeline_error(form, f"QuickBooks Error: Failed to generate transaction record. ({str(e)})")
 
-    # ---------------------------------------------------------------------
-    # SAFE DRAFT UNLOCKING, UPDATING & LOCKING
-    # ---------------------------------------------------------------------
     try:
         if os.path.exists(draft_path):
-            unlock_draft(draft_path)  # Restores 'w' permission to avoid Errno 13
+            unlock_draft(draft_path)
             with open(draft_path, "r", encoding="utf-8") as df:
                 active_draft = json.load(df)
+            active_draft["engagement_id"] = eng_id
+            active_draft["engagement_title"] = eng_title
             active_draft["estimate_id"] = estimate_id
-            active_draft["heal_email"] = effective_primary_email
+            if "primary_signer" not in active_draft:
+                active_draft["primary_signer"] = {}
+            active_draft["primary_signer"]["email"] = effective_primary_email
             with open(draft_path, "w", encoding="utf-8") as df:
                 json.dump(active_draft, df, indent=2)
-            lock_draft(draft_path)    # Re-locks draft file permissions
+            lock_draft(draft_path)
     except Exception as de:
         print(f"DEBUG: Post-transaction draft update failed: {str(de)}", file=sys.stderr)
 
@@ -1726,9 +1828,10 @@ def execute_transactional_pipeline(form):
     else:
         adobe_sign_routing_success, adobe_error_context = submit_adobe_sign_transaction(
             client_qbo_id=client_qbo_id,
+            engagement_id=eng_id,
             estimate_id=estimate_id,
             pdf_binary_data=live_pdf_buffer.read(),
-            additional_signer_email=meta_sig,
+            co_signer_email=co_signer_email,
             is_organization=is_org_type,
             primary_email_override=effective_primary_email
         )
@@ -1749,41 +1852,42 @@ def execute_transactional_pipeline(form):
             "status": "success",
             "estimate_id": estimate_id,
             "qbo_id": client_qbo_id,
+            "engagement_id": eng_id,
             "delivery_method": delivery_method,
             "adobe_agreement_id": adobe_agreement_id
         }))
         return
 
-    # Build Download Link Query Params for Paper Mode
     dl_query_args = [
         ("action", "download_final_pdf"), ("estimate_id", estimate_id),
-        ("client_name", client_name), ("friendly_name", friendly_name),
-        ("heal_legal_name", heal_legal_name), ("heal_email", effective_primary_email),
-        ("delivery_method", "paper"), ("heal_profile_flag", "false"),
-        ("meta_additional_signer", meta_sig if "@" in meta_sig else ""),
-        ("meta_signature_type", meta_sig if meta_sig else "single"), 
-        ("meta_co_signer_name", meta_co_signer_name),
-        ("meta_entity_type", meta_ent)
+        ("client_name", raw_client_val), ("engagement_id", eng_id),
+        ("friendly_name", friendly_name), ("legal_name", legal_name), 
+        ("primary_signer_email", effective_primary_email), ("delivery_method", "paper"), 
+        ("profile_verified", "false"),
+        ("co_signer_email", co_signer_email),
+        ("co_signer_name", co_signer_name),
+        ("entity_type", entity_type)
     ]
-    for k in form:
-        if k.startswith("out_of_scope_item_") or k.startswith("custom_"):
-            dl_query_args.append((k, get_form_val(form, k)))
+    
+    posted_oos_dict = extract_out_of_scope_dict(form)
+    if isinstance(posted_oos_dict, dict):
+        for k, v in posted_oos_dict.items():
+            dl_query_args.append((k, v))
 
     for rid in row_ids:
         dl_query_args.append(("selected_rows", rid))
         dl_query_args.extend([
             (f"row_item_id_{rid}", get_form_val(form, f"row_item_id_{rid}")),
             (f"row_service_{rid}", get_form_val(form, f"row_service_{rid}")),
-            (f"row_fee_{rid}", get_form_val(form, f"row_fee_{rid}", "0")),
+            (f"row_fee_{rid}", sanitize_fee_int(get_form_val(form, f"row_fee_{rid}"))),
             (f"row_notes_{rid}", get_form_val(form, f"row_notes_{rid}")),
             (f"row_bp_{rid}", get_form_val(form, f"row_bp_{rid}", "individual"))
         ])
         
     paper_dl_link = f"{SCRIPT_URL}?{urllib.parse.urlencode(dl_query_args)}"
 
-    # Build Signing Sequence Chain Tree Markup
-    has_co_signer = bool(meta_sig and "@" in meta_sig)
-    co_signer_label = meta_co_signer_name.strip() if meta_co_signer_name.strip() else meta_sig.strip()
+    has_co_signer = bool(co_signer_email and "@" in co_signer_email)
+    co_signer_label = co_signer_name.strip() if co_signer_name.strip() else co_signer_email.strip()
 
     signer_sequence_html = f"""
     <div style="font-weight: 600; font-size: 13px; color: #475569; margin-top: 15px; margin-bottom: 8px;">Signing Workflow Sequence:</div>
@@ -1800,7 +1904,7 @@ def execute_transactional_pipeline(form):
         signer_sequence_html += f"""
         <div style="margin-bottom: 8px;">
             <strong>{next_step_num}. Additional Signer Signature</strong><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(co_signer_label)} ({html.escape(meta_sig)})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(co_signer_label)} ({html.escape(co_signer_email)})<br>
             &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #64748b; font-weight: 600;">⏳ Pending Step 1 Completion</span>
         </div>
         """
@@ -1817,12 +1921,11 @@ def execute_transactional_pipeline(form):
 
     signer_sequence_html += "</div>"
 
-    # Second Card Rendering: Electronic vs Paper
     if is_paper_mode:
         delivery_card_html = f"""
         <div style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 20px; text-align: left; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
             <div style="font-weight: 700; font-size: 16px; color: #166534; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                📄 Physical Paper Delivery Prepared
+                Physical Paper Delivery Prepared
             </div>
             <p style="margin: 0 0 15px 0; font-size: 13px; color: #475569; line-height: 1.5;">
                 This engagement agreement has been flagged for wet/paper signature execution. Download the official PDF document below to print or archive for client delivery.
@@ -1836,7 +1939,7 @@ def execute_transactional_pipeline(form):
         delivery_card_html = f"""
         <div style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 20px; text-align: left; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
             <div style="font-weight: 700; font-size: 16px; color: #0078d4; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                ✍️ Adobe Sign Document Dispatched
+                Adobe Sign Document Dispatched
             </div>
             <div style="font-size: 13px; color: #334155; line-height: 1.6; margin-bottom: 10px;">
                 • <strong>Transaction ID:</strong> <span style="font-family: monospace; background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">{html.escape(adobe_agreement_id if adobe_agreement_id else 'Enqueued')}</span><br>
@@ -1846,7 +1949,7 @@ def execute_transactional_pipeline(form):
         </div>
         """
 
-    formatted_fee_sum = f"${int(round(total_fee_sum)):,}"
+    formatted_fee_sum = f"${total_fee_sum:,}"
 
     success_html = f"""<!DOCTYPE html>
 <html>
@@ -1858,16 +1961,14 @@ def execute_transactional_pipeline(form):
 <body>
 <div class="success-wrapper">
     <div class="success-card">
-        <div class="icon-circle">✓</div>
-        <h2>Engagement Dispatched Successfully</h2>
-        <p style="color: #64748b; font-size: 14px; margin-top: -8px; margin-bottom: 25px;">
-            All required records have been created and routed to the signature queue.
-        </p>
+        <h2 style="margin-top: 0; margin-bottom: 8px; color: #0078d4; font-size: 22px;">{html.escape(legal_name)}</h2>
+        <div style="font-size: 15px; color: #334155; font-weight: 600; margin-bottom: 4px;">{html.escape(eng_title)}</div>
+        <div style="font-size: 13px; color: #16a34a; font-weight: 600; margin-bottom: 25px;">Status: Dispatched Successfully</div>
 
         <!-- CARD 1: QUICKBOOKS ONLINE ESTIMATE -->
         <div style="background: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 20px; text-align: left; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-            <div style="font-weight: 700; font-size: 16px; color: #107c41; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                📄 QuickBooks Online Estimate Created
+            <div style="font-weight: 700; font-size: 16px; color: #166534; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                QuickBooks Online Estimate
             </div>
             <div style="font-size: 13px; color: #334155; line-height: 1.6;">
                 • <strong>Estimate ID:</strong> #{html.escape(estimate_id)}<br>
@@ -1879,7 +1980,7 @@ def execute_transactional_pipeline(form):
         <!-- CARD 2: ADOBE SIGN WORKFLOW OR PAPER DOWNLOAD -->
         {delivery_card_html}
 
-        <a href="{SCRIPT_URL}" class="btn-submit" style="background:#0078d4; text-decoration:none; display:inline-block; padding: 12px 24px;">← Return to Account Engagement Portal</a>
+        <a href="{SCRIPT_URL}" class="btn-submit" style="background:#0078d4; text-decoration:none; display:inline-block; padding: 12px 24px; font-weight: 600;">← Return to Engagement Portal</a>
     </div>
 </div>
 </body>
@@ -1888,9 +1989,6 @@ def execute_transactional_pipeline(form):
     print("Content-Type: text/html\n")
     print(success_html)
 
-# ==========================================
-# CGI ROUTING INTERFACE
-# ==========================================
 if __name__ == "__main__":
     form_data = get_form_data()
     action = get_form_val(form_data, "action")
@@ -1912,11 +2010,12 @@ if __name__ == "__main__":
         form_data["delivery_method"] = ""
         execute_transactional_pipeline(form_data)
     elif action == "revert_to_workspace":
-        client_name = get_form_val(form_data, "client_name")
-        if client_name:
+        raw_client_val = get_form_val(form_data, "client_name")
+        eng_id = get_form_val(form_data, "engagement_id", "0")
+        if raw_client_val and eng_id != "0":
             try:
-                c_id = extract_qbo_id(client_name)
-                unlock_draft(os.path.join(DRAFTS_DIR, f"client_{c_id}.json"))
+                c_id = extract_qbo_id(raw_client_val)
+                unlock_draft(get_draft_file_path(c_id, eng_id))
             except Exception as ex:
                 print(f"DEBUG: Could not unlock draft on revert: {str(ex)}", file=sys.stderr)
         render_phase1_workspace(preserved_form=form_data)

@@ -10,7 +10,6 @@ default text that auto-populates the "Scope Specification / Notes" table column.
 - ID: 51
 - Type: organization
 - Fee: 0
-- Migrates-From: 50
 
 Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal and state income tax return and 2026 state income tax return. We will assist with routine tax questions that do not require additional research, we will analyze the benefits of paying state taxes at the entity level and will assist with the preparation of state tax payments based on 100 or 110 percent of prior year tax liability, as applicable.  We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
@@ -19,7 +18,6 @@ Our Services for 2026 are expected to include the following: Preparation of the 
 - ID: 48
 - Type: individual
 - Fee: 0
-- Migrates-From: 19
 
 Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal and state income tax return and 2026 state income tax return. We will assist with routine tax questions that do not require additional research, we will analyze the benefits of paying state taxes at the entity level and will assist with the preparation of state tax payments based on 100 or 110 percent of prior year tax liability, as applicable.  We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
