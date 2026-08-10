@@ -152,11 +152,13 @@ def submit_adobe_sign_transaction(client_qbo_id, pdf_binary_data, additional_sig
                 "role": "SIGNER"
             })
 
+        external_meta = { "doc_type": "Consent Agreement", "qbo_id": str(client_qbo_id), "engagement_id": "0" }
+
         agreement_payload = {
             "fileInfos": [{"transientDocumentId": transient_id}],
             "name": "Tarrant Advisors — Consent to Disclose Tax Return Information",
             "participantSetsInfo": participant_sets,
-            "externalId": {"id": f"Consent Agreement:{client_qbo_id}"},
+            "externalId": {"id": json.dumps(external_meta)},
             "signatureType": "ESIGN",
             "state": "IN_PROCESS"
         }
@@ -284,6 +286,15 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         {f'<div style="background:#fde8e8; border:1px solid #e53e3e; color:#9b2c2c; padding:15px; margin-bottom:20px; border-radius:4px;">{html.escape(error_msg)}</div>' if error_msg else ''}
 
         <div class="form-group">
+            <label for="tax-years-covered">Tax Years Covered by Consent:</label>
+            <select name="tax_years_covered" id="tax-years-covered">
+                <option value="2025 and 2026 tax years">2025 and 2026 tax years</option>
+                <option value="2026 tax year">2026 tax year</option>
+                <option value="2025 tax year">2025 tax year</option>
+            </select>
+        </div>
+
+        <div class="form-group">
             <label for="client-select">Search & Select QuickBooks Online Customer Account Record:</label>
             <input type="text" 
                    name="client_name" 
@@ -298,15 +309,6 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <datalist id="client-options">
                 {"".join([f'<option value="{html.escape(k)}">' for k in client_data_map.keys()])}
             </datalist>
-        </div>
-
-        <div class="form-group">
-            <label for="tax-years-covered">Tax Years Covered by Consent:</label>
-            <select name="tax_years_covered" id="tax-years-covered">
-                <option value="2025 and 2026 tax years">2025 and 2026 tax years</option>
-                <option value="2026 tax year">2026 tax year</option>
-                <option value="2025 tax year">2025 tax year</option>
-            </select>
         </div>
 
         <div id="profile-container" style="display:none;"></div>
@@ -496,7 +498,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         fontName='Helvetica-Bold',
         fontSize=18,
         leading=22,
-        textColor=HEADER_BLUE
+        textColor=HEADER_BLUE,
+        alignment=2
     )
 
     address_style = ParagraphStyle(
@@ -505,7 +508,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         fontName='Helvetica-Oblique',
         fontSize=8,
         leading=11,
-        textColor=HEADER_BLUE
+        textColor=HEADER_BLUE,
+        alignment=2
     )
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
@@ -572,14 +576,15 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
             logo_img.drawHeight = max_h
             logo_img.drawWidth = max_h * aspect
 
-        logo_img.hAlign = 'RIGHT'
+        logo_img.hAlign = 'LEFT'
     else:
         logo_img = Paragraph("", styles['Normal'])
 
-    # Build Top Header Table
-    header_table = Table([[header_text_nodes, logo_img]], colWidths=[370, 160])
+    # Build Top Header Table (Logo Left, Text Right)
+    header_table = Table([[logo_img, header_text_nodes]], colWidths=[160, 370])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('ALIGN', (0,0), (0,0), 'LEFT'),
         ('ALIGN', (1,0), (1,0), 'RIGHT'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0),
