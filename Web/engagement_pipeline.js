@@ -39,6 +39,20 @@ function unescapeHtml(str) {
     return txt.value;
 }
 
+// Toggle Email Composer Accordion in Phase 2 Editor Panel
+window.toggleEmailComposer = function toggleEmailComposer() {
+    const el = document.getElementById("email-composer-fields");
+    if (!el) return;
+
+    // Check computed style to reliably toggle regardless of inline or CSS rules
+    const currentDisplay = window.getComputedStyle(el).display;
+    if (currentDisplay === "none") {
+        el.style.display = "block";
+    } else {
+        el.style.display = "none";
+    }
+}
+
 function toggleInlineCopyBar(show) {
     const toolbar = document.getElementById('inline-copy-toolbar');
     if (toolbar) {
@@ -302,17 +316,14 @@ function rehydrateOutOfScopeItems(oosDict = null, isLocked = false) {
     const container = document.getElementById('out-of-scope-checklist-container');
     if (!container) return;
 
-    // Check if oosDict is explicitly provided as an object (even if empty {})
     const isSavedDraft = (oosDict !== null && oosDict !== undefined && typeof oosDict === 'object' && !Array.isArray(oosDict));
     const savedKeys = isSavedDraft ? Object.keys(oosDict) : [];
 
     const standardInputs = container.querySelectorAll('input[type="checkbox"]:not([name*="custom"])');
     standardInputs.forEach(cb => {
         if (isSavedDraft) {
-            // Respect saved draft state: checked only if present in dictionary
             cb.checked = savedKeys.includes(cb.name);
         } else {
-            // Brand new draft with NO JSON file: default to checked!
             cb.checked = true;
         }
         cb.disabled = isLocked;
@@ -400,7 +411,6 @@ function onClientChange() {
         activeHeaderBanner.style.display = 'none';
     }
     
-    // Maintain maximum existing row counter across client selections to prevent DOM ID collision
     const existingInputs = tbody.querySelectorAll('input[name="selected_rows"]');
     let maxIdx = 0;
     existingInputs.forEach(inp => {
@@ -846,7 +856,6 @@ function addServiceRow(rowData = null, isLocked = false) {
     const tr = document.createElement('tr');
     tr.id = `row_container_${currentId}`;
 
-    // FIX 1: Safely unescape HTML entities without triggering URIError on '%'
     let targetService = rowData ? (rowData.service || '') : '';
     targetService = unescapeHtml(targetService);
 
@@ -878,7 +887,6 @@ function addServiceRow(rowData = null, isLocked = false) {
 
     const disabledAttr = isLocked ? 'disabled' : '';
 
-    // FIX 2: Escaped plain text stored in value without encodeURIComponent
     tr.innerHTML = `
         <td style="text-align: center; width: 40px; padding-top: 16px;">
             ${isLocked ? '' : `<button type="button" class="btn-remove-row" onclick="removeServiceRow(${currentId})" title="Remove Line">×</button>`}
@@ -937,7 +945,6 @@ function onRowItemChange(id, bypassDefaultNotes = false) {
     const rawType = selectedOption.getAttribute('data-type') || 'individual';
     const itemName = selectedOption.text;
 
-    // FIX 3: Assign plain text string directly to hidden field without URI encoding
     if (svcNameInput) svcNameInput.value = itemName;
 
     let resolvedType = rawType;
@@ -1622,7 +1629,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const action = e.submitter ? e.submitter.value : '';
-            if (action === 'revert_to_workspace' || action === 'save_draft_only') return true;
+            // FIX: Added 'send_m365_email' to early-return exemptions so Phase 2 preview submissions bypass Phase 1 workspace checks
+            if (action === 'revert_to_workspace' || action === 'save_draft_only' || action === 'send_m365_email') return true;
 
             const hiddenSelect = document.getElementById('client-select');
             if (!hiddenSelect || !hiddenSelect.value) return true;
