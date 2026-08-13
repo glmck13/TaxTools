@@ -84,7 +84,7 @@ comm -13 "$QBO_KEYS" "$SPO_KEYS" | while IFS= read -r OLD_CLIENT; do
         for ITEM_ID in $ITEM_IDS; do
             if [ -n "$ITEM_ID" ]; then
                 # Delete the item without prompting for confirmation
-                m365 spo listitem remove --webUrl "$SPO_SITE_URL" --listTitle "$SPO_LIST_NAME" --id "$ITEM_ID" --confirm
+                m365 spo listitem remove --webUrl "$SPO_SITE_URL" --listTitle "$SPO_LIST_NAME" --id "$ITEM_ID" --force
             fi
         done
     fi

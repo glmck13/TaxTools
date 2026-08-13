@@ -26,9 +26,7 @@ m365_pdfunite.cgi \
 m365_poll.cgi \
 m365_start.cgi \
 m365_status.cgi \
-nph-m365.cgi \
 nph-m365_convert2pdf.cgi \
-nph-m365_intake.cgi \
 nph-m365_outlook.cgi \
 ; do
 	rm -f $f
@@ -39,9 +37,12 @@ done
 # QBO
 #
 for f in \
-nph-qbo.cgi \
-nph-qbo_intake.cgi \
+nph-intake.cgi \
+consent_pipeline.cgi \
+consent_sandbox.cgi \
 engagement_pipeline.cgi \
+engagement_sandbox.cgi \
+adobe_webhook.cgi \
 ; do
 	rm -f $f
 	[ "$PURGE" ] || ln qbo.cgi $f

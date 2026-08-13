@@ -2,22 +2,57 @@
 import sys
 import os
 import json
-import traceback
-import requests
 import re
+import requests
+import subprocess
+from urllib.parse import parse_qs
 
-QBOSP_FILE = f"{os.environ.get("DOCUMENT_ROOT", "")}/etc/{os.environ.get("QBO_SANDBOX", "")}qbosp.csv"
+# Configuration constants
+TENANT_URL = "https://tarrantadvisors.sharepoint.com"
+BASE_SITE = ""
+QBOSP_FILE = f"{os.environ.get('DOCUMENT_ROOT', '')}/etc/{os.environ.get('QBO_SANDBOX', '')}qbosp.csv"
 
 reply = ""
+
 try:
-    body = sys.stdin.read().strip()
+    # Extract 'uuid' from CGI environment query string
+    query_string = os.environ.get("QUERY_STRING", "")
+    parsed_qs = parse_qs(query_string)
+    uuid_list = parsed_qs.get("uuid")
+
+    if not uuid_list or not uuid_list[0]:
+        raise ValueError("Missing required 'uuid' parameter in query string.")
+
+    uuid_val = uuid_list[0]
+
+    # Execute the CLI command directly to fetch file content
+    m365_cmd = [
+        "m365", "spo", "file", "get",
+        "--webUrl", f"{TENANT_URL}{BASE_SITE}",
+        "--id", uuid_val,
+        "--asFile",
+        "--path", "/dev/stdout"
+    ]
+
+    # Run command and capture standard output
+    result = subprocess.run(
+        m365_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False
+    )
+
+    body = result.stdout.strip()
 
     if not body:
-        raise ValueError("Empty input received. The file might be empty or the download failed.")
+        error_msg = result.stderr.strip() or "Empty input received. File download failed or returned empty content."
+        raise ValueError(error_msg)
 
     if body.startswith('<'):
-        raise ValueError("SharePoint API returned an XML error instead of the JSON payload. Check the filename and authentication.")
+        raise ValueError("SharePoint API returned an XML error instead of the JSON payload. Check authentication or file permissions.")
 
+    # Parse JSON payload
     payload = json.loads(body)
 
     raw_name = payload.get('customer_name', '')
@@ -98,6 +133,7 @@ except Exception as e:
     }
     reply = json.dumps(error_data)
 
+# Print HTTP Response headers and body
 byte_length = len(reply.encode('utf-8'))
 print("HTTP/1.1 200 OK", end="\r\n")
 print("Content-Type: text/plain", end="\r\n")

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import csv
-import datetime
 import json
 import os
 import subprocess
@@ -11,17 +10,20 @@ import urllib.request
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-# Adobe REST v6 Config
+
+PIPELINE_SANDBOX = os.environ.get("PIPELINE_SANDBOX")
+if PIPELINE_SANDBOX:
+    SP_WEB_URL = "https://tarrantadvisors.sharepoint.com"
+    QBOSP_MATCH_FILE = os.environ.get("DOCUMENT_ROOT", ".") + "/etc/sandbox-qbosp.csv"
+else:
+    SP_WEB_URL = "https://tarrantadvisors.sharepoint.com/sites/Company"
+    QBOSP_MATCH_FILE = os.environ.get("DOCUMENT_ROOT", ".") + "/etc/qbosp.csv"
+
+SP_TARGET_FOLDER = "Shared Documents/!Adobe Signed Agreements"
+TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
+
 ADOBE_APIBASE = os.environ.get("ADOBE_APIBASE", "")
 ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
-
-# SharePoint Target Parameters
-SP_WEB_URL = os.environ.get("SP_WEB_URL", "https://tarrantadvisors.sharepoint.com/sites/Company")
-SP_TARGET_FOLDER = os.environ.get("SP_TARGET_FOLDER", "Shared Documents/!Adobe Signed Agreements")
-
-# Customer Match Config
-QBOSP_MATCH_FILE = os.environ.get("QBOSP_MATCH_FILE", "../etc/qbosp.csv")
-TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
 
 def run_m365_command(args):
     """Executes an m365 CLI command using the pre-authenticated active session."""
@@ -144,31 +146,48 @@ def handle_post_notification():
     sys.stdout.flush()
     print("DEBUG: Instantly echoed 200 OK payload back to Adobe server.", file=sys.stderr)
 
-    # 2. SEVER the connection: Close stdout so the web server disconnects Adobe
+    # 2. SEVER the connection at the OS file descriptor level
     try:
-        print("DEBUG: Severing foreground HTTP connection to start silent background worker...", file=sys.stderr)
-        sys.stdout.close()
-        # Redirect stdout to devnull so subsequent print/sys.stdout calls don't crash the script
-        sys.stdout = open(os.devnull, 'w')
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        # Redirect file descriptors 0 (stdin) and 1 (stdout) to devnull
+        devnull_fd = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devnull_fd, sys.stdout.fileno())
+        os.dup2(devnull_fd, sys.stdin.fileno())
+        os.close(devnull_fd)
     except Exception as e:
-        print(f"DEBUG: Error while closing foreground connection channel: {e}", file=sys.stderr)
-        pass
+        print(f"DEBUG: Error severing stdout OS descriptor: {e}", file=sys.stderr)
 
     # 3. Work on the transfer silently in the background
     event_type = payload.get("event")
     if event_type == "AGREEMENT_WORKFLOW_COMPLETED":
-        agreement_info = payload.get("agreement", {})
+        agreement_info = payload.get("agreement") or {}
         agreement_id = agreement_info.get("id")
-        external_info = agreement_info.get("externalId", {})
-        qbo_customer_id = external_info.get("id", "UNKNOWN_QBO_ID")
-        print(f"DEBUG: Webhook matched for QBO Customer: {qbo_customer_id}", file=sys.stderr)
 
-        filename = f"Tax Agreement ({qbo_customer_id}).pdf"
+        raw_id = (agreement_info.get("externalId") or {}).get("id", {})
+
+        # Use dict if already parsed by Adobe, otherwise parse string
+        if isinstance(raw_id, dict):
+            meta = raw_id
+        elif isinstance(raw_id, str):
+            try:
+                meta = json.loads(raw_id)
+            except Exception:
+                meta = {}
+        else:
+            meta = {}
+
+        doc_type = meta.get("doc_type", "Unknown")
+        qbo_customer_id = str(meta.get("qbo_id", "0"))
+        engagement_id = str(meta.get("engagement_id", "0"))
+
+        filename = f"{doc_type} ({qbo_customer_id}_{engagement_id}).pdf"
 
         # Determine target SharePoint folder based on QBOSP_MATCH_FILE lookup
         matched_sp_folder = lookup_sp_folder(qbo_customer_id)
         if matched_sp_folder:
-            target_folder = f"Shared Documents/{matched_sp_folder}/{TAX_YEAR}"
+            target_folder = f"Shared Documents/{matched_sp_folder}/{TAX_YEAR}/Agreements & Invoices"
             print(f"DEBUG: Found match in CSV for QBO ID {qbo_customer_id}. Folder: {target_folder}", file=sys.stderr)
         else:
             target_folder = SP_TARGET_FOLDER
@@ -183,9 +202,9 @@ def handle_post_notification():
         except Exception as err:
             # Errors are still safely directed to the Apache/Nginx error log via sys.stderr
             print(f"Silent background task failed: {err}", file=sys.stderr)
+
     else:
         print(f"DEBUG: Ignoring event type '{event_type}' — no background action required.", file=sys.stderr)
-
 
 if __name__ == "__main__":
     request_method = os.environ.get("REQUEST_METHOD", "GET")

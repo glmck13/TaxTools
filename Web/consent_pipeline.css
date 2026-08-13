@@ -1,0 +1,248 @@
+/* ==========================================================================
+   GLOBAL STYLES & RESET
+   ========================================================================== */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f0f2f5;
+    color: #222;
+}
+
+/* ==========================================================================
+   PHASE 1: FORM SELECTION & WORKSPACE LAYOUT
+   ========================================================================== */
+.wrapper {
+    max-width: 850px;
+    background: #fff;
+    padding: 35px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin: 40px auto;
+}
+
+h1 {
+    color: #0078d4;
+    margin-top: 0;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #efefef;
+    font-size: 24px;
+}
+
+.form-group {
+    margin-bottom: 22px;
+}
+
+label {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #2d3748;
+}
+
+select, input[type="text"], input[type="email"] {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 14px;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease-in-out;
+}
+
+select:focus, input[type="text"]:focus, input[type="email"]:focus {
+    border-color: #0078d4;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.15);
+}
+
+/* ==========================================================================
+   CUSTOMER PROFILE & LOCAL ADDRESS FALLBACK PANELS
+   ========================================================================== */
+.profile-card {
+    padding: 20px;
+    border-radius: 6px;
+    margin-bottom: 25px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.profile-card-complete {
+    background: #f0fff4;
+    border: 1px solid #c6f6d5;
+}
+
+.profile-card-fallback {
+    background: #fffaf0;
+    border: 1px solid #fbd38d;
+}
+
+.profile-card-title {
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 12px;
+}
+
+.profile-grid-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.form-field-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 4px;
+}
+
+/* Read-only verification display text */
+.verify-text {
+    color: #4a5568;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* ==========================================================================
+   BUTTONS & FORM SUBMISSION
+   ========================================================================== */
+.btn-submit {
+    background: #0078d4;
+    color: #fff;
+    border: none;
+    padding: 14px 28px;
+    font-size: 15px;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.btn-submit:hover {
+    background: #106ebe;
+}
+
+/* ==========================================================================
+   PHASE 2: SPLIT REVIEW CONTAINER
+   ========================================================================== */
+.split-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+.editor-panel {
+    width: 400px;
+    min-width: 400px;
+    background: #fff;
+    border-right: 1px solid #e2e8f0;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.03);
+    z-index: 10;
+    box-sizing: border-box;
+}
+
+.pdf-panel {
+    flex-grow: 1;
+    background: #525659;
+}
+
+.pdf-panel iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
+/* Phase 2 Sidebar Button Variations */
+.btn-action-grey {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+.btn-action-grey:hover {
+    background: #e5e7eb;
+}
+
+.btn-action-yellow {
+    background: #fef9c3;
+    color: #854d0e;
+    border: 1px solid #fde047;
+}
+.btn-action-yellow:hover {
+    background: #fef08a;
+}
+
+.btn-action-lightgreen {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+.btn-action-lightgreen:hover {
+    background: #bbf7d0;
+}
+
+.btn-action-green {
+    background: #15803d;
+    color: #ffffff;
+    border: 1px solid #166534;
+}
+.btn-action-green:hover {
+    background: #166534;
+}
+
+/* ==========================================================================
+   PHASE 3: SUCCESS STATUS PANEL VIEW
+   ========================================================================== */
+.success-wrapper {
+    background: #fafafa;
+    padding: 40px;
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+.success-card {
+    max-width: 600px;
+    background: #fff;
+    padding: 40px;
+    border-radius: 6px;
+    border: 1px solid #107c41;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    text-align: center;
+    margin: 40px auto 0 auto;
+}
+
+.icon-circle {
+    width: 60px;
+    height: 60px;
+    background: #dff6dd;
+    color: #107c41;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: bold;
+    margin: 0 auto 20px auto;
+}
+
+.success-card h2 {
+    color: #107c41;
+    margin-top: 0;
+    margin-bottom: 12px;
+}
+
+.success-card p {
+    color: #444;
+    font-size: 15px;
+    line-height: 1.5;
+    margin-bottom: 24px;
+}
