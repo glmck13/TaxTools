@@ -4,7 +4,7 @@ import json
 import subprocess
 
 # --- Config ---
-M365_DIR = '/var/www/m365'
+M365_DIR = os.environ.get("M365_DIR", "")
 PID_FILE = os.path.join(M365_DIR, 'm365_login.pid')
 os.environ['CLIMICROSOFT365_CONFIG_DIR'] = M365_DIR
 os.environ['HOME'] = M365_DIR

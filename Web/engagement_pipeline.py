@@ -49,6 +49,7 @@ else:
     CARBON_COPIES = ["katie@tarrantadvisors.com"]
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/engagements"
 
+M365_DIR = os.environ.get("M365_DIR", "")
 TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
 NEXT_YEAR = f"{int(TAX_YEAR) + 1}"
 SCRIPT_URL = os.environ.get("SCRIPT_NAME", "")
@@ -77,12 +78,12 @@ TAG_FINAL = "[F] "
 def get_valid_graph_token():
     """
     Hybrid Token Acquisition Strategy:
-    1. Fast path: Direct read from ~/m365/.cli-m365-msal.json cache. Validates that the token
+    1. Fast path: Direct read from .cli-m365-msal.json cache. Validates that the token
        is targeted for Graph AND has at least 5 minutes of lifetime remaining.
     2. Fallback path: Executes `m365 util accesstoken get --resource graph` subprocess
        to force token refresh via MSAL if expired, updating the JSON file automatically.
     """
-    cache_path = os.path.expanduser("~/m365/.cli-m365-msal.json")
+    cache_path = os.path.expanduser(f"{M365_DIR}/.cli-m365-msal.json")
     
     # 1. Direct fast-read attempt
     if os.path.exists(cache_path):
@@ -125,10 +126,10 @@ def get_valid_graph_token():
 def get_m365_account_email():
     """
     Extracts the active authenticated M365 user's email address:
-    1. Reads username/upn directly from ~/m365/.cli-m365-msal.json cache.
+    1. Reads username/upn directly from .cli-m365-msal.json cache.
     2. Fallback: Queries `m365 status --output json` subprocess.
     """
-    cache_path = os.path.expanduser("~/m365/.cli-m365-msal.json")
+    cache_path = os.path.expanduser(f"{M365_DIR}/.cli-m365-msal.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
