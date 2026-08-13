@@ -7,7 +7,7 @@ import json
 import time
 
 # --- Configuration ---
-M365_DIR = '/var/www/m365'
+M365_DIR = os.environ.get("M365_DIR", "")
 os.environ['CLIMICROSOFT365_CONFIG_DIR'] = M365_DIR
 os.environ['HOME'] = M365_DIR
 
