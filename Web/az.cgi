@@ -2,6 +2,7 @@
 
 export HOME=/var/www/azure; cd
 
+export AZ_DIR=$HOME
 export AZURE_CONFIG_DIR=$HOME
 export AZURE_CORE_COLLECT_TELEMETRY=0
 

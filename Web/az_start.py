@@ -8,7 +8,7 @@ import time
 
 # --- Configuration ---
 # Ensure the Apache user (www-data) has full ownership of this folder
-AZ_DIR = '/var/www/azure'
+AZ_DIR = os.environ.get("AZ_DIR", "")
 os.environ['AZURE_CONFIG_DIR'] = AZ_DIR
 os.environ['HOME'] = AZ_DIR
 os.environ['AZURE_CORE_COLLECT_TELEMETRY'] = '0'

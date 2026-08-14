@@ -4,7 +4,7 @@ import json
 import time
 
 # --- Config: Must match az_start.cgi ---
-AZ_DIR = '/var/www/azure'
+AZ_DIR = os.environ.get("AZ_DIR", "")
 PID_FILE = os.path.join(AZ_DIR, 'az_login.pid')
 
 # Azure CLI token files (checks for both modern and legacy)

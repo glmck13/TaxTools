@@ -5,7 +5,7 @@ import json
 import requests
 import subprocess
 
-AZ_DIR = '/var/www/azure'
+AZ_DIR = os.environ.get("AZ_DIR", "")
 os.environ['AZURE_CONFIG_DIR'] = AZ_DIR
 os.environ['HOME'] = AZ_DIR
 
