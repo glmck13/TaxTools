@@ -13,6 +13,7 @@ import unicodedata
 import stat
 import base64
 import subprocess
+import resend
 
 from jinja2 import Template
 
@@ -49,7 +50,6 @@ else:
     CARBON_COPIES = ["katie@tarrantadvisors.com"]
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/engagements"
 
-M365_DIR = os.environ.get("M365_DIR", "")
 TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
 NEXT_YEAR = f"{int(TAX_YEAR) + 1}"
 SCRIPT_URL = os.environ.get("SCRIPT_NAME", "")
@@ -74,85 +74,6 @@ ORGANIZATION_ENTITY_TYPES = {
 TAG_NEW   = "[+] "
 TAG_DRAFT = "[D] "
 TAG_FINAL = "[F] "
-
-def get_valid_graph_token():
-    """
-    Hybrid Token Acquisition Strategy:
-    1. Fast path: Direct read from .cli-m365-msal.json cache. Validates that the token
-       is targeted for Graph AND has at least 5 minutes of lifetime remaining.
-    2. Fallback path: Executes `m365 util accesstoken get --resource graph` subprocess
-       to force token refresh via MSAL if expired, updating the JSON file automatically.
-    """
-    cache_path = os.path.expanduser(f"{M365_DIR}/.cli-m365-msal.json")
-    
-    # 1. Direct fast-read attempt
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                cache_data = json.load(f)
-                
-            access_tokens = cache_data.get("AccessToken", {})
-            current_time = int(time.time())
-            
-            for token_key, token_info in access_tokens.items():
-                target = token_info.get("target", "")
-                expires_on = int(token_info.get("expires_on", 0))
-                
-                # Check if token target matches Graph and has > 300 seconds buffer remaining
-                if "graph.microsoft.com" in target and (expires_on - current_time) > 300:
-                    secret_token = token_info.get("secret")
-                    if secret_token:
-                        return secret_token
-        except Exception as ex:
-            print(f"DEBUG: Direct msal cache parse fallback triggered: {str(ex)}", file=sys.stderr)
-
-    # 2. Subprocess fallback to CLI session to auto-refresh expired token
-    try:
-        cmd = ["m365", "util", "accesstoken", "get", "--resource", "graph", "-o", "json"]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        token_payload = json.loads(res.stdout)
-        
-        # Handle dict response {"accessToken": "..."} OR plain raw string response "eyJ..."
-        if isinstance(token_payload, dict):
-            return token_payload.get("accessToken")
-        elif isinstance(token_payload, str):
-            return token_payload.strip()
-            
-        return str(token_payload).strip()
-    except Exception as e:
-        print(f"ERROR: Failed retrieving Graph access token from M365 CLI: {str(e)}", file=sys.stderr)
-        return None
-
-def get_m365_account_email():
-    """
-    Extracts the active authenticated M365 user's email address:
-    1. Reads username/upn directly from .cli-m365-msal.json cache.
-    2. Fallback: Queries `m365 status --output json` subprocess.
-    """
-    cache_path = os.path.expanduser(f"{M365_DIR}/.cli-m365-msal.json")
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                cache_data = json.load(f)
-            
-            accounts = cache_data.get("Account", {})
-            for acc_key, acc_info in accounts.items():
-                username = acc_info.get("username")
-                if username and "@" in username:
-                    return username
-        except Exception as ex:
-            print(f"DEBUG: M365 email cache lookup failed: {str(ex)}", file=sys.stderr)
-
-    try:
-        cmd = ["m365", "status", "--output", "json"]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        status_payload = json.loads(res.stdout)
-        if isinstance(status_payload, dict):
-            return status_payload.get("connectedAs", OWNER_EMAIL)
-    except Exception:
-        pass
-
-    return OWNER_EMAIL
 
 def sanitize_fee_int(raw_fee):
     """Converts any fee input ('$1,000.00', '1000.00', 1000) directly to a clean integer."""
@@ -1174,7 +1095,7 @@ def handle_generate_preview(form):
         for k, v in posted_oos_dict.items():
             hidden_checklist_fields += f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">\n'
 
-    sender_email = get_m365_account_email()
+    email_from = OWNER_EMAIL
     print("Content-Type: text/html\n")
     print(f"""<!DOCTYPE html>
 <html>
@@ -1223,13 +1144,14 @@ def handle_generate_preview(form):
                     <button type="button" class="btn-submit btn-action-purple" onclick="toggleEmailComposer()" style="text-align:center; padding:12px;">✉ Compose & Send Email Draft...</button>
                     <div id="email-composer-fields" style="display:none; margin-top: 15px;">
                         <div class="email-composer-box">
-                            <div class="email-recipient-badge" style="margin-bottom: 6px;">From: <span>{html.escape(sender_email)}</span></div>
+                            <label class="field-label">From:</label>
+                            <input type="email" name="email_from" value="{html.escape(email_from)}" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box;">
                             <div class="email-recipient-badge">To: <span>{html.escape(primary_email)}</span></div>
                             <label class="field-label">Subject:</label>
                             <input type="text" name="email_subject" value="Draft Tax Engagement Agreement" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box;">
                             <label class="field-label">Message:</label>
                             <textarea name="email_body" style="width: 100%; height: 80px; padding: 8px; margin-bottom: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box; font-family: inherit;">Please review the attached draft agreement.</textarea>
-                            <button type="submit" name="action" value="send_m365_email" class="btn-submit btn-action-purple" style="text-align:center; padding:12px; width: 100%;">🚀 Send via Microsoft 365</button>
+                            <button type="submit" name="action" value="send_resend_email" class="btn-submit btn-action-purple" style="text-align:center; padding:12px; width: 100%;">🚀 Send via Resend</button>
                         </div>
                     </div>
                 </div>
@@ -1751,21 +1673,22 @@ def handle_download_pdf(form, prefix="DRAFT"):
     sys.stdout.buffer.write(f"Content-Disposition: attachment; filename={urllib.parse.quote(filename)}\n\n".encode('utf-8'))
     sys.stdout.buffer.write(generated_buffer.read())
 
-def handle_send_m365_email(form):
+def handle_send_resend_email(form):
     raw_client_val = get_form_val(form, "client_name")
     eng_id = get_form_val(form, "engagement_id", "0")
     client_qbo_id = extract_qbo_id(raw_client_val)
 
-    # 1. Capture posted subject and body BEFORE disk rehydration overwrites form values
+    # 1. Capture posted subject, body, and sender address before rehydrating disk draft
     posted_subject = get_form_val(form, "email_subject")
     posted_body = get_form_val(form, "email_body")
+    email_from = get_form_val(form, "email_from", OWNER_EMAIL).strip()
 
     # 2. Rehydrate disk draft for line items if present
     if raw_client_val and eng_id != "0":
         try:
             form = populate_form_from_disk_draft(form, client_qbo_id, eng_id)
         except Exception as ex:
-            print(f"DEBUG: M365 Email disk draft read error: {str(ex)}", file=sys.stderr)
+            print(f"DEBUG: Resend Email disk draft read error: {str(ex)}", file=sys.stderr)
 
     # 3. Resolve primary recipient email and text values
     primary_email = get_form_val(form, "primary_signer_email")
@@ -1784,59 +1707,34 @@ def handle_send_m365_email(form):
     legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
     
     pdf_buffer = compile_reportlab_pdf_buffer(form, include_esign_tags=False)
-    attachment_bytes = pdf_buffer.read()
+    pdf_bytes = pdf_buffer.read()
     filename = f"Draft_Agreement_{legal_name.replace(' ', '_')}.pdf"
 
-    # Acquire active bearer token using the hybrid cache/CLI fallback approach
-    graph_access_token = get_valid_graph_token()
+    # Assign API Key directly from environment context
+    resend.api_key = os.environ.get("RESEND_API_KEY")
 
-    if not graph_access_token:
-        render_pipeline_error(form, "Failed to acquire a valid Microsoft Graph Access Token. Please ensure you are logged in via 'm365 login' or verify your session cache.")
-        return
-
-    url = "https://graph.microsoft.com/v1.0/me/sendMail"
-    headers = {
-        "Authorization": f"Bearer {graph_access_token}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "message": {
-            "subject": email_subject,
-            "body": {
-                "contentType": "Text",
-                "content": email_body
-            },
-            "toRecipients": [
-                {"emailAddress": {"address": primary_email}}
-            ],
-            "attachments": [
-                {
-                    "@odata.type": "#microsoft.graph.fileAttachment",
-                    "name": filename,
-                    "contentType": "application/pdf",
-                    "contentBytes": base64.b64encode(attachment_bytes).decode('utf-8')
-                }
-            ]
-        },
-        "saveToSentItems": "true"
+    params = {
+        "from": f"Tarrant Advisors <{email_from}>",
+        "reply_to": email_from,
+        "to": [primary_email],
+        "subject": email_subject,
+        "text": email_body,
+        "attachments": [
+            {
+                "filename": filename,
+                "content": list(pdf_bytes),
+            }
+        ]
     }
 
     co_signer_email = get_form_val(form, "co_signer_email").strip()
     if co_signer_email and "@" in co_signer_email:
-        payload["message"]["ccRecipients"] = [
-            {"emailAddress": {"address": co_signer_email}}
-        ]
+        params["cc"] = [co_signer_email]
 
     try:
-        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
-        with urllib.request.urlopen(req) as response:
-            pass
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        return render_pipeline_error(form, f"MS Graph API Execution Failed: {error_body}")
+        resend.Emails.send(params)
     except Exception as e:
-        return render_pipeline_error(form, f"Failed to send email via M365: {str(e)}")
+        return render_pipeline_error(form, f"Failed to send email via Resend API: {str(e)}")
 
     success_html = f"""<!DOCTYPE html>
 <html>
@@ -1850,7 +1748,7 @@ def handle_send_m365_email(form):
     <div class="success-card">
         <div class="icon-circle">✉</div>
         <h2 style="margin-top: 0; color: #107c41;">Email Sent Successfully</h2>
-        <p>The draft agreement was successfully emailed to <strong>{html.escape(primary_email)}</strong> via Microsoft 365.</p>
+        <p>The draft agreement was successfully emailed to <strong>{html.escape(primary_email)}</strong> via Resend.</p>
         <a href="{SCRIPT_URL}" class="btn-submit" style="background:#0078d4; text-decoration:none; display:inline-block; padding: 12px 24px; font-weight: 600;">← Return to Engagement Portal</a>
     </div>
 </div>
@@ -2196,8 +2094,8 @@ if __name__ == "__main__":
         handle_download_pdf(form_data, prefix="DRAFT")
     elif action == "download_final_pdf":
         handle_download_pdf(form_data, prefix="FINAL")
-    elif action == "send_m365_email":
-        handle_send_m365_email(form_data)
+    elif action == "send_resend_email":
+        handle_send_resend_email(form_data)
     elif action == "execute_transactional_pipeline_paper":
         form_data["delivery_method"] = "paper"
         execute_transactional_pipeline(form_data)

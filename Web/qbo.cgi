@@ -18,6 +18,8 @@ qboRefresh.sh >/dev/null
 adobeRefresh.sh >/dev/null
 . ${HOME}/etc/${ADOBE_SANDBOX}adobeTokens.conf
 
+. ${HOME}/etc/resendTokens.conf
+
 export M365_DIR=/var/www/m365
 export HOME=$M365_DIR
 export NVM_DIR="$HOME/.nvm"
