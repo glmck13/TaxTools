@@ -33,7 +33,7 @@ if PIPELINE_SANDBOX:
     CSS_FILE = "engagement_sandbox.css"
     ENGAGEMENT_TEMPLATE = "engagement_sandbox.md"
     SERVICES_TEMPLATE = "services_sandbox.md"
-    OWNER_EMAIL = "dropmeaclick@gmail.com"
+    OWNER_EMAIL = "dianna@tarrantadvisors.com"
     OWNER_SIGNATURE = "Where's Waldo"
     OWNER_CORPNAME = "Software Services"
     CARBON_COPIES = []
@@ -1717,6 +1717,7 @@ def handle_send_resend_email(form):
         "from": f"Tarrant Advisors <{email_from}>",
         "reply_to": email_from,
         "to": [primary_email],
+        "bcc": [email_from],
         "subject": email_subject,
         "text": email_body,
         "attachments": [
