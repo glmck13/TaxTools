@@ -16,6 +16,8 @@
     --heal-bg: #f0f9ff;
     --lead-color: #15803d;
     --lead-bg: #f0fdf4;
+    --accent-unfilled-border: #f59e0b; /* Amber accent border for empty fields */
+    --accent-unfilled-bg: #fffbeb;     /* Warm subtle tint background for empty fields */
     --radius: 10px;
     --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
 }
@@ -200,6 +202,17 @@ textarea {
     transition: all 0.15s ease-in-out;
 }
 
+/* Accent for unpopulated / empty fields */
+input[type="text"]:placeholder-shown,
+input[type="email"]:placeholder-shown,
+input[type="tel"]:placeholder-shown,
+input[type="date"]:placeholder-shown,
+textarea:placeholder-shown,
+select:invalid {
+    border-color: var(--accent-unfilled-border);
+    background-color: var(--accent-unfilled-bg);
+}
+
 input[type="text"]:hover:not(:focus),
 input[type="email"]:hover:not(:focus),
 input[type="tel"]:hover:not(:focus),
@@ -213,8 +226,8 @@ textarea:hover:not(:focus) {
 input:focus,
 select:focus,
 textarea:focus {
-    background-color: #ffffff;
-    border-color: var(--primary);
+    background-color: #ffffff !important;
+    border-color: var(--primary) !important;
     box-shadow: 0 0 0 4px rgba(0, 120, 212, 0.25), 0 2px 4px rgba(0,0,0,0.05);
 }
 

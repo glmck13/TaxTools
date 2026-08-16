@@ -64,6 +64,7 @@ function populateDatalist() {
 
 /**
  * Switch mode between "lead" (New Lead) and "heal" (Existing QBO Client)
+ * Clears and resets all input fields upon tab transition.
  */
 function setMode(mode) {
     currentMode = mode;
@@ -75,7 +76,21 @@ function setMode(mode) {
     const notesSection = document.getElementById("section-notes");
     const formSections = document.querySelectorAll(".form-section");
     const badge = document.getElementById("client-lead-badge");
+    const formEl = document.getElementById("intake-form");
 
+    // 1. Reset form fields to clean state on mode switch
+    if (formEl) {
+        formEl.reset();
+    }
+    clearClientFields();
+
+    // Re-apply today's date following form reset
+    const contactDateInput = document.getElementById("contact_date");
+    if (contactDateInput) {
+        contactDateInput.value = new Date().toISOString().split("T")[0];
+    }
+
+    // 2. Adjust tab-specific styling & properties
     if (mode === "heal") {
         if (btnHeal) btnHeal.classList.add("active");
         if (btnLead) btnLead.classList.remove("active");
@@ -98,14 +113,6 @@ function setMode(mode) {
         if (clientInput) {
             clientInput.setAttribute("list", "client-select-options");
             clientInput.placeholder = "Select or search QBO client...";
-            
-            const qboIdInput = document.getElementById("qbo_id");
-            if (customerCatalog[clientInput.value]) {
-                fillClientFields(customerCatalog[clientInput.value], clientInput.value);
-            } else if (qboIdInput && qboIdInput.value) {
-                const match = Object.values(customerCatalog).find(c => c.id === qboIdInput.value);
-                if (match) fillClientFields(match);
-            }
         }
     } else {
         if (btnLead) btnLead.classList.add("active");
@@ -124,13 +131,6 @@ function setMode(mode) {
         if (submitBtn) {
             submitBtn.className = "btn-submit";
             submitBtn.innerHTML = "⚡ Provision New Client & Folders";
-        }
-
-        // Switching to Lead Mode: Always purge lingering QBO IDs
-        const qboIdInput = document.getElementById("qbo_id");
-        if (qboIdInput) {
-            qboIdInput.value = "";
-            qboIdInput.dataset.cleanName = "";
         }
 
         if (clientInput) {
@@ -152,7 +152,9 @@ function onClientSearchInput() {
     
     // 1. If user selected a full datalist option like "Sper, Karyn (ID: 55)"
     if (customerCatalog[inputVal]) {
-        setMode("heal");
+        if (currentMode !== "heal") {
+            setMode("heal");
+        }
         fillClientFields(customerCatalog[inputVal], inputVal);
         return;
     } 
@@ -208,7 +210,7 @@ function fillClientFields(clientData, catalogKey = "") {
     setVal("friendly_name", meta.friendly_name || clientData.display_name || "");
     setVal("primary_email", clientData.email || "");
     setVal("phone_number", clientData.phone || "");
-    setVal("entity_type", meta.entity_type || "individual");
+    setVal("entity_type", meta.entity_type || "");
     setVal("co_signer_name", meta.co_signer_name || "");
     setVal("co_signer_email", meta.co_signer_email || "");
 
@@ -220,7 +222,7 @@ function fillClientFields(clientData, catalogKey = "") {
 }
 
 /**
- * Clear auto-filled fields
+ * Clear auto-filled fields and purge hidden metadata
  */
 function clearClientFields() {
     const qboIdInput = document.getElementById("qbo_id");
@@ -237,12 +239,14 @@ function clearClientFields() {
     setVal("friendly_name");
     setVal("primary_email");
     setVal("phone_number");
+    setVal("entity_type");
     setVal("co_signer_name");
     setVal("co_signer_email");
     setVal("street");
     setVal("city");
     setVal("state");
     setVal("zip");
+    setVal("notes");
 }
 
 /**
@@ -253,15 +257,6 @@ function closeStatusOverlay(shouldReset = false) {
     if (overlay) overlay.style.display = "none";
 
     if (shouldReset) {
-        const formEl = document.getElementById("intake-form");
-        if (formEl) formEl.reset();
-        
-        clearClientFields();
-        
-        const contactDateInput = document.getElementById("contact_date");
-        if (contactDateInput) {
-            contactDateInput.value = new Date().toISOString().split("T")[0];
-        }
         setMode("lead");
         loadCustomerCatalog(); // Refresh catalog in background
     }

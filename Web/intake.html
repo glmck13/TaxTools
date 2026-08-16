@@ -25,7 +25,7 @@
                 class="mode-btn" 
                 data-mode="heal" 
                 onclick="setMode('heal')">
-            🟢 Heal / Update Existing QBO Client
+            🔵 Heal / Update Existing QBO Client
         </button>
     </div>
 
@@ -88,11 +88,12 @@
 
             <div class="grid-2">
                 <div class="form-group">
-                    <input type="date" id="contact_date" name="contact_date" required>
+                    <input type="date" id="contact_date" name="contact_date" placeholder=" " required>
                     <label for="contact_date">Initial Contact Date</label>
                 </div>
                 <div class="form-group">
                     <select id="entity_type" name="entity_type" required>
+                        <option value="" disabled selected hidden>Select Entity Type...</option>
                         <option value="individual">Individual (Form 1040)</option>
                         <option value="sm_llc">Single Member LLC (Schedule C)</option>
                         <option value="s_corp">S-Corporation (Form 1120S)</option>

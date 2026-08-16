@@ -1,6 +1,9 @@
 #!/bin/bash
+
 # CGI script executed by Apache web server via GET fetch()
 # Output JSON response format
+
+EMAIL_FROM="dianna@tarrantadvisors.com"
 
 # Output CGI HTTP Header
 echo "Content-Type: application/json; charset=utf-8"
@@ -22,6 +25,35 @@ debug() {
 }
 
 debug "=== Intaking new request ($QUERY_STRING) ==="
+
+# ==============================================================================
+# HELPER: SEND EMAIL VIA RESEND REST API
+# ==============================================================================
+send_resend_email() {
+    local subject="$1"
+    local html_body="$2"
+    local recipient="$3"
+
+    if [ -z "$RESEND_API_KEY" ]; then
+        debug "WARNING: RESEND_API_KEY is not set. Skipping email dispatch."
+        return 1
+    fi
+
+    local payload
+    payload=$(jq -n \
+      --arg from "Tarrant Advisors <$EMAIL_FROM>" \
+      --arg to "$recipient" \
+      --arg subject "$subject" \
+      --arg html "$html_body" \
+      '{from: $from, to: [$to], subject: $subject, html: $html}')
+
+    debug "Dispatching notification email via Resend API to $recipient..."
+    
+    curl -s -X POST "https://api.resend.com/emails" \
+      -H "Authorization: Bearer ${RESEND_API_KEY}" \
+      -H "Content-Type: application/json" \
+      -d "$payload" >&2 || true
+}
 
 # ==============================================================================
 # READ & PARSE URL QUERY PARAMETERS ($QUERY_STRING)
@@ -172,25 +204,6 @@ fi
 # BRANCHING POINT: EXISTING CLIENT PROFILE HEALING
 # ==============================================================================
 if [ "$IS_NEW_LEAD" != "true" ]; then
-    debug "Executing Profile Healing notification via m365 CLI..."
-    
-    EMAIL_BODY="<p><b>Updated by:</b> ${RESPONDER}</p>\
-    <h1 style='color:#0369a1;'>QBO Profile Healed / Updated</h1>\
-    <p>\
-    <b>Legal Name:</b> ${CLEAN_CLIENT_NAME}<br>\
-    <b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
-    <b>Email address:</b> ${CLIENT_EMAIL}<br>\
-    <b>Phone number:</b> ${CLIENT_PHONE}<br>\
-    <b>Entity Classification:</b> ${ENTITY_TYPE}<br><br>\
-    <b>QBO Sync ID:</b> ${QBO_CUSTOMER_ID}\
-    </p>"
-
-    m365 outlook mail send \
-      --subject "🟢 Profile Healed/Updated: ${CLEAN_CLIENT_NAME}" \
-      --to "glmck13@gmail.com" \
-      --bodyContents "$EMAIL_BODY" \
-      --bodyContentType "HTML" >&2 || true
-
     debug "Profile Healing complete. Exiting."
     echo "{\"status\": \"success\", \"is_new_lead\": false, \"qbo_id\": \"$QBO_CUSTOMER_ID\", \"message\": \"Profile for ${CLEAN_CLIENT_NAME} healed successfully.\"}"
     exit 0
@@ -281,8 +294,8 @@ m365 spo file add \
 
 rm -f "$HTML_TEMP_FILE"
 
-# STEP 5: SEND NOTIFICATION EMAIL VIA M365 CLI
-debug "Sending team notification email via m365 CLI..."
+# STEP 5: SEND NOTIFICATION EMAIL VIA RESEND API
+debug "Sending team notification email via Resend API..."
 
 EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
 <h1 style='color:#0078d4;'>Client Info:</h1>\
@@ -303,11 +316,10 @@ EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
 <li>Add client to ProConnect only after tax return has been received for download</li>\
 </ul>"
 
-m365 outlook mail send \
-  --subject "✨ New Client Intake submitted on Tarrant Advisors: ${CLEAN_CLIENT_NAME}" \
-  --to "glmck13@gmail.com" \
-  --bodyContents "$EMAIL_BODY" \
-  --bodyContentType "HTML" >&2 || true
+send_resend_email \
+  "New Client Intake submitted on Tarrant Advisors: ${CLEAN_CLIENT_NAME}" \
+  "$EMAIL_BODY" \
+  "glmck13@gmail.com"
 
 debug "=== Client provisioning complete for '$CLEAN_CLIENT_NAME' ==="
 
