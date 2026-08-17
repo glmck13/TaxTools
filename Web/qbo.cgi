@@ -7,6 +7,7 @@ export PATH=$HOME/bin:$PATH
 [[ "$0" == *sandbox* ]] && SANDBOX=true
 
 if [ "$SANDBOX" ]; then
+	export SANDBOX
 	export QBO_SANDBOX="sandbox-"
 	export ADOBE_SANDBOX="sandbox-"
 	export PIPELINE_SANDBOX="sandbox-"
