@@ -206,12 +206,16 @@ async function applyBatchBulkClonedScope() {
 
         terminalLog.innerHTML += `\n[${completed + 1}/${checkedCheckboxes.length}] Applying scope to ${clientKey.split(' (Customer')[0]} (${targetEng.engagement_title || 'Engagement'})... `;
 
+        const syncQboCb = document.getElementById('sync_to_qbo');
+        const syncQboVal = syncQboCb ? (syncQboCb.checked ? 'true' : 'false') : 'true';
+
         const urlParams = new URLSearchParams();
         urlParams.append('action', 'save_draft_only');
         urlParams.append('ajax', 'true');
         urlParams.append('client_name', clientKey);
         urlParams.append('engagement_id', engId);
         urlParams.append('engagement_title', targetEng.engagement_title || '2026 Tax Services Agreement');
+        urlParams.append('sync_to_qbo', syncQboVal);
 
         urlParams.append('estimate_date_option', sourceDraft.estimate_date_option || targetEng.estimate_date_option || 'next_year');
         urlParams.append('friendly_name', (targetEng.primary_signer ? targetEng.primary_signer.friendly_name : '') || targetClient.metadata.friendly_name || clientKey.split(' (Customer')[0]);
@@ -396,6 +400,7 @@ function onClientChange() {
     const actionsDiv = document.getElementById('actions-container');
     const outOfScopeContainer = document.getElementById('out-of-scope-container');
     const profileContainer = document.getElementById('profile-healing-container');
+    const syncToolbarContainer = document.getElementById('qbo-sync-toolbar-container');
     const lockBannerContainer = document.getElementById('lock-banner-container');
     const activeHeaderBanner = document.getElementById('active-client-header-banner');
     const submitBtn = document.getElementById('btn-submit-main');
@@ -424,6 +429,7 @@ function onClientChange() {
         actionsDiv.style.display = 'none';
         if (outOfScopeContainer) outOfScopeContainer.style.display = 'none';
         if (profileContainer) profileContainer.style.display = 'none';
+        if (syncToolbarContainer) syncToolbarContainer.style.display = 'none';
         if (submitBtn) submitBtn.style.display = 'none';
         return;
     }
@@ -438,6 +444,7 @@ function onClientChange() {
         actionsDiv.style.display = 'none';
         if (outOfScopeContainer) outOfScopeContainer.style.display = 'none';
         if (profileContainer) profileContainer.style.display = 'none';
+        if (syncToolbarContainer) syncToolbarContainer.style.display = 'none';
         if (submitBtn) submitBtn.style.display = 'none';
         return;
     }
@@ -522,6 +529,12 @@ function onClientChange() {
                 effectiveEmail
             );
         }
+    }
+
+    if (syncToolbarContainer) {
+        syncToolbarContainer.style.display = 'block';
+        const syncCb = document.getElementById('sync_to_qbo');
+        if (syncCb) syncCb.disabled = isLocked;
     }
 
     if (submitBtn) {
@@ -1184,6 +1197,9 @@ async function toggleClientDeliveryFormat(qboId, engId) {
     const pSigner = draft.primary_signer || {};
     const coSigner = draft.co_signer || {};
 
+    const syncQboCb = document.getElementById('sync_to_qbo');
+    const syncQboVal = syncQboCb ? (syncQboCb.checked ? 'true' : 'false') : 'true';
+
     const urlParams = new URLSearchParams();
     urlParams.append('action', 'save_draft_only');
     urlParams.append('ajax', 'true');
@@ -1191,6 +1207,7 @@ async function toggleClientDeliveryFormat(qboId, engId) {
     urlParams.append('engagement_id', engId);
     urlParams.append('engagement_title', draft.engagement_title || '2026 Tax Services Agreement');
     urlParams.append('delivery_format', newFmt);
+    urlParams.append('sync_to_qbo', syncQboVal);
 
     urlParams.append('friendly_name', draft.friendly_name || pSigner.friendly_name || client.metadata.friendly_name || '');
     urlParams.append('legal_name', pSigner.legal_name || draft.legal_name || '');
@@ -1317,6 +1334,7 @@ function openBatchEditModal(qboId, engId) {
     const modalContentContainer = document.getElementById('modal-workspace-container');
 
     modalContentContainer.appendChild(document.getElementById('profile-healing-container'));
+    modalContentContainer.appendChild(document.getElementById('qbo-sync-toolbar-container'));
     modalContentContainer.appendChild(document.getElementById('service-table'));
     modalContentContainer.appendChild(document.getElementById('actions-container'));
     modalContentContainer.appendChild(document.getElementById('out-of-scope-container'));
@@ -1332,6 +1350,7 @@ function returnElementsToSingleWorkspace() {
     const singleForm = document.querySelector('#single-client-workspace form');
     if (singleForm) {
         const profileContainer = document.getElementById('profile-healing-container');
+        const syncToolbarContainer = document.getElementById('qbo-sync-toolbar-container');
         const serviceTable = document.getElementById('service-table');
         const actionsContainer = document.getElementById('actions-container');
         const oosContainer = document.getElementById('out-of-scope-container');
@@ -1339,11 +1358,13 @@ function returnElementsToSingleWorkspace() {
 
         if (submitContainer) {
             singleForm.insertBefore(profileContainer, submitContainer);
+            if (syncToolbarContainer) singleForm.insertBefore(syncToolbarContainer, submitContainer);
             singleForm.insertBefore(serviceTable, submitContainer);
             singleForm.insertBefore(actionsContainer, submitContainer);
             singleForm.insertBefore(oosContainer, submitContainer);
         } else {
             singleForm.appendChild(profileContainer);
+            if (syncToolbarContainer) singleForm.appendChild(syncToolbarContainer);
             singleForm.appendChild(serviceTable);
             singleForm.appendChild(actionsContainer);
             singleForm.appendChild(oosContainer);
@@ -1376,11 +1397,15 @@ async function closeBatchEditModal() {
         const clientKey = Object.keys(window.clientData || {}).find(k => String(window.clientData[k].id) === String(qboId));
 
         if (clientKey && window.clientData[clientKey]) {
+            const syncQboCb = document.getElementById('sync_to_qbo');
+            const syncQboVal = syncQboCb ? (syncQboCb.checked ? 'true' : 'false') : 'true';
+
             const urlParams = new URLSearchParams();
             urlParams.append('action', 'save_draft_only');
             urlParams.append('ajax', 'true');
             urlParams.append('client_name', clientKey);
             urlParams.append('engagement_id', engId);
+            urlParams.append('sync_to_qbo', syncQboVal);
 
             const engTitleInput = document.querySelector('input[name="engagement_title"]');
             if (engTitleInput) urlParams.append('engagement_title', engTitleInput.value);
@@ -1522,6 +1547,9 @@ async function executeBatchPipelineSubmission() {
         const pSigner = draft.primary_signer || {};
         const coSigner = draft.co_signer || {};
 
+        const syncQboCb = document.getElementById('sync_to_qbo');
+        const syncQboVal = syncQboCb ? (syncQboCb.checked ? 'true' : 'false') : 'true';
+
         const urlParams = new URLSearchParams();
         urlParams.append('action', targetAction);
         urlParams.append('ajax', 'true');
@@ -1529,6 +1557,7 @@ async function executeBatchPipelineSubmission() {
         urlParams.append('engagement_id', engId);
         urlParams.append('engagement_title', draft.engagement_title || '2026 Tax Services Agreement');
         urlParams.append('delivery_method', isPaper ? 'paper' : '');
+        urlParams.append('sync_to_qbo', syncQboVal);
 
         urlParams.append('friendly_name', pSigner.friendly_name || draft.friendly_name || client.metadata.friendly_name || '');
         urlParams.append('legal_name', pSigner.legal_name || draft.legal_name || '');
@@ -1629,7 +1658,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const action = e.submitter ? e.submitter.value : '';
-            // FIX: Added 'send_m365_email' to early-return exemptions so Phase 2 preview submissions bypass Phase 1 workspace checks
             if (action === 'revert_to_workspace' || action === 'save_draft_only' || action === 'send_m365_email') return true;
 
             const hiddenSelect = document.getElementById('client-select');

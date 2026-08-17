@@ -620,6 +620,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     preserved_heal_data_json = "{}"
     boilerplate_items = extract_base_out_of_scope_boilerplate()
     estimate_date_option = "today"
+    sync_to_qbo_checked = True
 
     active_oos_dict = None
 
@@ -627,6 +628,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         raw_passed_client = html.unescape(get_form_val(preserved_form, "client_name"))
         selected_eng_id = get_form_val(preserved_form, "engagement_id", "0")
         estimate_date_option = get_form_val(preserved_form, "estimate_date_option", "next_year")
+        sync_to_qbo_val = get_form_val(preserved_form, "sync_to_qbo", "true").lower()
+        sync_to_qbo_checked = sync_to_qbo_val in ["true", "1", "yes"]
 
         selected_client_label = raw_passed_client
         parsed_qbo_id = ""
@@ -818,6 +821,14 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 
             <div id="profile-healing-container" style="display:none;"></div>
 
+            <!-- QBO Sync Control Toolbar -->
+            <div id="qbo-sync-toolbar-container" class="qbo-sync-toolbar" style="display:none;">
+                <label class="qbo-sync-checkbox-label">
+                    <input type="checkbox" id="sync_to_qbo" name="sync_to_qbo" value="true" {"checked" if sync_to_qbo_checked else ""}>
+                    <span>Sync Metadata Updates to QuickBooks Online Customer Notes</span>
+                </label>
+            </div>
+
             <table id="service-table" class="service-table" style="display:none;">
                 <thead>
                     <tr>
@@ -978,6 +989,8 @@ def handle_generate_preview(form):
     row_ids = get_form_list(form, "selected_rows")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
     profile_verified = get_form_val(form, "profile_verified", "false")
+    sync_to_qbo_val = get_form_val(form, "sync_to_qbo", "true").lower()
+    sync_to_qbo = sync_to_qbo_val in ["true", "1", "yes"]
 
     co_signer_email_val = get_form_val(form, "co_signer_email")
     co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
@@ -1096,6 +1109,11 @@ def handle_generate_preview(form):
             hidden_checklist_fields += f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">\n'
 
     email_from = OWNER_EMAIL
+
+    cc_badge_html = ""
+    if co_signer_email and "@" in co_signer_email:
+        cc_badge_html = f'<div class="email-recipient-badge" style="margin-top: -5px;">CC: <span>{html.escape(co_signer_email)}</span></div>'
+
     print("Content-Type: text/html\n")
     print(f"""<!DOCTYPE html>
 <html>
@@ -1120,6 +1138,7 @@ def handle_generate_preview(form):
             <input type="hidden" name="co_signer_name" value="{html.escape(co_signer_name)}">
             <input type="hidden" name="entity_type" value="{html.escape(entity_type)}">
             <input type="hidden" name="estimate_date_option" value="{html.escape(estimate_date_option)}">
+            <input type="hidden" name="sync_to_qbo" value="{'true' if sync_to_qbo else 'false'}">
             <input type="hidden" name="prior_estimate_id" value="{html.escape(prior_estimate_id)}">
             <input type="hidden" name="street" value="{html.escape(street)}">
             <input type="hidden" name="city" value="{html.escape(city)}">
@@ -1147,6 +1166,7 @@ def handle_generate_preview(form):
                             <label class="field-label">From:</label>
                             <input type="email" name="email_from" value="{html.escape(email_from)}" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box;">
                             <div class="email-recipient-badge">To: <span>{html.escape(primary_email)}</span></div>
+                            {cc_badge_html}
                             <label class="field-label">Subject:</label>
                             <input type="text" name="email_subject" value="Draft Tax Engagement Agreement" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box;">
                             <label class="field-label">Message:</label>
@@ -1773,6 +1793,8 @@ def execute_transactional_pipeline(form):
     legal_name = get_form_val(form, "legal_name")
     primary_email = get_form_val(form, "primary_signer_email")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
+    sync_to_qbo_val = get_form_val(form, "sync_to_qbo", "true").lower()
+    sync_to_qbo = sync_to_qbo_val in ["true", "1", "yes"]
 
     co_signer_email_val = get_form_val(form, "co_signer_email")
     co_signer_email = co_signer_email_val.strip() if "@" in co_signer_email_val else ""
@@ -1830,16 +1852,17 @@ def execute_transactional_pipeline(form):
         entity_type=entity_type
     )
 
-    try:
-        patch_payload = {
-            "Id": client_qbo_id,
-            "SyncToken": fresh_customer["SyncToken"],
-            "sparse": True,
-            "Notes": proposed_notes_json
-        }
-        #qbo_api_request("customer", method="POST", payload=patch_payload)
-    except Exception as e:
-        return render_pipeline_error(form, f"QBO Customer Notes Sync Failure: Unable to update Customer Notes record in QBO. ({str(e)})")
+    if sync_to_qbo:
+        try:
+            patch_payload = {
+                "Id": client_qbo_id,
+                "SyncToken": fresh_customer["SyncToken"],
+                "sparse": True,
+                "Notes": proposed_notes_json
+            }
+            qbo_api_request("customer", method="POST", payload=patch_payload)
+        except Exception as e:
+            return render_pipeline_error(form, f"QBO Customer Notes Sync Failure: Unable to update Customer Notes record in QBO. ({str(e)})")
 
     estimate_lines = []
     deposit_val = 0

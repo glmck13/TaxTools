@@ -71,7 +71,7 @@ select {
 .profile-card {
     padding: 20px;
     border-radius: 6px;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 
@@ -199,6 +199,40 @@ select {
     gap: 15px;
     border-top: 1px dashed #c6f6d5;
     padding-top: 12px;
+}
+
+/* ==========================================================================
+   QBO SYNC TOOLBAR CONTAINER (OPTION A: FLAT NEUTRAL CARD STYLE)
+   ========================================================================== */
+.qbo-sync-toolbar {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.qbo-sync-toolbar:hover {
+    background-color: #f1f5f9;
+}
+
+.qbo-sync-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+}
+
+.qbo-sync-checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #0078d4;
 }
 
 /* ==========================================================================
