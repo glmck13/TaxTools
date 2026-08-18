@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tarrant Advisors — Client Intake & Profile Hub</title>
+    <title>Tarrant Advisors LLC — Client Intake & Profile Hub</title>
     <link rel="stylesheet" href="/css/intake.css">
 </head>
 <body>
@@ -11,160 +11,156 @@
 <div class="wrapper">
     <h1>Tarrant Advisors LLC — Client Intake & Profile Hub</h1>
 
-    <!-- EXPLICIT MODE SWITCHER (LEAD FIRST) -->
+    <!-- Mode Switcher Controls -->
     <div class="mode-switcher">
-        <button type="button" 
-                id="btn-mode-lead" 
-                class="mode-btn active" 
-                data-mode="lead" 
-                onclick="setMode('lead')">
+        <button type="button" id="btn-mode-lead" class="mode-btn active" data-mode="lead" onclick="setMode('lead')">
             ✨ Provision New Client Lead
         </button>
-        <button type="button" 
-                id="btn-mode-heal" 
-                class="mode-btn" 
-                data-mode="heal" 
-                onclick="setMode('heal')">
+        <button type="button" id="btn-mode-heal" class="mode-btn" data-mode="heal" onclick="setMode('heal')">
             🔵 Heal / Update Existing QBO Client
         </button>
     </div>
 
-    <!-- DYNAMIC MODE BANNER (LEAD DEFAULT) -->
-    <div id="mode-banner" class="mode-banner lead">
-        <span>✨</span>
-        <div>
-            <strong>Mode: New Lead Provisioning</strong><br>
-            Creates a new QBO Customer, generates SharePoint folder trees, copies log files, archives intake summary, and dispatches team notifications.
-        </div>
-    </div>
-
-    <form id="intake-form" onsubmit="handleFormSubmit(event)" style="margin-top: 20px;">
+    <!-- Main Intake Form -->
+    <form id="intake-form" onsubmit="handleFormSubmit(event)">
         
-        <!-- HIDDEN METADATA CONTROL FIELDS -->
-        <input type="hidden" id="qbo_id" name="qbo_id" value="">
-        <input type="hidden" id="responder" name="responder" value="Steve Tarrant">
-
-        <!-- SECTION 1: CLIENT NAME -->
+        <!-- SECTION 1: CLIENT NAME / LOOKUP -->
         <div class="form-section">
             <div class="section-title-bar">
-                <div class="section-title">Client Name</div>
-                <span id="client-lead-badge" class="badge-status lead">New Lead</span>
+                <span class="section-title">Client Name</span>
             </div>
             <div class="form-group">
                 <input 
-                  type="text" 
-                  id="client-select-input" 
-                  name="client_name" 
-                  oninput="onClientSearchInput()" 
-                  onchange="onClientSearchInput()" 
-                  placeholder="Select or search QBO client..." 
-                  autocomplete="off"
-                  required
-                />
-                <label for="client-select-input">Legal / Display Client Name</label>
+                    type="text" 
+                    id="client-select-input" 
+                    name="client_name" 
+                    placeholder="Enter new lead name..." 
+                    oninput="onClientSearchInput()" 
+                    autocomplete="off" 
+                    required
+                >
+                <label for="client-select-input">LEGAL / DISPLAY CLIENT NAME</label>
                 <datalist id="client-select-options"></datalist>
             </div>
         </div>
 
-        <!-- SECTION 2: DEMOGRAPHICS & CONTACT INFO -->
+        <!-- SECTION 2: CONTACT & ACCOUNT DEMOGRAPHICS -->
         <div class="form-section">
-            <div class="section-title">👤 Contact & Account Demographics</div>
-            
-            <div class="form-group" style="margin-bottom: 15px;">
-                <input type="text" id="friendly_name" name="friendly_name" placeholder="Signature / Contact Name" required>
-                <label for="friendly_name">Signature / Contact Name</label>
+            <div class="section-title-bar">
+                <span class="section-title">👤 Contact & Account Demographics</span>
+                <span id="client-lead-badge" class="badge-status lead">New Lead</span>
             </div>
 
+            <!-- Row 1: Contact Name & Date -->
+            <div class="grid-2">
+                <div class="form-group">
+                    <input type="text" id="friendly_name" name="friendly_name" placeholder="Signature / Contact Name" required>
+                    <label for="friendly_name">SIGNATURE / CONTACT NAME</label>
+                </div>
+                <div class="form-group">
+                    <input type="date" id="contact_date" name="contact_date" required>
+                    <label for="contact_date">INITIAL CONTACT DATE</label>
+                </div>
+            </div>
+
+            <!-- Row 2: Email & Phone -->
             <div class="grid-2">
                 <div class="form-group">
                     <input type="email" id="primary_email" name="client_email" placeholder="client@example.com" required>
-                    <label for="primary_email">Primary Email Address</label>
+                    <label for="primary_email">PRIMARY EMAIL ADDRESS</label>
                 </div>
                 <div class="form-group">
-                    <input type="tel" id="phone_number" name="client_phone" placeholder="(703) 555-1212" required>
-                    <label for="phone_number">Phone Number</label>
+                    <input type="tel" id="phone_number" name="client_phone" placeholder="(703) 555-1212">
+                    <label for="phone_number">PHONE NUMBER</label>
                 </div>
             </div>
 
-            <div class="grid-2">
-                <div class="form-group">
-                    <input type="date" id="contact_date" name="contact_date" placeholder=" " required>
-                    <label for="contact_date">Initial Contact Date</label>
-                </div>
-                <div class="form-group">
-                    <select id="entity_type" name="entity_type" required>
-                        <option value="" disabled selected hidden>Select Entity Type...</option>
-                        <option value="individual">Individual (Form 1040)</option>
-                        <option value="sm_llc">Single Member LLC (Schedule C)</option>
-                        <option value="s_corp">S-Corporation (Form 1120S)</option>
-                        <option value="partnership">Partnership (Form 1065)</option>
-                        <option value="c_corp">C-Corporation (Form 1120)</option>
-                        <option value="non_profit">Tax-Exempt Org (Form 990)</option>
-                        <option value="trust">Trust / Estate (Form 1041)</option>
-                    </select>
-                    <label for="entity_type">Account Classification</label>
-                </div>
-            </div>
-
+            <!-- Row 3: Co-Signer / Spouse Details -->
             <div class="grid-2">
                 <div class="form-group">
                     <input type="text" id="co_signer_name" name="co_signer_name" placeholder="e.g., Jane Doe">
-                    <label for="co_signer_name">Additional Signer Name (Spouse / Partner)</label>
+                    <label for="co_signer_name">ADDITIONAL SIGNER NAME (SPOUSE / PARTNER)</label>
                 </div>
                 <div class="form-group">
                     <input type="email" id="co_signer_email" name="co_signer_email" placeholder="spouse@example.com">
-                    <label for="co_signer_email">Additional Signer Email</label>
+                    <label for="co_signer_email">ADDITIONAL SIGNER EMAIL</label>
+                </div>
+            </div>
+
+            <!-- Row 4: Account Classification & Responder -->
+            <div class="grid-2">
+                <div class="form-group">
+                    <select id="entity_type" name="entity_type" required>
+                        <option value="" disabled selected>Select Entity Type...</option>
+                        <option value="individual">Individual / Sole Proprietorship</option>
+                        <option value="sm_llc">Single-Member LLC</option>
+                        <option value="s_corp">S-Corporation</option>
+                        <option value="partnership">Partnership / Multi-Member LLC</option>
+                        <option value="c_corp">C-Corporation</option>
+                        <option value="non_profit">Non-Profit Organization</option>
+                        <option value="trust">Trust / Estate</option>
+                    </select>
+                    <label for="entity_type">ACCOUNT CLASSIFICATION</label>
+                </div>
+                <div class="form-group">
+                    <input type="text" id="responder" name="responder" placeholder="e.g., Jane Smith" required>
+                    <label for="responder">INTAKE COMPLETED BY</label>
                 </div>
             </div>
         </div>
 
         <!-- SECTION 3: BILLING ADDRESS -->
         <div class="form-section">
-            <div class="section-title">📍 Billing Address</div>
+            <div class="section-title-bar">
+                <span class="section-title">📍 Billing Address</span>
+            </div>
             <div class="grid-address">
                 <div class="form-group">
-                    <input type="text" id="street" name="street" placeholder="Street Address" autocomplete="street-address">
-                    <label for="street">Street</label>
+                    <input type="text" id="street" name="street" placeholder="1234 Main St">
+                    <label for="street">STREET</label>
                 </div>
                 <div class="form-group">
-                    <input type="text" id="city" name="city" placeholder="City" autocomplete="address-level2">
-                    <label for="city">City</label>
+                    <input type="text" id="city" name="city" placeholder="City">
+                    <label for="city">CITY</label>
                 </div>
                 <div class="form-group">
-                    <input type="text" id="state" name="state" placeholder="VA" maxlength="2" style="text-transform: uppercase;" autocomplete="address-level1">
-                    <label for="state">State</label>
+                    <input type="text" id="state" name="state" placeholder="VA" maxlength="2">
+                    <label for="state">STATE</label>
                 </div>
                 <div class="form-group">
-                    <input type="text" id="zip" name="zip" placeholder="22030" maxlength="10" autocomplete="postal-code">
-                    <label for="zip">Zip Code</label>
+                    <input type="text" id="zip" name="zip" placeholder="22030">
+                    <label for="zip">ZIP CODE</label>
                 </div>
             </div>
         </div>
 
-        <!-- SECTION 4: CONSULTATION & DISCOVERY NOTES -->
-        <div class="form-section" id="section-notes">
+        <!-- SECTION 4: GENERAL NOTES (Hidden in Heal Mode) -->
+        <div id="section-notes" class="form-section">
             <div class="section-title-bar">
-                <span class="section-title">📝 Notes & Comments</span>
+                <span class="section-title">📝 Intake & Service Notes</span>
             </div>
             <div class="form-group">
-                <textarea id="notes" name="notes" placeholder="Enter intake notes, client history, or special instructions..."></textarea>
-                <label for="notes">Notes</label>
+                <textarea id="notes" name="notes" placeholder="Enter engagement notes, scope details, or fee estimates..."></textarea>
+                <label for="notes">ENGAGEMENT NOTES / COMMENTS</label>
             </div>
         </div>
 
-        <button type="submit" id="btn-submit" class="btn-submit">⚡ Provision New Client & Folders</button>
+        <!-- SUBMIT ACTION -->
+        <button type="submit" id="btn-submit" class="btn-submit">
+            ⚡ Provision New Client & Folders
+        </button>
     </form>
 </div>
 
-<!-- SUBMISSION STATUS OVERLAY -->
+<!-- STATUS / PROGRESS OVERLAY -->
 <div id="status-overlay">
     <div class="status-card">
-        <div class="spinner" id="status-spinner"></div>
-        <h3 id="status-title" style="margin-top:0; color:#0078d4;">Processing...</h3>
-        <p id="status-text" style="color:#555; font-size:14px; line-height:1.5;">
-            Updating QBO Customer metadata and processing request...
-        </p>
-        <button id="btn-close-overlay" style="display:none; margin-top:15px; padding:8px 20px;" class="btn-submit">Done & Reset Form</button>
+        <div id="status-spinner" class="spinner"></div>
+        <h2 id="status-title">Processing Request...</h2>
+        <p id="status-text">Please wait while the server processes your request.</p>
+        <button type="button" id="btn-close-overlay" class="btn-submit" style="display: none; margin-top: 15px;">
+            Close
+        </button>
     </div>
 </div>
 

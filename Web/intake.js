@@ -11,7 +11,7 @@ const isSandbox = urlParams.get("sandbox") === "true";
 const CGI_SUFFIX = isSandbox ? "?sandbox=true" : "";
 
 const LOOKUP_CGI_URL = `/cgi/intake_lookup.cgi${CGI_SUFFIX}`;
-const PROVISION_CGI_URL = `/cgi/intake_provision.cgi`; // Query string built dynamically in submit
+const PROVISION_CGI_URL = `/cgi/intake_provision.cgi${CGI_SUFFIX}`;
 
 document.addEventListener("DOMContentLoaded", () => {
     // Set default contact date to today
@@ -239,6 +239,7 @@ function clearClientFields() {
     setVal("friendly_name");
     setVal("primary_email");
     setVal("phone_number");
+    setVal("responder");
     setVal("entity_type");
     setVal("co_signer_name");
     setVal("co_signer_email");
@@ -263,7 +264,7 @@ function closeStatusOverlay(shouldReset = false) {
 }
 
 /**
- * Handle form submission
+ * Handle form submission via POST
  */
 async function handleFormSubmit(event) {
     event.preventDefault();
@@ -290,7 +291,7 @@ async function handleFormSubmit(event) {
     }
 
     const formData = new FormData(event.target);
-    const queryParts = [];
+    const payload = {};
 
     for (let [key, value] of formData.entries()) {
         let cleanVal = value;
@@ -300,17 +301,18 @@ async function handleFormSubmit(event) {
             cleanVal = value.replace(/\s*\(\s*ID:\s*\d+\s*\)/gi, "").trim();
         }
         
-        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(cleanVal)}`);
+        payload[key] = cleanVal;
     }
 
-    if (isSandbox) queryParts.push("sandbox=true");
-    queryParts.push(`is_new_lead=${isNewLead ? "true" : "false"}`);
-
-    const queryString = queryParts.join("&");
+    payload["is_new_lead"] = isNewLead ? "true" : "false";
 
     try {
-        const response = await fetch(`${PROVISION_CGI_URL}?${queryString}`, {
-            method: "GET"
+        const response = await fetch(PROVISION_CGI_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status} - Internal Server Error`);
