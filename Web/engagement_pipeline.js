@@ -44,7 +44,6 @@ window.toggleEmailComposer = function toggleEmailComposer() {
     const el = document.getElementById("email-composer-fields");
     if (!el) return;
 
-    // Check computed style to reliably toggle regardless of inline or CSS rules
     const currentDisplay = window.getComputedStyle(el).display;
     if (currentDisplay === "none") {
         el.style.display = "block";
@@ -221,6 +220,7 @@ async function applyBatchBulkClonedScope() {
         urlParams.append('friendly_name', (targetEng.primary_signer ? targetEng.primary_signer.friendly_name : '') || targetClient.metadata.friendly_name || clientKey.split(' (Customer')[0]);
         urlParams.append('legal_name', (targetEng.primary_signer ? targetEng.primary_signer.legal_name : '') || clientKey.split(' (Customer')[0]);
         urlParams.append('primary_signer_email', (targetEng.primary_signer ? targetEng.primary_signer.email : '') || targetClient.metadata.primary_signer_email || targetClient.email || '');
+        urlParams.append('phone', targetEng.phone || (targetClient.metadata ? targetClient.metadata.phone : '') || targetClient.phone || '');
         urlParams.append('entity_type', targetEng.entity_type || (targetClient.metadata ? targetClient.metadata.entity_type : 'individual'));
         urlParams.append('co_signer_name', (targetEng.co_signer ? targetEng.co_signer.name : '') || (targetClient.metadata ? targetClient.metadata.co_signer_name : ''));
         urlParams.append('co_signer_email', (targetEng.co_signer ? targetEng.co_signer.email : '') || (targetClient.metadata ? targetClient.metadata.co_signer_email : ''));
@@ -344,7 +344,7 @@ function rehydrateOutOfScopeItems(oosDict = null, isLocked = false) {
     }
 }
 
-function injectHiddenMasterContext(entityType, coSignerName, coSignerEmail, addr, legalName, primaryEmail) {
+function injectHiddenMasterContext(entityType, coSignerName, coSignerEmail, addr, legalName, primaryEmail, phone) {
     let container = document.getElementById('hidden-master-context');
     if (!container) {
         container = document.createElement('div');
@@ -361,6 +361,7 @@ function injectHiddenMasterContext(entityType, coSignerName, coSignerEmail, addr
         <input type="hidden" name="co_signer_email" value="${coSignerEmail || ''}">
         <input type="hidden" name="legal_name" value="${escapeHtml(legalName || '')}">
         <input type="hidden" name="primary_signer_email" value="${escapeHtml(primaryEmail || '')}">
+        <input type="hidden" name="phone" value="${escapeHtml(phone || '')}">
         <input type="hidden" name="street" value="${addr.street || ''}">
         <input type="hidden" name="city" value="${addr.city || ''}">
         <input type="hidden" name="state" value="${addr.state || ''}">
@@ -470,6 +471,7 @@ function onClientChange() {
     const defaultLegalName = pSigner.legal_name || activeDraft.legal_name || rawCustomerName;
     const defaultFriendlyName = activeDraft.friendly_name || pSigner.friendly_name || metadata.friendly_name || rawCustomerName;
     const effectiveEmail = pSigner.email || activeDraft.primary_signer_email || metadata.primary_signer_email || clientRecord.email || '';
+    const effectivePhone = activeDraft.phone || metadata.phone || clientRecord.phone || '';
     const effectiveTitle = activeDraft.engagement_title || '2026 Tax Services Agreement';
 
     if (activeHeaderBanner) {
@@ -517,16 +519,17 @@ function onClientChange() {
     if (profileContainer) {
         profileContainer.style.display = 'block';
         if (isProfileIncomplete) {
-            renderEditableProfilePanel(profileContainer, addrObj, metadata, defaultFriendlyName, defaultLegalName, effectiveEmail, effectiveTitle, activeDraft);
+            renderEditableProfilePanel(profileContainer, addrObj, metadata, defaultFriendlyName, defaultLegalName, effectiveEmail, effectivePhone, effectiveTitle, activeDraft);
         } else {
-            renderReadOnlyProfilePanel(profileContainer, addrObj, metadata, defaultFriendlyName, defaultLegalName, effectiveEmail, effectiveTitle, isLocked, activeDraft);
+            renderReadOnlyProfilePanel(profileContainer, addrObj, metadata, defaultFriendlyName, defaultLegalName, effectiveEmail, effectivePhone, effectiveTitle, isLocked, activeDraft);
             injectHiddenMasterContext(
                 entityTypeVal, 
                 coSigner.name || activeDraft.co_signer_name || metadata.co_signer_name, 
                 coSigner.email || activeDraft.co_signer_email || metadata.co_signer_email, 
                 addrObj, 
                 defaultLegalName, 
-                effectiveEmail
+                effectiveEmail,
+                effectivePhone
             );
         }
     }
@@ -556,6 +559,7 @@ function onClientChange() {
         'friendly_name': defaultFriendlyName,
         'legal_name': defaultLegalName,
         'primary_signer_email': effectiveEmail,
+        'phone': effectivePhone,
         'co_signer_name': coSigner.name || activeDraft.co_signer_name || metadata.co_signer_name || '',
         'co_signer_email': coSigner.email || activeDraft.co_signer_email || metadata.co_signer_email || '',
         'street': addrObj.street || '',
@@ -597,27 +601,33 @@ function onClientChange() {
     if (customOosBtn) customOosBtn.disabled = isLocked;
 }
 
-function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail, engagementTitle = '2026 Tax Services Agreement', draftData = {}) {
+function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail, clientPhone = '', engagementTitle = '2026 Tax Services Agreement', draftData = {}) {
     const coSigner = draftData.co_signer || {};
     const coSignerEmailVal = coSigner.email || draftData.co_signer_email || meta.co_signer_email || '';
     const coSignerNameVal = coSigner.name || draftData.co_signer_name || meta.co_signer_name || '';
     const entityTypeVal = draftData.entity_type || meta.entity_type || 'individual';
+    const phoneVal = clientPhone || draftData.phone || meta.phone || '';
 
     container.innerHTML = `
         <div class="profile-card profile-card-incomplete">
             <div class="profile-card-title">⚠️ Missing Required Account Settings</div>
             <p style="margin: 0 0 15px 0; font-size: 13px; color: #666;">
-                This customer profile is missing vital parameters in QuickBooks Online. Please enter the details below. 
-                Submitting this form will update customer metadata in Notes upon Estimate generation.
+                This customer profile is missing vital parameters in QuickBooks Online. Please enter the details below.
+                Submitting this form will update customer details in QBO upon Estimate generation.
             </p>
 
             <input type="hidden" name="profile_verified" value="true">
             
-            <div class="profile-editable-grid-top">
+            <!-- Engagement Title Spans Top -->
+            <div style="margin-bottom: 12px;">
                 <div class="form-field-group engagement-title-group">
                     <label class="field-label">Engagement Title</label>
                     <input type="text" name="engagement_title" value="${escapeHtml(engagementTitle)}" required placeholder="e.g., 2026 Tax Services Agreement, Q3 Advisory Addendum...">
                 </div>
+            </div>
+
+            <!-- Top Row: Primary Contact Info (4 Columns) -->
+            <div class="profile-editable-grid-top">
                 <div class="form-field-group">
                     <label class="field-label">Client Name (QBO/SharePoint)</label>
                     <input type="text" name="legal_name" value="${escapeHtml(defaultLegalName)}" required placeholder="e.g., Susan Smith LLC">
@@ -631,20 +641,12 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
                     <input type="email" name="primary_signer_email" value="${escapeHtml(clientEmail || '')}" required placeholder="client@example.com">
                 </div>
                 <div class="form-field-group">
-                    <label class="field-label">Account Classification</label>
-                    <select name="entity_type" id="heal_entity_type" onchange="onProfileEntityChange()" required>
-                        <option value="">-- Choose Classification --</option>
-                        <option value="individual" ${entityTypeVal === 'individual' ? 'selected' : ''}>Individual (Form 1040)</option>
-                        <option value="sm_llc" ${entityTypeVal === 'sm_llc' ? 'selected' : ''}>Single Member LLC (Schedule C)</option>
-                        <option value="s_corp" ${entityTypeVal === 's_corp' ? 'selected' : ''}>S-Corporation (Form 1120S)</option>
-                        <option value="partnership" ${entityTypeVal === 'partnership' ? 'selected' : ''}>Partnership (Form 1065)</option>
-                        <option value="c_corp" ${entityTypeVal === 'c_corp' ? 'selected' : ''}>C-Corporation (Form 1120)</option>
-                        <option value="non_profit" ${entityTypeVal === 'non_profit' ? 'selected' : ''}>Tax-Exempt Org (Form 990)</option>
-                        <option value="trust" ${entityTypeVal === 'trust' ? 'selected' : ''}>Trust / Estate (Form 1041)</option>
-                    </select>
+                    <label class="field-label">Phone Number</label>
+                    <input type="tel" name="phone" value="${escapeHtml(phoneVal)}" placeholder="e.g., (703) 555-0199">
                 </div>
             </div>
 
+            <!-- Middle Row: Billing Address (4 Columns) -->
             <div class="profile-editable-grid-middle">
                 <div class="form-field-group">
                     <label class="field-label">Street Address</label>
@@ -664,6 +666,7 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
                 </div>
             </div>
 
+            <!-- Bottom Row: Signers & Entity Classification (3 Columns) -->
             <div class="profile-editable-grid-bottom">
                 <div class="form-field-group">
                     <label class="field-label">Additional Signer Full Name</label>
@@ -673,12 +676,25 @@ function renderEditableProfilePanel(container, addr, meta, defaultFriendlyName, 
                     <label class="field-label">Additional Signer Email</label>
                     <input type="email" name="co_signer_email" value="${escapeHtml(coSignerEmailVal)}" placeholder="spouse@example.com">
                 </div>
+                <div class="form-field-group">
+                    <label class="field-label">Account Classification</label>
+                    <select name="entity_type" id="heal_entity_type" onchange="onProfileEntityChange()" required>
+                        <option value="">-- Choose Classification --</option>
+                        <option value="individual" ${entityTypeVal === 'individual' ? 'selected' : ''}>Individual (Form 1040)</option>
+                        <option value="sm_llc" ${entityTypeVal === 'sm_llc' ? 'selected' : ''}>Single Member LLC (Schedule C)</option>
+                        <option value="s_corp" ${entityTypeVal === 's_corp' ? 'selected' : ''}>S-Corporation (Form 1120S)</option>
+                        <option value="partnership" ${entityTypeVal === 'partnership' ? 'selected' : ''}>Partnership (Form 1065)</option>
+                        <option value="c_corp" ${entityTypeVal === 'c_corp' ? 'selected' : ''}>C-Corporation (Form 1120)</option>
+                        <option value="non_profit" ${entityTypeVal === 'non_profit' ? 'selected' : ''}>Tax-Exempt Org (Form 990)</option>
+                        <option value="trust" ${entityTypeVal === 'trust' ? 'selected' : ''}>Trust / Estate (Form 1041)</option>
+                    </select>
+                </div>
             </div>
         </div>
     `;
 }
 
-function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail, engagementTitle = '2026 Tax Services Agreement', isLocked = false, draftData = {}) {
+function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, defaultLegalName, clientEmail, clientPhone = '', engagementTitle = '2026 Tax Services Agreement', isLocked = false, draftData = {}) {
     const formattedAddress = `${addr.street || ''}, ${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`;
     const entityTypeVal = draftData.entity_type || meta.entity_type || 'individual';
     const displayClassification = ENTITY_DISPLAY_NAMES[entityTypeVal] || entityTypeVal || 'Individual';
@@ -710,11 +726,16 @@ function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, 
                 ${isLocked ? '' : '<button type="button" class="btn-add-row btn-edit-profile" onclick="toggleProfileEditMode()" style="font-size: 12px; padding: 4px 10px;">✏️ Edit Profile Parameters</button>'}
             </div>
             
-            <div class="profile-editable-grid-top" style="margin-bottom: 12px;">
+            <!-- Full Width Engagement Title -->
+            <div style="margin-bottom: 12px;">
                 <div class="form-field-group engagement-title-group">
                     <label class="field-label">Engagement Title</label>
                     <input type="text" name="engagement_title" value="${escapeHtml(unescapeHtml(engagementTitle))}" ${disabledAttr} required placeholder="e.g., 2026 Tax Services Agreement, Q3 Advisory Addendum...">
                 </div>
+            </div>
+
+            <!-- Top Row: Primary Contact Info (4 Columns) -->
+            <div class="profile-editable-grid-top">
                 <div class="form-field-group">
                     <label class="field-label">Client Name (QBO/SharePoint)</label>
                     <input type="text" name="legal_name" class="read-only-input" value="${escapeHtml(unescapeHtml(defaultLegalName))}" ${readonlyAttr}>
@@ -728,13 +749,12 @@ function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, 
                     <input type="email" name="primary_signer_email" class="read-only-input" value="${escapeHtml(clientEmail || '')}" ${readonlyAttr}>
                 </div>
                 <div class="form-field-group">
-                    <label class="field-label">Account Classification</label>
-                    <div style="padding-top: 6px;">
-                        <span class="badge ${isOrg ? 'badge-organization' : 'badge-individual'}">${escapeHtml(displayClassification)}</span>
-                    </div>
+                    <label class="field-label">Phone Number</label>
+                    <input type="tel" name="phone" class="read-only-input" value="${escapeHtml(clientPhone || '')}" ${readonlyAttr}>
                 </div>
             </div>
 
+            <!-- Bottom Row: 3 Columns (Billing Address | Signature Grid | Account Classification) -->
             <div class="verified-bottom-grid">
                 <div>
                     <strong style="font-size: 12px; color: #4a5568;">Billing Address:</strong><br>
@@ -744,10 +764,16 @@ function renderReadOnlyProfilePanel(container, addr, meta, defaultFriendlyName, 
                     <strong style="font-size: 12px; color: #4a5568;">Signature Grid:</strong><br>
                     <span style="color:#555; font-size: 13px;">${signatureGridDisplay}</span>
                 </div>
+                <div>
+                    <strong style="font-size: 12px; color: #4a5568;">Account Classification:</strong><br>
+                    <div style="margin-top: 4px;">
+                        <span class="badge ${isOrg ? 'badge-organization' : 'badge-individual'}">${escapeHtml(displayClassification)}</span>
+                    </div>
+                </div>
             </div>
 
             <p style="margin: 12px 0 0 0; font-size: 11px; color: #888; font-style: italic;">
-                Modifying parameters above updates draft state and saves JSON signature metadata back to QBO Notes upon Estimate generation.
+                Modifying parameters above updates draft state and saves customer metadata back to QBO upon Estimate generation.
             </p>
         </div>
     `;
@@ -775,6 +801,7 @@ function toggleProfileEditMode() {
     const friendlyInput = document.querySelector('input[name="friendly_name"]');
     const legalInput = document.querySelector('input[name="legal_name"]');
     const emailInput = document.querySelector('input[name="primary_signer_email"]');
+    const phoneInput = document.querySelector('input[name="phone"]');
     const titleInput = document.querySelector('input[name="engagement_title"]');
 
     const pSigner = draft.primary_signer || {};
@@ -782,6 +809,7 @@ function toggleProfileEditMode() {
     const defaultFriendlyName = friendlyInput ? friendlyInput.value : (pSigner.friendly_name || draft.friendly_name || meta.friendly_name || rawCustomerName);
     const defaultLegalName = legalInput ? legalInput.value : (pSigner.legal_name || draft.legal_name || rawCustomerName);
     const defaultEmail = emailInput ? emailInput.value : (pSigner.email || draft.primary_signer_email || meta.primary_signer_email || record.email || '');
+    const defaultPhone = phoneInput ? phoneInput.value : (draft.phone || meta.phone || record.phone || '');
     const defaultTitle = titleInput ? titleInput.value : (draft.engagement_title || '2026 Tax Services Agreement');
 
     renderEditableProfilePanel(
@@ -791,6 +819,7 @@ function toggleProfileEditMode() {
         defaultFriendlyName, 
         defaultLegalName, 
         defaultEmail, 
+        defaultPhone,
         defaultTitle, 
         draft
     );
@@ -1212,6 +1241,7 @@ async function toggleClientDeliveryFormat(qboId, engId) {
     urlParams.append('friendly_name', draft.friendly_name || pSigner.friendly_name || client.metadata.friendly_name || '');
     urlParams.append('legal_name', pSigner.legal_name || draft.legal_name || '');
     urlParams.append('primary_signer_email', pSigner.email || draft.primary_signer_email || client.metadata.primary_signer_email || client.email || '');
+    urlParams.append('phone', draft.phone || client.metadata.phone || client.phone || '');
     urlParams.append('entity_type', draft.entity_type || 'individual');
     urlParams.append('co_signer_name', coSigner.name || draft.co_signer_name || client.metadata.co_signer_name || '');
     urlParams.append('co_signer_email', coSigner.email || draft.co_signer_email || client.metadata.co_signer_email || '');
@@ -1416,6 +1446,7 @@ async function closeBatchEditModal() {
             const friendlyInput = document.querySelector('input[name="friendly_name"]');
             const legalInput = document.querySelector('input[name="legal_name"]');
             const emailInput = document.querySelector('input[name="primary_signer_email"]');
+            const phoneInput = document.querySelector('input[name="phone"]');
             const entitySelect = document.querySelector('select[name="entity_type"]');
             const coSignerEmailInput = document.querySelector('input[name="co_signer_email"]');
             const coSignerNameInput = document.querySelector('input[name="co_signer_name"]');
@@ -1428,6 +1459,7 @@ async function closeBatchEditModal() {
             if (friendlyInput) urlParams.append('friendly_name', friendlyInput.value);
             if (legalInput) urlParams.append('legal_name', legalInput.value);
             if (emailInput) urlParams.append('primary_signer_email', emailInput.value);
+            if (phoneInput) urlParams.append('phone', phoneInput.value);
             if (entitySelect) urlParams.append('entity_type', entitySelect.value);
             if (coSignerEmailInput) urlParams.append('co_signer_email', coSignerEmailInput.value);
             if (coSignerNameInput) urlParams.append('co_signer_name', coSignerNameInput.value);
@@ -1562,6 +1594,7 @@ async function executeBatchPipelineSubmission() {
         urlParams.append('friendly_name', pSigner.friendly_name || draft.friendly_name || client.metadata.friendly_name || '');
         urlParams.append('legal_name', pSigner.legal_name || draft.legal_name || '');
         urlParams.append('primary_signer_email', pSigner.email || draft.primary_signer_email || client.metadata.primary_signer_email || client.email || '');
+        urlParams.append('phone', draft.phone || client.metadata.phone || client.phone || '');
         urlParams.append('entity_type', draft.entity_type || 'individual');
         urlParams.append('co_signer_name', coSigner.name || draft.co_signer_name || client.metadata.co_signer_name || '');
         urlParams.append('co_signer_email', coSigner.email || draft.co_signer_email || client.metadata.co_signer_email || '');

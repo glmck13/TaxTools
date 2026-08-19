@@ -391,6 +391,7 @@ def populate_form_from_disk_draft(form, c_id, eng_id):
         form["friendly_name"] = [p_signer.get("friendly_name", "")]
         form["legal_name"] = [p_signer.get("legal_name", "")]
         form["primary_signer_email"] = [p_signer.get("email", "")]
+        form["phone"] = [disk_draft.get("phone", "")]
 
         form["street"] = [b_addr.get("street", "")]
         form["city"] = [b_addr.get("city", "")]
@@ -558,6 +559,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         addr_obj = c.get("BillAddr", {})
         raw_c_email = c.get("PrimaryEmailAddr", {}).get("Address", "")
         qbo_primary_email = raw_c_email.split(",")[0].strip() if raw_c_email else ""
+        qbo_phone = c.get("PrimaryPhone", {}).get("FreeFormNumber", "")
 
         meta = parse_acct_num(acct_num)
         
@@ -565,6 +567,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             meta["friendly_name"] = c_name
         if not meta.get("primary_signer_email"):
             meta["primary_signer_email"] = qbo_primary_email
+        meta["phone"] = qbo_phone
 
         has_addr = bool(addr_obj.get("Line1") and addr_obj.get("City") and addr_obj.get("CountrySubDivisionCode") and addr_obj.get("PostalCode"))
 
@@ -603,6 +606,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             "id": c_id,
             "sync_token": c.get("SyncToken", ""),
             "email": qbo_primary_email,
+            "phone": qbo_phone,
             "metadata": meta,
             "address": {
                 "street": addr_obj.get("Line1", ""),
@@ -663,6 +667,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 "legal_name": html.unescape(get_form_val(preserved_form, "legal_name")),
                 "email": get_form_val(preserved_form, "primary_signer_email")
             },
+            "phone": get_form_val(preserved_form, "phone"),
             "co_signer": {
                 "name": html.unescape(get_form_val(preserved_form, "co_signer_name")),
                 "email": clean_co_signer_email
@@ -697,7 +702,6 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         for idx, item in enumerate(boilerplate_items):
             item_key = f"out_of_scope_item_{idx}"
             
-            # Default to checked if brand new (None), or check against active dictionary
             if active_oos_dict is None:
                 is_checked = "checked"
             elif isinstance(active_oos_dict, dict):
@@ -825,7 +829,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <div id="qbo-sync-toolbar-container" class="qbo-sync-toolbar" style="display:none;">
                 <label class="qbo-sync-checkbox-label">
                     <input type="checkbox" id="sync_to_qbo" name="sync_to_qbo" value="true" {"checked" if sync_to_qbo_checked else ""}>
-                    <span>Sync Metadata Updates to QuickBooks Online Customer Notes</span>
+                    <span>Sync Metadata Updates to QuickBooks Online Customer Profile</span>
                 </label>
             </div>
 
@@ -1002,6 +1006,7 @@ def handle_generate_preview(form):
     entity_type = get_form_val(form, "entity_type", "individual")
 
     primary_email = get_form_val(form, "primary_signer_email")
+    phone = get_form_val(form, "phone")
     street = get_form_val(form, "street")
     city = get_form_val(form, "city")
     state = get_form_val(form, "state")
@@ -1028,6 +1033,9 @@ def handle_generate_preview(form):
     if not primary_email:
         primary_email = p_signer.get("email", "")
 
+    if not phone:
+        phone = existing_draft.get("phone", "")
+
     if not street:
         try:
             fresh_c = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
@@ -1035,6 +1043,8 @@ def handle_generate_preview(form):
             if not primary_email:
                 raw_c_email = fresh_c.get("PrimaryEmailAddr", {}).get("Address", "")
                 primary_email = raw_c_email.split(",")[0].strip() if raw_c_email else ""
+            if not phone:
+                phone = fresh_c.get("PrimaryPhone", {}).get("FreeFormNumber", "")
             street, city = c_addr.get("Line1", ""), c_addr.get("City", "")
             state, zip_val = c_addr.get("CountrySubDivisionCode", ""), c_addr.get("PostalCode", "")
         except Exception as fe:
@@ -1077,6 +1087,7 @@ def handle_generate_preview(form):
                     "legal_name": legal_name,
                     "email": primary_email
                 },
+                "phone": phone,
                 "co_signer": {
                     "name": co_signer_name,
                     "email": co_signer_email
@@ -1133,6 +1144,7 @@ def handle_generate_preview(form):
             <input type="hidden" name="friendly_name" value="{html.escape(friendly_name)}">
             <input type="hidden" name="legal_name" value="{html.escape(legal_name)}">
             <input type="hidden" name="primary_signer_email" value="{html.escape(primary_email)}">
+            <input type="hidden" name="phone" value="{html.escape(phone)}">
             <input type="hidden" name="profile_verified" value="{html.escape(profile_verified)}">
             <input type="hidden" name="co_signer_email" value="{html.escape(co_signer_email)}">
             <input type="hidden" name="co_signer_name" value="{html.escape(co_signer_name)}">
@@ -1216,6 +1228,7 @@ def handle_save_draft_only(form):
     entity_type = get_form_val(form, "entity_type", "individual")
 
     primary_email = get_form_val(form, "primary_signer_email")
+    phone = get_form_val(form, "phone")
     street = get_form_val(form, "street")
     city = get_form_val(form, "city")
     state = get_form_val(form, "state")
@@ -1243,6 +1256,9 @@ def handle_save_draft_only(form):
     p_signer = existing_draft.get("primary_signer", {}) if isinstance(existing_draft.get("primary_signer"), dict) else {}
     if not primary_email:
         primary_email = p_signer.get("email", "")
+
+    if not phone:
+        phone = existing_draft.get("phone", "")
 
     posted_oos_dict = extract_out_of_scope_dict(form, existing_draft.get("out_of_scope_items"))
 
@@ -1275,6 +1291,7 @@ def handle_save_draft_only(form):
                 "legal_name": legal_name,
                 "email": primary_email
             },
+            "phone": phone,
             "co_signer": {
                 "name": co_signer_name,
                 "email": co_signer_email
@@ -1366,20 +1383,25 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
     legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
 
+    phone = get_form_val(form, "phone")
     street = get_form_val(form, "street")
     city = get_form_val(form, "city")
     state = get_form_val(form, "state")
     zip_val = get_form_val(form, "zip")
 
-    if not street:
+    if not street or not phone:
         try:
             c_id = extract_qbo_id(raw_client_name)
             c_data = qbo_api_request(f"customer/{c_id}").get("Customer", {})
             addr_obj = c_data.get("BillAddr", {})
-            street, city = addr_obj.get('Line1',''), addr_obj.get('City','')
-            state, zip_val = addr_obj.get('CountrySubDivisionCode',''), addr_obj.get('PostalCode','')
+            if not street:
+                street, city = addr_obj.get('Line1',''), addr_obj.get('City','')
+                state, zip_val = addr_obj.get('CountrySubDivisionCode',''), addr_obj.get('PostalCode','')
+            if not phone:
+                phone = c_data.get("PrimaryPhone", {}).get("FreeFormNumber", "")
         except Exception:
-            street = city = state = zip_val = ""
+            if not street: street = city = state = zip_val = ""
+            if not phone: phone = ""
 
     address_parts = [p.strip() for p in [street, city, state, zip_val] if p and p.strip()]
     billing_address = ", ".join(address_parts) if address_parts else "<i>[Billing Address Sourced on Execution]</i>"
@@ -1451,6 +1473,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         NEXT_YEAR=NEXT_YEAR,
         TODAY_DATE=datetime.date.today().strftime('%B %d, %Y'),
         CLIENT_ADDRESS=billing_address,
+        CLIENT_PHONE=xml_safe_escape(phone),
         CLIENT_LEGAL_NAME=xml_safe_escape(legal_name),
         FRIENDLY_NAME=xml_safe_escape(friendly_name),
         GREETING_NAME=xml_safe_escape(greeting_name),
@@ -1698,19 +1721,16 @@ def handle_send_resend_email(form):
     eng_id = get_form_val(form, "engagement_id", "0")
     client_qbo_id = extract_qbo_id(raw_client_val)
 
-    # 1. Capture posted subject, body, and sender address before rehydrating disk draft
     posted_subject = get_form_val(form, "email_subject")
     posted_body = get_form_val(form, "email_body")
     email_from = get_form_val(form, "email_from", OWNER_EMAIL).strip()
 
-    # 2. Rehydrate disk draft for line items if present
     if raw_client_val and eng_id != "0":
         try:
             form = populate_form_from_disk_draft(form, client_qbo_id, eng_id)
         except Exception as ex:
             print(f"DEBUG: Resend Email disk draft read error: {str(ex)}", file=sys.stderr)
 
-    # 3. Resolve primary recipient email and text values
     primary_email = get_form_val(form, "primary_signer_email")
     if not primary_email:
         p_signer = form.get("primary_signer", {})
@@ -1730,7 +1750,6 @@ def handle_send_resend_email(form):
     pdf_bytes = pdf_buffer.read()
     filename = f"Draft_Agreement_{legal_name.replace(' ', '_')}.pdf"
 
-    # Assign API Key directly from environment context
     resend.api_key = os.environ.get("RESEND_API_KEY")
 
     params = {
@@ -1792,6 +1811,11 @@ def execute_transactional_pipeline(form):
     friendly_name = get_form_val(form, "friendly_name")
     legal_name = get_form_val(form, "legal_name")
     primary_email = get_form_val(form, "primary_signer_email")
+    phone = get_form_val(form, "phone")
+    street = get_form_val(form, "street")
+    city = get_form_val(form, "city")
+    state = get_form_val(form, "state")
+    zip_val = get_form_val(form, "zip")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
     sync_to_qbo_val = get_form_val(form, "sync_to_qbo", "true").lower()
     sync_to_qbo = sync_to_qbo_val in ["true", "1", "yes"]
@@ -1817,8 +1841,10 @@ def execute_transactional_pipeline(form):
                 if not primary_email:
                     p_signer = disk_draft.get("primary_signer", {}) if isinstance(disk_draft.get("primary_signer"), dict) else {}
                     primary_email = p_signer.get("email", "")
+                if not phone:
+                    phone = disk_draft.get("phone", "")
         except Exception as e:
-            print(f"DEBUG: Could not read prior estimate ID or email from draft: {e}", file=sys.stderr)
+            print(f"DEBUG: Could not read prior estimate ID, phone, or email from draft: {e}", file=sys.stderr)
 
     if prior_estimate_id:
         try:
@@ -1844,6 +1870,9 @@ def execute_transactional_pipeline(form):
     qbo_primary_email = raw_primary_email.split(",")[0].strip() if raw_primary_email else ""
     effective_primary_email = primary_email.strip() if primary_email and primary_email.strip() else qbo_primary_email
 
+    qbo_phone = fresh_customer.get("PrimaryPhone", {}).get("FreeFormNumber", "")
+    effective_phone = phone.strip() if phone and phone.strip() else qbo_phone
+
     proposed_notes_json = compile_acct_num(
         friendly_name=friendly_name,
         primary_email=effective_primary_email,
@@ -1854,15 +1883,31 @@ def execute_transactional_pipeline(form):
 
     if sync_to_qbo:
         try:
+            company_name_val = None if entity_type.lower() == "individual" else legal_name
+
             patch_payload = {
                 "Id": client_qbo_id,
                 "SyncToken": fresh_customer["SyncToken"],
                 "sparse": True,
+                "DisplayName": legal_name,
+                "CompanyName": company_name_val,
+                "PrimaryEmailAddr": {
+                    "Address": effective_primary_email
+                },
+                "PrimaryPhone": {
+                    "FreeFormNumber": effective_phone
+                },
+                "BillAddr": {
+                    "Line1": street,
+                    "City": city,
+                    "CountrySubDivisionCode": state,
+                    "PostalCode": zip_val
+                },
                 "Notes": proposed_notes_json
             }
             qbo_api_request("customer", method="POST", payload=patch_payload)
         except Exception as e:
-            return render_pipeline_error(form, f"QBO Customer Notes Sync Failure: Unable to update Customer Notes record in QBO. ({str(e)})")
+            return render_pipeline_error(form, f"QBO Customer Profile Sync Failure: Unable to update Customer record in QBO. ({str(e)})")
 
     estimate_lines = []
     deposit_val = 0
@@ -1945,6 +1990,7 @@ def execute_transactional_pipeline(form):
             active_draft["engagement_id"] = eng_id
             active_draft["engagement_title"] = eng_title
             active_draft["estimate_id"] = estimate_id
+            active_draft["phone"] = effective_phone
             if "primary_signer" not in active_draft:
                 active_draft["primary_signer"] = {}
             active_draft["primary_signer"]["email"] = effective_primary_email

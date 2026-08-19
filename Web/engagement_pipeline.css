@@ -124,7 +124,12 @@ select {
     line-height: 1.4;
 }
 
-/* Profile Form Grid Layouts */
+/* Force Engagement Title to span the entire top row */
+.engagement-title-group {
+    grid-column: 1 / -1;
+}
+
+/* Top Row: Primary Contact Info (4 Columns) */
 .profile-editable-grid-top {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -132,11 +137,7 @@ select {
     margin-bottom: 15px;
 }
 
-/* Force Engagement Title to span the entire top row */
-.engagement-title-group {
-    grid-column: 1 / -1;
-}
-
+/* Middle Row: Street, City, State, Zip (4 Columns) */
 .profile-editable-grid-middle {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr 1fr;
@@ -144,9 +145,10 @@ select {
     margin-bottom: 15px;
 }
 
+/* Bottom Row: Additional Signer Name, Additional Signer Email, Account Classification (3 Columns) */
 .profile-editable-grid-bottom {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
 }
 
@@ -165,6 +167,7 @@ select {
 
 .profile-card input[type="text"],
 .profile-card input[type="email"],
+.profile-card input[type="tel"],
 .profile-card select {
     padding: 8px 10px;
     font-size: 13px;
@@ -178,6 +181,7 @@ select {
 
 .profile-card input[type="text"]:focus,
 .profile-card input[type="email"]:focus,
+.profile-card input[type="tel"]:focus,
 .profile-card select:focus {
     border-color: #0078d4;
     outline: none;
@@ -192,10 +196,10 @@ select {
     border-color: #e2e8f0;
 }
 
-/* Verified View 2-Column Row 2 Grid */
+/* Verified View 3-Column Bottom Grid (Billing Address | Signature Grid | Account Classification) */
 .verified-bottom-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 15px;
     border-top: 1px dashed #c6f6d5;
     padding-top: 12px;
@@ -601,7 +605,7 @@ select {
 /* Unified Layout Row Metrics */
 .notes-cell textarea {
     width: 98%;
-    height: 46px; /* Matched seamlessly to JS row injection properties to avoid jumping */
+    height: 46px; 
     font-family: inherit;
     font-size: 13px;
     padding: 6px;
@@ -618,7 +622,7 @@ select {
 }
 
 /* ==========================================================================
-   PHASE 2 EDITOR SIDEBAR BUTTON VARIATIONS (CR#4)
+   PHASE 2 EDITOR SIDEBAR BUTTON VARIATIONS
    ========================================================================== */
 .btn-action-grey {
     background: #f3f4f6;
@@ -698,7 +702,6 @@ select {
     border-bottom-color: #0078d4;
 }
 
-/* Helper Class for Hiding Tab Switcher Bar via Python Config */
 .mode-tabs-hidden {
     display: none !important;
 }
@@ -732,7 +735,6 @@ select {
     white-space: nowrap;
 }
 
-/* Batch Grid Table Overrides & Single-Line Cell Constraints */
 .batch-table {
     width: 100%;
     border-collapse: collapse;
@@ -759,27 +761,23 @@ select {
     white-space: nowrap;
 }
 
-/* Client Name column allows multi-line text wrapping naturally */
 .batch-table th:nth-child(3),
 .batch-table td:nth-child(3) {
     white-space: normal;
 }
 
-/* Format Column Sizing */
 .batch-table th:nth-child(7),
 .batch-table td:nth-child(7) {
     width: 110px;
     text-align: center;
 }
 
-/* Status Column Sizing */
 .batch-table th:nth-child(8),
 .batch-table td:nth-child(8) {
     width: 130px;
     text-align: center;
 }
 
-/* Actions Column Sizing */
 .batch-table th:nth-child(9),
 .batch-table td:nth-child(9) {
     width: 90px;
@@ -794,7 +792,6 @@ select {
     background-color: #f1f5f9;
 }
 
-/* Edit Modal Overlay */
 .modal-overlay {
     display: none;
     position: fixed;
@@ -841,7 +838,6 @@ select {
     color: #000;
 }
 
-/* Batch Progress Overlay */
 .progress-overlay {
     display: none;
     position: fixed;
@@ -892,7 +888,6 @@ select {
     line-height: 1.4;
 }
 
-/* Greyed-out styling for Verified Mode Read-Only Inputs */
 .profile-card input.read-only-input {
     background-color: #f1f5f9 !important;
     color: #475569 !important;

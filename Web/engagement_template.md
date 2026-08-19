@@ -4,7 +4,7 @@
 
 ## {{TAX_YEAR}} TAX SERVICES ENGAGEMENT AGREEMENT ("Agreement")
 
-<b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}
+<b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}{% if CLIENT_PHONE %}<br><b>Phone:</b> {{CLIENT_PHONE}}{% endif %}
 
 {% if meta_entity_type in ['sm_llc', 's_corp', 'partnership', 'c_corp', 'non_profit', 'trust', 'organization'] %}
 
