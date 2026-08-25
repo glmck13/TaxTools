@@ -101,13 +101,13 @@ function setMode(mode) {
 
         // Update Badge for Heal Mode
         if (badge) {
-            badge.textContent = "Heal Record";
+            badge.textContent = "Update Record";
             badge.className = "badge-status heal";
         }
 
         if (submitBtn) {
             submitBtn.className = "btn-submit heal-mode";
-            submitBtn.innerHTML = "💾 Heal & Update QBO Record";
+            submitBtn.innerHTML = "💾 Update QBO Record";
         }
 
         if (clientInput) {
@@ -282,7 +282,7 @@ async function handleFormSubmit(event) {
     const isNewLead = (currentMode === "lead");
 
     if (statusTitle) {
-        statusTitle.textContent = isNewLead ? "Provisioning New Client..." : "Healing QBO Profile...";
+        statusTitle.textContent = isNewLead ? "Provisioning New Client..." : "Updating QBO Profile...";
     }
     if (statusText) {
         statusText.textContent = isNewLead 
@@ -323,7 +323,7 @@ async function handleFormSubmit(event) {
             if (statusSpinner) statusSpinner.style.display = "none";
             if (statusTitle) {
                 statusTitle.style.color = isNewLead ? "#15803d" : "#0369a1";
-                statusTitle.textContent = isNewLead ? "✨ New Client Provisioned!" : "🟢 Profile Healed Successfully!";
+                statusTitle.textContent = isNewLead ? "✨ New Client Provisioned!" : "🟢 Profile Updated Successfully!";
             }
             if (statusText) {
                 statusText.textContent = result.message || "Operation completed successfully.";

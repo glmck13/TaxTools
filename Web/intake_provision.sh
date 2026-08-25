@@ -277,9 +277,9 @@ fi
 # BRANCHING POINT: EXISTING CLIENT PROFILE HEALING
 # ==============================================================================
 if [ "$IS_NEW_LEAD" != "true" ]; then
-    debug "Sending profile heal email notification..."
+    debug "Sending profile update email notification..."
     HEAL_EMAIL_BODY="<p><b>Updated by:</b> ${RESPONDER}</p>\
-<h1 style='color:#0369a1;'>QBO Profile Healed / Updated:</h1>\
+<h1 style='color:#0369a1;'>QBO Profile Updated:</h1>\
 <p>\
 <b>Name:</b> ${CLEAN_CLIENT_NAME}<br>\
 <b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
@@ -295,8 +295,8 @@ if [ "$IS_NEW_LEAD" != "true" ]; then
       "$HEAL_EMAIL_BODY" \
       "$NOTIFY"
 
-    debug "Profile Healing complete. Exiting."
-    echo "{\"status\": \"success\", \"is_new_lead\": false, \"qbo_id\": \"$QBO_CUSTOMER_ID\", \"message\": \"Profile for ${CLEAN_CLIENT_NAME} healed successfully.\"}"
+    debug "Profile update complete. Exiting."
+    echo "{\"status\": \"success\", \"is_new_lead\": false, \"qbo_id\": \"$QBO_CUSTOMER_ID\", \"message\": \"Profile for ${CLEAN_CLIENT_NAME} updated successfully.\"}"
     exit 0
 fi
 
