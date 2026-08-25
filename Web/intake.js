@@ -101,7 +101,7 @@ function setMode(mode) {
 
         // Update Badge for Heal Mode
         if (badge) {
-            badge.textContent = "Update Record";
+            badge.textContent = "Existing Client";
             badge.className = "badge-status heal";
         }
 
@@ -124,7 +124,7 @@ function setMode(mode) {
 
         // Update Badge for Lead Mode
         if (badge) {
-            badge.textContent = "New Lead";
+            badge.textContent = "New Client";
             badge.className = "badge-status lead";
         }
 
