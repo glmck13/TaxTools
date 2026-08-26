@@ -48,6 +48,7 @@ to_server_rel_path() {
 # HELPER: SEND EMAIL VIA RESEND REST API
 # ==============================================================================
 send_resend_email() {
+    return 0
     local subject="$1"
     local html_body="$2"
     local recipient="$3"
@@ -78,7 +79,7 @@ send_resend_email() {
 }
 
 # ==============================================================================
-# READ & PARSE INPUT PARAMETERS (GET & POST SUPPORT)
+# READ & PARSE INPUT PARAMETERS (SINGLE-PASS EFFICIENT PARSER)
 # ==============================================================================
 if [ "$REQUEST_METHOD" = "POST" ]; then
     RAW_INPUT_DATA=$(cat)
@@ -86,46 +87,40 @@ else
     RAW_INPUT_DATA="$QUERY_STRING"
 fi
 
-get_param() {
-    local param_name="$1"
-    python3 -c "
-import os, sys, urllib.parse, json
+# Export raw data and request metadata so Python reads them via os.environ safely
+export RAW_INPUT_DATA
+export REQUEST_METHOD
+export CONTENT_TYPE
+
+# Parse ALL incoming variables in a single Python execution
+eval "$(python3 -c "
+import os, sys, urllib.parse, json, shlex
 
 req_method = os.environ.get('REQUEST_METHOD', 'GET')
 content_type = os.environ.get('CONTENT_TYPE', '')
-raw_data = '''$RAW_INPUT_DATA'''
+raw_data = os.environ.get('RAW_INPUT_DATA', '')
 
-val = ''
+params = {}
 if 'application/json' in content_type and req_method == 'POST':
     try:
-        data = json.loads(raw_data)
-        val = str(data.get('$param_name', ''))
+        params = json.loads(raw_data)
     except Exception:
         pass
 else:
     parsed = urllib.parse.parse_qs(raw_data)
-    val = parsed.get('$param_name', [''])[0]
+    params = {k: v[0] for k, v in parsed.items() if v}
 
-print(val)
-"
-}
+keys = [
+    'qbo_id', 'client_name', 'friendly_name', 'client_email', 'client_phone',
+    'contact_date', 'responder', 'entity_type', 'co_signer_name', 
+    'co_signer_email', 'street', 'city', 'state', 'zip', 'notes', 'is_new_lead'
+]
 
-QBO_ID=$(get_param "qbo_id")
-CLIENT_NAME=$(get_param "client_name")
-FRIENDLY_NAME=$(get_param "friendly_name")
-CLIENT_EMAIL=$(get_param "client_email")
-CLIENT_PHONE=$(get_param "client_phone")
-CONTACT_DATE=$(get_param "contact_date")
-RESPONDER=$(get_param "responder")
-ENTITY_TYPE=$(get_param "entity_type")
-CO_SIGNER_NAME=$(get_param "co_signer_name")
-CO_SIGNER_EMAIL=$(get_param "co_signer_email")
-STREET=$(get_param "street")
-CITY=$(get_param "city")
-STATE=$(get_param "state")
-ZIP=$(get_param "zip")
-NOTES=$(get_param "notes")
-IS_NEW_LEAD=$(get_param "is_new_lead")
+for key in keys:
+    val = str(params.get(key, ''))
+    # Print clean bash uppercase variable assignments safely quoted
+    print(f'{key.upper()}={shlex.quote(val)}')
+")"
 
 # Fallbacks
 CLIENT_NAME="${CLIENT_NAME:-New Client}"
