@@ -48,7 +48,6 @@ to_server_rel_path() {
 # HELPER: SEND EMAIL VIA RESEND REST API
 # ==============================================================================
 send_resend_email() {
-    return 0
     local subject="$1"
     local html_body="$2"
     local recipient="$3"
