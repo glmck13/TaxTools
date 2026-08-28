@@ -65,11 +65,12 @@ send_resend_email() {
     payload=$(jq -n \
       --arg from "Tarrant Advisors <$EMAIL_FROM>" \
       --argjson to "$to_array" \
+      --arg bcc "$EMAIL_FROM" \
       --arg subject "$subject" \
       --arg html "$html_body" \
-      '{from: $from, to: $to, subject: $subject, html: $html}')
+      '{from: $from, to: $to, bcc: [$bcc], subject: $subject, html: $html}')
 
-    debug "Dispatching notification email via Resend API to $recipient..."
+    debug "Dispatching notification email via Resend API to $recipient (bcc: $EMAIL_FROM)..."
     
     curl -s -X POST "https://api.resend.com/emails" \
       -H "Authorization: Bearer ${RESEND_API_KEY}" \
@@ -154,7 +155,7 @@ if [ "$SANDBOX" ]; then
 	COMPANY_SITE="${TENANT_URL}"
 	SHARE_SITE="${TENANT_URL}"
 	EMAIL_FROM="dianna@tarrantadvisors.com"
-	NOTIFY="glmck13@gmail.com,glmck13@verizon.net"
+	NOTIFY="glmck13@gmail.com"
 else
 	COMPANY_SITE="${TENANT_URL}/sites/Company"
 	SHARE_SITE="${TENANT_URL}/sites/TarrantAdvisorsShare"
