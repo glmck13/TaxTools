@@ -1962,7 +1962,8 @@ def execute_transactional_pipeline(form):
 
     estimate_payload = {
         "CustomerRef": {"value": client_qbo_id},
-        "TxnStatus": "Pending",
+        "TxnStatus": "Accepted",
+        "AutoDocNumber": True,
         "Line": estimate_lines,
         "CustomField": [{"DefinitionId": "1", "StringValue": "JOINT" if (co_signer_email and "@" in co_signer_email) else "SINGLE", "Name": "Signers"}]
     }
