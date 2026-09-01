@@ -473,20 +473,27 @@ def submit_adobe_sign_transaction(client_qbo_id, engagement_id, estimate_id, pdf
         if not transient_id:
             return False, "Adobe Sign Gateway rejected binary buffer authentication check."
 
-        participant_sets = [{"memberInfos": [{"email": primary_email}], "order": 1, "role": "SIGNER"}]
-        current_order = 2
+        participant_sets = []
+        current_order = 1
 
-        if co_signer_email and "@" in co_signer_email:
+        if is_organization:
             participant_sets.append({
-                "memberInfos": [{"email": co_signer_email.strip()}],
+                "memberInfos": [{"email": OWNER_EMAIL}],
                 "order": current_order,
                 "role": "SIGNER"
             })
             current_order += 1
 
-        if is_organization:
+        participant_sets.append({
+            "memberInfos": [{"email": primary_email}],
+            "order": current_order,
+            "role": "SIGNER"
+        })
+        current_order += 1
+
+        if co_signer_email and "@" in co_signer_email:
             participant_sets.append({
-                "memberInfos": [{"email": OWNER_EMAIL}],
+                "memberInfos": [{"email": co_signer_email.strip()}],
                 "order": current_order,
                 "role": "SIGNER"
             })
@@ -1641,34 +1648,39 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     sig_elements = [Spacer(1, 15)]
     signer1_label = f"<strong>{xml_safe_escape(friendly_name)}<br/>Signing on behalf of {xml_safe_escape(legal_name)}</strong>" if is_org_type else f"<strong>{xml_safe_escape(friendly_name)}</strong>"
 
+    # 1. Firm Counter-Signature (First if Organization)
+    if is_org_type:
+        sig_elements.extend([
+            Paragraph(render_sig_line("Authorized Signature", "{{_es_signer1_signature}}"), body_style),
+            Spacer(1, 4),
+            Paragraph(render_sig_line("Date Counter-Signed", "{{_es_signer1_date}}", 24), body_style),
+            Spacer(1, 4),
+            Paragraph(f"<strong>{OWNER_SIGNATURE}<br/>{OWNER_CORPNAME}</strong>", body_style),
+            Spacer(1, 15),
+        ])
+
+    # 2. Primary Client Signature
+    p_tag_idx = "2" if is_org_type else "1"
     sig_elements.extend([
-        Paragraph(render_sig_line("Signature", "{{_es_signer1_signature}}"), body_style),
+        Paragraph(render_sig_line("Signature", f"{{{{_es_signer{p_tag_idx}_signature}}}}"), body_style),
         Spacer(1, 4),
-        Paragraph(render_sig_line("Date Verified", "{{_es_signer1_date}}", 24), body_style),
+        Paragraph(render_sig_line("Date Verified", f"{{{{_es_signer{p_tag_idx}_date}}}}", 24), body_style),
         Spacer(1, 4),
         Paragraph(signer1_label, body_style),
     ])
 
+    # 3. Additional/Secondary Signer Signature
     if co_signer_email and "@" in co_signer_email:
         co_signer_label = co_signer_name.strip() if co_signer_name.strip() else co_signer_email.strip()
+        s_tag_idx = "3" if is_org_type else "2"
+
         sig_elements.extend([
             Spacer(1, 15),
-            Paragraph(render_sig_line("Signature", "{{_es_signer2_signature}}"), body_style),
+            Paragraph(render_sig_line("Signature", f"{{{{_es_signer{s_tag_idx}_signature}}}}"), body_style),
             Spacer(1, 4),
-            Paragraph(render_sig_line("Date Verified", "{{_es_signer2_date}}", 24), body_style),
+            Paragraph(render_sig_line("Date Verified", f"{{{{_es_signer{s_tag_idx}_date}}}}", 24), body_style),
             Spacer(1, 4),
             Paragraph(f"<strong>{xml_safe_escape(co_signer_label)}</strong>", body_style),
-        ])
-
-    if is_org_type:
-        firm_idx = "3" if (co_signer_email and "@" in co_signer_email) else "2"
-        sig_elements.extend([
-            Spacer(1, 15),
-            Paragraph(render_sig_line("Authorized Signature", f"{{{{_es_signer{firm_idx}_signature}}}}"), body_style),
-            Spacer(1, 4),
-            Paragraph(render_sig_line("Date Counter-Signed", f"{{{{_es_signer{firm_idx}_date}}}}", 24), body_style),
-            Spacer(1, 4),
-            Paragraph(f"<strong>{OWNER_SIGNATURE}<br/>{OWNER_CORPNAME}</strong>", body_style),
         ])
 
     story.append(KeepTogether(sig_elements))
@@ -2051,33 +2063,41 @@ def execute_transactional_pipeline(form):
     has_co_signer = bool(co_signer_email and "@" in co_signer_email)
     co_signer_label = co_signer_name.strip() if co_signer_name.strip() else co_signer_email.strip()
 
-    signer_sequence_html = f"""
+    signer_sequence_html = """
     <div style="font-weight: 600; font-size: 13px; color: #475569; margin-top: 15px; margin-bottom: 8px;">Signing Workflow Sequence:</div>
     <div style="font-family: monospace; font-size: 13px; line-height: 1.6; color: #334155; background: #ffffff; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0;">
-        <div style="margin-bottom: 8px;">
-            <strong>1. Primary Client Signature</strong><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(friendly_name)} ({html.escape(effective_primary_email)})<br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #0284c7; font-weight: 600;">📩 Email Dispatched (Awaiting Signature)</span>
-        </div>
     """
 
-    next_step_num = 2
-    if has_co_signer:
+    next_step_num = 1
+
+    if is_org_type:
         signer_sequence_html += f"""
         <div style="margin-bottom: 8px;">
-            <strong>{next_step_num}. Additional Signer Signature</strong><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(co_signer_label)} ({html.escape(co_signer_email)})<br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #64748b; font-weight: 600;">⏳ Pending Step 1 Completion</span>
+            <strong>{next_step_num}. Firm Counter-Signature</strong><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(OWNER_SIGNATURE)} ({html.escape(OWNER_EMAIL)})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #0284c7; font-weight: 600;">📩 Email Dispatched</span>
         </div>
         """
         next_step_num += 1
 
-    if is_org_type:
+    p_status = "⏳ Pending Step 1 Completion" if is_org_type else "📩 Email Dispatched (Awaiting Signature)"
+    p_status_color = "#64748b" if is_org_type else "#0284c7"
+
+    signer_sequence_html += f"""
+    <div style="margin-bottom: 8px;">
+        <strong>{next_step_num}. Primary Client Signature</strong><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(friendly_name)} ({html.escape(effective_primary_email)})<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: {p_status_color}; font-weight: 600;">{p_status}</span>
+    </div>
+    """
+    next_step_num += 1
+
+    if has_co_signer:
         signer_sequence_html += f"""
         <div>
-            <strong>{next_step_num}. Firm Counter-Signature</strong><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(OWNER_SIGNATURE)} ({html.escape(OWNER_EMAIL)})<br>
-            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #64748b; font-weight: 600;">⏳ Pending Client Execution</span>
+            <strong>{next_step_num}. Additional Signer Signature</strong><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Recipient: {html.escape(co_signer_label)} ({html.escape(co_signer_email)})<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;• Status: <span style="color: #64748b; font-weight: 600;">⏳ Pending Prior Completion</span>
         </div>
         """
 
