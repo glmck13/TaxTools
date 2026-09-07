@@ -39,7 +39,7 @@ if PIPELINE_SANDBOX:
     CARBON_COPIES = []
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox"
 else:
-    ENABLE_BATCH_MODE = False
+    ENABLE_BATCH_MODE = "enable_batch" in os.environ.get("QUERY_STRING", "")
     JS_FILE = "engagement_pipeline.js"
     CSS_FILE = "engagement_pipeline.css"
     ENGAGEMENT_TEMPLATE = "engagement_template.md"
