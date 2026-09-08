@@ -349,14 +349,15 @@ done
 # STEP 3: COPY LOGFILE TEMPLATE & UPDATE METADATA
 debug "Copying log file template '$LOGFILE_NAME'..."
 
-m365 spo file copy \
-  --webUrl "$COMPANY_SITE" \
+COPY_RESPONSE=$(m365 spo file copy \
+  --webUrl "$SHARE_SITE" \
   --sourceUrl "Shared Documents/Client Log Template.xlsx" \
-  --targetUrl "Shared Documents/${CLEAN_CLIENT_NAME}" \
+  --targetUrl "$COMPANY_SITE/Shared Documents/${CLEAN_CLIENT_NAME}" \
   --newName "$LOGFILE_NAME" \
-  --nameConflictBehavior replace >&2 || true
+  --nameConflictBehavior replace \
+  -o json 2>/dev/null || echo "")
 
-LOGFILE_LINK="${COMPANY_SITE}/Shared Documents/${CLEAN_CLIENT_NAME}/${LOGFILE_NAME}"
+LOGFILE_LINK=$(echo "$COPY_RESPONSE" | jq -r '.LinkingUri // empty' 2>/dev/null)
 
 if [ -n "$SHARE_FOLDER_ITEM_ID" ]; then
     m365 spo listitem set \
@@ -417,7 +418,7 @@ rm -f "$HTML_TEMP_FILE"
 debug "Sending team notification email via Resend API..."
 
 EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
-<h1 style='color:#0078d4;'>Client Info:</h1>\
+<h1>Client Info:</h1>\
 <p>\
 <b>Name:</b> ${CLEAN_CLIENT_NAME}<br>\
 <b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
@@ -428,7 +429,7 @@ EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
 <b>Notes:</b> ${NOTES}<br><br>\
 <b>QBO ID:</b> ${QBO_CUSTOMER_ID}\
 </p>\
-<h1>To do:</h1>\
+<h1>To Do:</h1>\
 <ul>\
 <li>Add client to Revenue Schedule: ${CLEAN_CLIENT_NAME}</li>\
 <li>Create TA Tax Agreement</li>\
