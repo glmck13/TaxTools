@@ -1124,7 +1124,19 @@ function renderBatchTableGrid() {
             
             let clientFee = 0.0;
             if (draft.rows && draft.rows.length > 0) {
-                draft.rows.forEach(r => { clientFee += parseFloat(r.fee || 0); });
+                let baseFee = 0.0;
+                let discountFee = 0.0;
+                draft.rows.forEach(r => {
+                    const feeVal = parseFloat(r.fee || 0);
+                    const name = (r.service || '').toLowerCase();
+                    if (name.includes('deposit') || name.includes('retainer')) return;
+                    if (name.includes('discount') || name.includes('referral')) {
+                        discountFee += Math.abs(feeVal);
+                    } else {
+                        baseFee += feeVal;
+                    }
+                });
+                clientFee = baseFee - discountFee;
             }
 
             const pSigner = draft.primary_signer || {};
@@ -1298,7 +1310,19 @@ function updateBatchSummaryMetrics() {
             if (isPaper) paperCount++; else electronicCount++;
 
             if (draft.rows) {
-                draft.rows.forEach(r => { totalFee += parseFloat(r.fee || 0); });
+                let baseFee = 0.0;
+                let discountFee = 0.0;
+                draft.rows.forEach(r => {
+                    const feeVal = parseFloat(r.fee || 0);
+                    const name = (r.service || '').toLowerCase();
+                    if (name.includes('deposit') || name.includes('retainer')) return;
+                    if (name.includes('discount') || name.includes('referral')) {
+                        discountFee += Math.abs(feeVal);
+                    } else {
+                        baseFee += feeVal;
+                    }
+                });
+                totalFee += (baseFee - discountFee);
             }
         }
     });
