@@ -9,5 +9,4 @@ qboRefresh.sh >/dev/null
 
 source /var/www/webenv/bin/activate
 
-export GEMINI_API_KEY=""
 qbota.py $*
