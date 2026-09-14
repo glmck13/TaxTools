@@ -22,7 +22,7 @@ debug() {
     fi
 }
 
-debug "=== Intaking new request ($REQUEST_METHOD) ==="
+debug "=== Intake request ($REQUEST_METHOD) ==="
 
 # ==============================================================================
 # HELPER: CONSTRUCT ENVIRONMENT-AWARE SERVER-RELATIVE PATHS
@@ -262,12 +262,6 @@ fi
 
 debug "QBO Sync complete. Resolved Numeric QBO ID: $QBO_CUSTOMER_ID"
 
-QBOSP_FILE="${HOME}/etc/${QBO_SANDBOX}qbosp.csv"
-if [ -f "$QBOSP_FILE" ] && [ -n "$QBO_CUSTOMER_ID" ] && [ "$QBO_CUSTOMER_ID" != "Unknown" ]; then
-    echo "${QBO_CUSTOMER_ID}:${CLEAN_CLIENT_NAME}:${CLEAN_CLIENT_NAME} - SHARED:::" >> "$QBOSP_FILE"
-    debug "Appended $QBO_CUSTOMER_ID to $QBOSP_FILE"
-fi
-
 # ==============================================================================
 # BRANCHING POINT: EXISTING CLIENT PROFILE HEALING
 # ==============================================================================
@@ -413,6 +407,12 @@ m365 spo file add \
   --overwrite true >&2 || true
 
 rm -f "$HTML_TEMP_FILE"
+
+QBOSP_FILE="${DOCUMENT_ROOT}/etc/${QBO_SANDBOX}qbosp.csv"
+if [ -f "$QBOSP_FILE" ] && [ -n "$QBO_CUSTOMER_ID" ] && [ "$QBO_CUSTOMER_ID" != "Unknown" ]; then
+    echo "${QBO_CUSTOMER_ID}:${CLEAN_CLIENT_NAME}:${CLEAN_CLIENT_NAME} - SHARED:::" >> "$QBOSP_FILE"
+    debug "Appended $QBO_CUSTOMER_ID to $QBOSP_FILE"
+fi
 
 # STEP 5: SEND NOTIFICATION EMAIL VIA RESEND API
 debug "Sending team notification email via Resend API..."
