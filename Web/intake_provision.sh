@@ -268,7 +268,7 @@ debug "QBO Sync complete. Resolved Numeric QBO ID: $QBO_CUSTOMER_ID"
 if [ "$IS_NEW_LEAD" != "true" ]; then
     debug "Sending profile update email notification..."
     HEAL_EMAIL_BODY="<p><b>Updated by:</b> ${RESPONDER}</p>\
-<h1 style='color:#0369a1;'>QBO Profile Updated:</h1>\
+<h1>QBO Profile Updated:</h1>\
 <p>\
 <b>Name:</b> ${CLEAN_CLIENT_NAME}<br>\
 <b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
