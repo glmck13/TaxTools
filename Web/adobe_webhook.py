@@ -182,16 +182,18 @@ def handle_post_notification():
         qbo_customer_id = str(meta.get("qbo_id", "0"))
         engagement_id = str(meta.get("engagement_id", "0"))
 
-        filename = f"{doc_type} ({qbo_customer_id}_{engagement_id}).pdf"
-
         # Determine target SharePoint folder based on QBOSP_MATCH_FILE lookup
         matched_sp_folder = lookup_sp_folder(qbo_customer_id)
         if matched_sp_folder:
             target_folder = f"Shared Documents/{matched_sp_folder}/{TAX_YEAR}/Agreements & Invoices"
+            matched_sp_folder = "- " + matched_sp_folder + " "
             print(f"DEBUG: Found match in CSV for QBO ID {qbo_customer_id}. Folder: {target_folder}", file=sys.stderr)
         else:
             target_folder = SP_TARGET_FOLDER
+            matched_sp_folder = ""
             print(f"DEBUG: No match found for QBO ID {qbo_customer_id}. Fallback folder: {target_folder}", file=sys.stderr)
+
+        filename = f"{doc_type} {matched_sp_folder}({qbo_customer_id}_{engagement_id}).pdf"
 
         print(f"DEBUG: Targeted event matched. Ready to process contract pipeline for: {filename}", file=sys.stderr)
 
