@@ -52,6 +52,7 @@ else:
 
 TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
 NEXT_YEAR = f"{int(TAX_YEAR) + 1}"
+NEXT_NEXT_YEAR = f"{int(TAX_YEAR) + 2}"
 SCRIPT_URL = os.environ.get("SCRIPT_NAME", "")
 
 QBO_APIBASE = os.environ.get("QBO_APIBASE", "")
@@ -62,7 +63,6 @@ ADOBE_APIBASE = os.environ.get("ADOBE_APIBASE", "")
 ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
 
 ORGANIZATION_ENTITY_TYPES = {
-    "sm_llc",
     "s_corp",
     "partnership",
     "c_corp",
@@ -294,8 +294,7 @@ def parse_acct_num(acct_num_str):
 
     try:
         data = json.loads(acct_num_str.strip())
-        raw_ent = str(data.get("entity", "")).lower().strip()
-        meta["entity_type"] = raw_ent if raw_ent in ORGANIZATION_ENTITY_TYPES else "individual"
+        meta["entity_type"] = str(data.get("entity", "")).lower().strip()
         
         signers = data.get("signers", [])
         if isinstance(signers, list) and len(signers) > 0:
@@ -1478,6 +1477,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     markdown_content = jinja_tmpl.render(
         TAX_YEAR=TAX_YEAR,
         NEXT_YEAR=NEXT_YEAR,
+        NEXT_NEXT_YEAR=NEXT_NEXT_YEAR,
         TODAY_DATE=datetime.date.today().strftime('%B %d, %Y'),
         CLIENT_ADDRESS=billing_address,
         CLIENT_PHONE=xml_safe_escape(phone),

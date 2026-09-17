@@ -6,11 +6,11 @@
 
 <b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}{% if CLIENT_PHONE %}<br><b>Phone:</b> {{CLIENT_PHONE}}{% endif %}
 
-{% if meta_entity_type in ['sm_llc', 's_corp', 'partnership', 'c_corp', 'non_profit', 'trust', 'organization'] %}
+{% if meta_entity_type in ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust', 'organization'] %}
 
 Dear {{GREETING_NAME}}:
 
-Thank you for choosing Tarrant Advisors LLC to provide tax return and tax advisory services (“Services”) for {{CLIENT_LEGAL_NAME}} (“Client”) during the period through December 31st.
+Thank you for choosing Tarrant Advisors LLC to provide tax return and tax advisory services (“Services”) for {{CLIENT_LEGAL_NAME}} (“Client”) during the period through June 30, {{NEXT_NEXT_YEAR}}.
 {% endif %}
 
 ### FEES

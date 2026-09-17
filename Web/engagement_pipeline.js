@@ -9,7 +9,7 @@ let rowCounter = 0;
 const BATCH_THROTTLE_DELAY_MS = 500;
 
 // Centralized Entity Classification Configuration
-const ORGANIZATION_ENTITY_TYPES = ['sm_llc', 's_corp', 'partnership', 'c_corp', 'non_profit', 'trust'];
+const ORGANIZATION_ENTITY_TYPES = ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust'];
 
 const ENTITY_DISPLAY_NAMES = {
     'individual': 'Individual',
