@@ -158,7 +158,7 @@ function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaul
                 </div>
                 <div class="form-field-group">
                     <label class="field-label">State (Local Only)</label>
-                    <input type="text" name="local_state" value="${escapeHtml(state)}" required placeholder="VA" maxlength="2">
+                    <input type="text" name="local_state" value="${escapeHtml(state)}" required placeholder="DC" maxlength="2">
                 </div>
                 <div class="form-field-group">
                     <label class="field-label">Zip Code (Local Only)</label>
