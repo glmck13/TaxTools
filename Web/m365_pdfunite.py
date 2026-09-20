@@ -10,7 +10,7 @@ import re
 import traceback
 import concurrent.futures
 import requests
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 from pypdf import PdfReader, PdfWriter
 
 # Configuration
@@ -57,6 +57,11 @@ def enable_cgitb():
 enable_cgitb()
 # ------------------------------------------------
 
+def safe_sp_url(file_url):
+    """Escapes OData single quotes and URL-encodes special characters like '&'."""
+    escaped_path = file_url.replace("'", "''")
+    return quote(escaped_path, safe="/")
+
 def run_cli(command):
     """Helper to run M365 CLI commands with error detection."""
     full_cmd = ["m365"] + command + ["--output", "json"]
@@ -98,7 +103,8 @@ def get_page_count_worker_fast(args):
     local_pdf = os.path.join(tmp_dir, f"check_{i}.pdf")
     
     try:
-        download_url = f"{SPO_URL}/_api/web/GetFileByServerRelativeUrl('{file_url}')/$value"
+        encoded_path = safe_sp_url(file_url)
+        download_url = f"{SPO_URL}/_api/web/GetFileByServerRelativeUrl('{encoded_path}')/$value"
         headers = {"Authorization": f"Bearer {access_token}"}
         
         with requests.get(download_url, headers=headers, stream=True, timeout=30) as r:
@@ -124,7 +130,8 @@ def download_worker(args):
     local_src = os.path.join(tmp_dir, f"src_{i}.pdf")
     
     try:
-        download_url = f"{SPO_URL}/_api/web/GetFileByServerRelativeUrl('{file_url}')/$value"
+        encoded_path = safe_sp_url(file_url)
+        download_url = f"{SPO_URL}/_api/web/GetFileByServerRelativeUrl('{encoded_path}')/$value"
         headers = {"Authorization": f"Bearer {access_token}"}
         
         with requests.get(download_url, headers=headers, stream=True, timeout=60) as r:
@@ -345,26 +352,35 @@ def handle_step_4(form):
 
     tmp_dir = tempfile.mkdtemp()
     try:
-        tasks = [(i, form.getvalue(f"file_{i}"), form.getvalue(f"range_{i}", ""), int(form.getvalue(f"max_p_{i}", 0)), tmp_dir, access_token, form.getvalue(f"name_{i}")) for i in indices]
+        tasks = [
+            (i, form.getvalue(f"file_{i}"), form.getvalue(f"range_{i}", ""), int(form.getvalue(f"max_p_{i}", 0)), tmp_dir, access_token, form.getvalue(f"name_{i}")) 
+            for i in indices
+        ]
         
-        downloaded_data = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             downloaded_data = list(executor.map(download_worker, tasks))
 
         for d in downloaded_data:
-            if "error" in d: return print_error(f"Download failed: {d['error']}")
+            if "error" in d: 
+                return print_error(f"Download failed: {d['error']}")
+
+        # Ensure elements follow user-specified indices order
+        downloaded_data.sort(key=lambda x: indices.index(x["index"]))
 
         writer = PdfWriter()
         current_page_index = 0
         final_pdf_path = os.path.join(tmp_dir, f"{safe_name}.pdf")
 
+        # Retain reader objects to avoid file handle stream disconnects
+        readers = []
+
         for item in downloaded_data:
             reader = PdfReader(item["path"])
+            readers.append(reader)
             file_name = item["name"]
             p_range_str = item["range"]
             max_p = item["max_p"]
 
-            # Add bookmark for the start of this file
             writer.add_outline_item(file_name, current_page_index)
 
             if p_range_str:
@@ -390,8 +406,9 @@ def handle_step_4(form):
             print(f"<a href='{target_href}' target='_blank' class='btn'>Open {SUB_FOLDER} Folder &rarr;</a>")
             print("</div></body></html>")
         else:
-            print("Content-Type: application/pdf\nContent-Disposition: attachment; filename=\"%s.pdf\"\n" % safe_name)
-            sys.stdout.flush()
+            header = f"Content-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"{safe_name}.pdf\"\r\n\r\n"
+            sys.stdout.buffer.write(header.encode("utf-8"))
+            sys.stdout.buffer.flush()
             with open(final_pdf_path, "rb") as f: 
                 shutil.copyfileobj(f, sys.stdout.buffer)
                 
