@@ -112,7 +112,7 @@ else:
 
 keys = [
     'qbo_id', 'client_name', 'friendly_name', 'client_email', 'client_phone',
-    'contact_date', 'responder', 'entity_type', 'co_signer_name', 
+    'contact_date', 'responder', 'entity_type', 'delivery_format', 'co_signer_name', 
     'co_signer_email', 'street', 'city', 'state', 'zip', 'notes', 'is_new_lead'
 ]
 
@@ -128,6 +128,7 @@ FRIENDLY_NAME="${FRIENDLY_NAME:-$CLIENT_NAME}"
 CONTACT_DATE="${CONTACT_DATE:-$(date +%Y-%m-%d)}"
 RESPONDER="${RESPONDER:-${REMOTE_USER:-nobody}}"
 ENTITY_TYPE="${ENTITY_TYPE:-individual}"
+DELIVERY_FORMAT="${DELIVERY_FORMAT:-electronic}"
 IS_NEW_LEAD="${IS_NEW_LEAD:-true}"
 
 # 1. SHAREPOINT NAME: Full name, stripping trailing spaces and periods
@@ -145,7 +146,7 @@ LOGFILE_NAME="Log-${CLEAN_LOG_PREFIX:-Client}.xlsx"
 debug "Passed QBO ID: '${QBO_ID:-None}'"
 debug "Clean Client Name: '$CLEAN_CLIENT_NAME'"
 debug "Generated Log File Name: '$LOGFILE_NAME'"
-debug "Is New Lead: $IS_NEW_LEAD | Entity: $ENTITY_TYPE | Responder: $RESPONDER"
+debug "Is New Lead: $IS_NEW_LEAD | Entity: $ENTITY_TYPE | Delivery Format: $DELIVERY_FORMAT | Responder: $RESPONDER"
 
 # ==============================================================================
 # CONFIGURATION & CONSTANTS
@@ -213,12 +214,14 @@ fi
 # 2. BUILD PAYLOAD & SYNC TO QBO
 NOTES_JSON=$(jq -n -c \
   --arg entity "$ENTITY_TYPE" \
+  --arg format "$DELIVERY_FORMAT" \
   --arg p_name "$FRIENDLY_NAME" \
   --arg p_email "$CLIENT_EMAIL" \
   --arg c_name "$CO_SIGNER_NAME" \
   --arg c_email "$CO_SIGNER_EMAIL" \
   '{
     entity: $entity,
+    format: $format,
     signers: (
       [{name: $p_name, email: $p_email}] +
       (if ($c_name != "" or $c_email != "") then [{name: $c_name, email: $c_email}] else [] end)
@@ -275,7 +278,8 @@ if [ "$IS_NEW_LEAD" != "true" ]; then
 <b>Email address:</b> ${CLIENT_EMAIL}<br>\
 <b>Phone number:</b> ${CLIENT_PHONE}<br>\
 <b>Contact date:</b> ${CONTACT_DATE}<br>\
-<b>Entity Classification:</b> ${ENTITY_TYPE}<br><br>\
+<b>Entity Classification:</b> ${ENTITY_TYPE}<br>\
+<b>Delivery Format:</b> ${DELIVERY_FORMAT}<br><br>\
 <b>QBO ID:</b> ${QBO_CUSTOMER_ID}\
 </p>"
 
@@ -353,13 +357,18 @@ COPY_RESPONSE=$(m365 spo file copy \
 
 LOGFILE_LINK=$(echo "$COPY_RESPONSE" | jq -r '.LinkingUri // empty' 2>/dev/null)
 
+SPO_FORMAT="Electronic"
+if [ "$DELIVERY_FORMAT" = "paper" ]; then
+    SPO_FORMAT="Paper"
+fi
+
 if [ -n "$SHARE_FOLDER_ITEM_ID" ]; then
     m365 spo listitem set \
       --webUrl "$SHARE_SITE" \
       --listTitle "Documents" \
       --id "$SHARE_FOLDER_ITEM_ID" \
       --TotalFiles 0 \
-      --Format "Electronic" \
+      --Format "$SPO_FORMAT" \
       --Questionnaire "Not Found" \
       --RetLoaded "No" \
       --ClientLog "$LOGFILE_LINK" >&2 || true
@@ -386,6 +395,7 @@ cat <<EOF > "$HTML_TEMP_FILE"
 <b>Phone number: </b>${CLIENT_PHONE}<br>
 <b>Contact date: </b>${CONTACT_DATE}<br>
 <b>Entity Classification: </b>${ENTITY_TYPE}<br>
+<b>Delivery Format: </b>${DELIVERY_FORMAT}<br>
 <b>Notes: </b>${NOTES}<br><br>
 <b>QBO Status:</b> Synced (ID: ${QBO_CUSTOMER_ID})
 <h1>To Do:</h1>
@@ -426,6 +436,7 @@ EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
 <b>Phone number:</b> ${CLIENT_PHONE}<br>\
 <b>Contact date:</b> ${CONTACT_DATE}<br>\
 <b>Entity Classification:</b> ${ENTITY_TYPE}<br>\
+<b>Delivery Format:</b> ${DELIVERY_FORMAT}<br>\
 <b>Notes:</b> ${NOTES}<br><br>\
 <b>QBO ID:</b> ${QBO_CUSTOMER_ID}\
 </p>\

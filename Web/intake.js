@@ -211,6 +211,7 @@ function fillClientFields(clientData, catalogKey = "") {
     setVal("primary_email", clientData.email || "");
     setVal("phone_number", clientData.phone || "");
     setVal("entity_type", meta.entity_type || "");
+    setVal("delivery_format", meta.delivery_format || meta.format || "electronic");
     setVal("co_signer_name", meta.co_signer_name || "");
     setVal("co_signer_email", meta.co_signer_email || "");
 
@@ -241,6 +242,7 @@ function clearClientFields() {
     setVal("phone_number");
     setVal("responder");
     setVal("entity_type");
+    setVal("delivery_format", "electronic");
     setVal("co_signer_name");
     setVal("co_signer_email");
     setVal("street");

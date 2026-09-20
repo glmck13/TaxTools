@@ -145,6 +145,12 @@ h1 {
     gap: 18px;
 }
 
+.grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 18px;
+}
+
 .grid-address {
     display: grid;
     grid-template-columns: 2fr 1fr 80px 100px;
@@ -160,7 +166,7 @@ h1 {
         padding: 20px 15px;
     }
 
-    .grid-2, .grid-address {
+    .grid-2, .grid-3, .grid-address {
         grid-template-columns: 1fr;
     }
 }

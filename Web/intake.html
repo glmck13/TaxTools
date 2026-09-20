@@ -87,8 +87,8 @@
                 </div>
             </div>
 
-            <!-- Row 4: Account Classification & Responder -->
-            <div class="grid-2">
+            <!-- Row 4: Account Classification, Delivery Format & Responder -->
+            <div class="grid-3">
                 <div class="form-group">
                     <select id="entity_type" name="entity_type" required>
                         <option value="" disabled selected>Select Entity Type...</option>
@@ -101,6 +101,13 @@
                         <option value="trust">Trust / Estate</option>
                     </select>
                     <label for="entity_type">ACCOUNT CLASSIFICATION</label>
+                </div>
+                <div class="form-group">
+                    <select id="delivery_format" name="delivery_format" required>
+                        <option value="electronic" selected>Electronic</option>
+                        <option value="paper">Paper</option>
+                    </select>
+                    <label for="delivery_format">DELIVERY FORMAT</label>
                 </div>
                 <div class="form-group">
                     <input type="text" id="responder" name="responder" placeholder="e.g., Jane Smith" required>

@@ -59,6 +59,7 @@ def parse_acct_num(notes_str):
     """Parses JSON-encoded metadata from QBO Notes field into normalized dict."""
     meta = {
         "entity_type": "individual",
+        "delivery_format": "electronic",
         "friendly_name": "",
         "primary_signer_email": "",
         "co_signer_name": "",
@@ -76,6 +77,12 @@ def parse_acct_num(notes_str):
         if isinstance(data, dict):
             raw_ent = str(data.get("entity", "")).lower().strip()
             meta["entity_type"] = raw_ent if raw_ent in ORGANIZATION_ENTITY_TYPES else "individual"
+
+            raw_fmt = str(data.get("format", data.get("delivery_format", ""))).lower().strip()
+            if raw_fmt in ["paper", "electronic"]:
+                meta["delivery_format"] = raw_fmt
+            else:
+                meta["delivery_format"] = "electronic"
             
             signers = data.get("signers", [])
             if isinstance(signers, list) and len(signers) > 0:

@@ -284,6 +284,7 @@ def extract_qbo_id(client_name_str):
 def parse_acct_num(acct_num_str):
     meta = {
         "entity_type": "individual",
+        "delivery_format": "electronic",
         "friendly_name": "",
         "primary_signer_email": "",
         "co_signer_name": "",
@@ -294,24 +295,34 @@ def parse_acct_num(acct_num_str):
 
     try:
         data = json.loads(acct_num_str.strip())
-        meta["entity_type"] = str(data.get("entity", "")).lower().strip()
-        
-        signers = data.get("signers", [])
-        if isinstance(signers, list) and len(signers) > 0:
-            p_signer = signers[0] if isinstance(signers[0], dict) else {}
-            meta["friendly_name"] = str(p_signer.get("name", "")).strip()
-            meta["primary_signer_email"] = str(p_signer.get("email", "")).strip()
+        if isinstance(data, str):
+            data = json.loads(data)
 
-            if len(signers) > 1:
-                s_signer = signers[1] if isinstance(signers[1], dict) else {}
-                meta["co_signer_name"] = str(s_signer.get("name", "")).strip()
-                meta["co_signer_email"] = str(s_signer.get("email", "")).strip()
+        if isinstance(data, dict):
+            meta["entity_type"] = str(data.get("entity", "")).lower().strip()
+            
+            raw_fmt = str(data.get("format", data.get("delivery_format", ""))).lower().strip()
+            if raw_fmt in ["paper", "electronic"]:
+                meta["delivery_format"] = raw_fmt
+            else:
+                meta["delivery_format"] = "electronic"
+
+            signers = data.get("signers", [])
+            if isinstance(signers, list) and len(signers) > 0:
+                p_signer = signers[0] if isinstance(signers[0], dict) else {}
+                meta["friendly_name"] = str(p_signer.get("name", "")).strip()
+                meta["primary_signer_email"] = str(p_signer.get("email", "")).strip()
+
+                if len(signers) > 1:
+                    s_signer = signers[1] if isinstance(signers[1], dict) else {}
+                    meta["co_signer_name"] = str(s_signer.get("name", "")).strip()
+                    meta["co_signer_email"] = str(s_signer.get("email", "")).strip()
     except Exception as e:
         print(f"DEBUG: QBO Notes is not valid JSON or failed parsing: {str(e)}", file=sys.stderr)
 
     return meta
 
-def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_email="", entity_type="individual"):
+def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_email="", entity_type="individual", format="electronic"):
     CLEAR_KEYWORDS = {"none", "null", "single", "n/a", ""}
     
     clean_p_name = friendly_name.strip()
@@ -337,6 +348,7 @@ def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_
 
     payload = {
         "entity": entity_type.strip().lower(),
+        "format": format.strip().lower() if format in ["paper", "electronic"] else "electronic",
         "signers": signers
     }
     return json.dumps(payload)
@@ -1844,10 +1856,12 @@ def execute_transactional_pipeline(form):
     prior_estimate_id = get_form_val(form, "prior_estimate_id").strip()
     draft_path = get_draft_file_path(client_qbo_id, eng_id)
 
+    existing_draft_format = "electronic"
     if os.path.exists(draft_path):
         try:
             with open(draft_path, "r", encoding="utf-8") as df:
                 disk_draft = json.load(df)
+                existing_draft_format = disk_draft.get("delivery_format", "electronic")
                 if not prior_estimate_id:
                     prior_estimate_id = str(disk_draft.get("estimate_id", "")).strip()
                 if not primary_email:
@@ -1885,12 +1899,17 @@ def execute_transactional_pipeline(form):
     qbo_phone = fresh_customer.get("PrimaryPhone", {}).get("FreeFormNumber", "")
     effective_phone = phone.strip() if phone and phone.strip() else qbo_phone
 
+    # Preserve format baseline from QBO Notes or disk draft during sync
+    existing_qbo_meta = parse_acct_num(fresh_customer.get("Notes", ""))
+    target_qbo_format = existing_qbo_meta.get("delivery_format") or existing_draft_format or "electronic"
+
     proposed_notes_json = compile_acct_num(
         friendly_name=friendly_name,
         primary_email=effective_primary_email,
         co_signer_name=co_signer_name,
         co_signer_email=co_signer_email,
-        entity_type=entity_type
+        entity_type=entity_type,
+        format=target_qbo_format
     )
 
     if sync_to_qbo:
@@ -2065,7 +2084,7 @@ def execute_transactional_pipeline(form):
 
     signer_sequence_html = """
     <div style="font-weight: 600; font-size: 13px; color: #475569; margin-top: 15px; margin-bottom: 8px;">Signing Workflow Sequence:</div>
-    <div style="font-family: monospace; font-size: 13px; line-height: 1.6; color: #334155; background: #ffffff; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0;">
+    <div style="font-family: monospace; font-size: 13px; line-height: 1.6; color: #333155; background: #ffffff; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0;">
     """
 
     next_step_num = 1
