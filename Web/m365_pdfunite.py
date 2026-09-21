@@ -219,7 +219,7 @@ def handle_step_2(folder_url):
     print("</body></html>")
 
 def handle_step_2_5(target_path, folder_name, folder_url):
-    sub_display = os.path.basename(target_path.rstrip('/'))
+    sub_display = target_path.split(folder_name)[1].lstrip('/')
     print_html_head(f"Configure Merge: {folder_name} &raquo; {sub_display}")
     
     files = run_cli(["spo", "file", "list", "--webUrl", SPO_URL, "--folderUrl", target_path, "--recursive"])
@@ -296,6 +296,7 @@ def handle_step_3(form):
     folder_name = form.getvalue("folder_name", "merged_document")
     folder_url = form.getvalue("selected_folder")
     target_subfolder = form.getvalue("target_subfolder")
+    target_subfolder = '/'.join(target_subfolder.split('/')[:-1])
     
     initial_indices = []
     if is_all: initial_indices = list(range(1, total_files + 1))
