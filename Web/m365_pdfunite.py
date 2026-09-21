@@ -16,7 +16,6 @@ from pypdf import PdfReader, PdfWriter
 # Configuration
 SPO_URL = "https://tarrantadvisors.sharepoint.com/sites/Company"
 BASE_FOLDER = "/Shared Documents"
-SUB_FOLDER = "/2025" 
 
 # --- Native CGI Replacements for Python 3.13+ ---
 class MiniFieldStorage:
@@ -199,16 +198,16 @@ def handle_step_1():
     print("</body></html>")
 
 def handle_step_2(folder_url):
-    target_path = f"{folder_url.rstrip('/')}/{SUB_FOLDER.lstrip('/')}"
+    target_path = f"{folder_url.rstrip('/')}/"
     folder_name = os.path.basename(folder_url.rstrip('/'))
-    print_html_head(f"Select Subfolder: {folder_name}{SUB_FOLDER}")
-    subfolders = run_cli(["spo", "folder", "list", "--webUrl", SPO_URL, "--parentFolderUrl", target_path])
+    print_html_head(f"Select Subfolder: {folder_name}")
+    subfolders = run_cli(["spo", "folder", "list", "--webUrl", SPO_URL, "--parentFolderUrl", target_path, "--recursive"])
     if subfolders:
         folders = sorted(subfolders, key=lambda x: x['Name'].lower())
         print('<form method="POST" onsubmit="showLoading(\'Analyzing files...\')">')
         print('<select name="target_subfolder" style="padding:5px; width:400px;">')
         for folder in folders:
-            print(f'<option value="{folder["ServerRelativeUrl"]}">{folder["Name"]}</option>')
+            print(f'<option value="{folder["ServerRelativeUrl"]}">{folder["ServerRelativeUrl"].lstrip(target_path)}</option>')
         print('</select>')
         print(f'<input type="hidden" name="folder_name" value="{folder_name}">')
         print(f'<input type="hidden" name="selected_folder" value="{folder_url}">')
@@ -329,7 +328,7 @@ def handle_step_3(form):
         print(f"<tr><td>{i}</td><td>{e['name']}</td><td>{e['range_text']}</td><td>{e['count']}</td></tr>")
     print(f"<tr style='font-weight:bold;'><td></td><td>Total Output Pages</td><td></td><td>{total_new_pages}</td></tr></table>")
     
-    print(f'<form method="POST" style="margin-top:30px;"><div class="controls"><label><input type="checkbox" name="upload_to_spo" value="yes"> <strong>Upload directly to {SUB_FOLDER}</strong></label></div>')
+    print(f'<form method="POST" style="margin-top:30px;"><div class="controls"><label><input type="checkbox" name="upload_to_spo" value="yes"> <strong>Upload directly to {target_subfolder}</strong></label></div>')
     print(f'<input type="hidden" name="final_indices" value="{",".join([str(m["idx"]) for m in manifest])}">')
     print(f'<input type="hidden" name="folder_name" value="{folder_name}"><input type="hidden" name="selected_folder" value="{folder_url}"><input type="hidden" name="target_subfolder" value="{target_subfolder}">')
     for m in manifest:
@@ -340,9 +339,10 @@ def handle_step_4(form):
     """Step 4: Execute merge and bookmarking using pypdf."""
     indices_str = form.getvalue("final_indices", "")
     folder_name = form.getvalue("folder_name")
+    target_subfolder = form.getvalue("target_subfolder")
     client_root = form.getvalue("selected_folder")
     do_upload = form.getvalue("upload_to_spo") == "yes"
-    upload_path = f"{client_root.rstrip('/')}/{SUB_FOLDER.lstrip('/')}"
+    upload_path = target_subfolder
     safe_name = "BU_Detail_" + re.sub(r'[^\w\s-]', '', folder_name).strip().replace(' ', '_')
     indices = [int(x) for x in indices_str.split(",")]
 
@@ -403,7 +403,7 @@ def handle_step_4(form):
             print(f"<div style='background:#dff6dd; padding:20px; border-radius:4px;'>")
             print(f"<h3>Successfully Created!</h3>")
             print(f"<p>File <strong>{safe_name}.pdf</strong> (with bookmarks) has been saved to: <code>{upload_path}</code></p>")
-            print(f"<a href='{target_href}' target='_blank' class='btn'>Open {SUB_FOLDER} Folder &rarr;</a>")
+            print(f"<a href='{target_href}' target='_blank' class='btn'>Open {target_subfolder} Folder &rarr;</a>")
             print("</div></body></html>")
         else:
             header = f"Content-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"{safe_name}.pdf\"\r\n\r\n"

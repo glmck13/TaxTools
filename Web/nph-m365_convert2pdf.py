@@ -114,11 +114,25 @@ try:
             "libreoffice", "--headless", "--convert-to", "pdf", 
             "--outdir", work_dir, local_input_path
         ])
+
     elif ext in image_extensions:
         log.append(f"Converting image {ext} via img2pdf...")
-        run_command([
-            "img2pdf", "--first-frame-only", local_input_path, "--output", local_pdf_path
-        ])
+        try:
+            # 1. Preferred fast/lossless path
+            run_command([
+                "img2pdf", "--first-frame-only", local_input_path, "--output", local_pdf_path
+            ])
+        except Exception as err:
+            # 2. Fallback path for transparency/alpha channels
+            log.append(f"img2pdf skipped due to error: {err}. Falling back to GraphicsMagick...")
+            run_command([
+                "gm", "convert",
+                f"{local_input_path}[0]",
+                "-background", "white",
+                "-flatten",
+                "+profile", "*",
+                local_pdf_path
+            ])
     else:
         raise Exception(f"Unsupported file extension: {ext}")
 
