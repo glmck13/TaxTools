@@ -126,7 +126,7 @@ def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
         print(f"Adobe Sign HTTP Error [{e.code}]: {error_body}", file=sys.stderr)
         raise Exception(f"Adobe Sign Call Failed: {error_body}")
 
-def submit_adobe_sign_transaction(client_qbo_id, pdf_binary_data, additional_signer_email=None):
+def submit_adobe_sign_transaction(client_qbo_id, pdf_binary_data, additional_signer_email=None, primary_name_override=None, co_signer_name=None):
     """Handles envelope transmission and routing parameters for Adobe Sign."""
     try:
         fresh_customer = qbo_api_request(f"customer/{client_qbo_id}").get("Customer", {})
@@ -143,11 +143,19 @@ def submit_adobe_sign_transaction(client_qbo_id, pdf_binary_data, additional_sig
         if not transient_id:
             return False, "Adobe Sign Gateway rejected binary buffer authentication check."
 
-        participant_sets = [{"memberInfos": [{"email": primary_email}], "order": 1, "role": "SIGNER"}]
+        primary_member = {"email": primary_email}
+        if primary_name_override and primary_name_override.strip():
+            primary_member["name"] = primary_name_override.strip()
+
+        participant_sets = [{"memberInfos": [primary_member], "order": 1, "role": "SIGNER"}]
 
         if additional_signer_email and "@" in additional_signer_email:
+            co_signer_member = {"email": additional_signer_email.strip()}
+            if co_signer_name and co_signer_name.strip():
+                co_signer_member["name"] = co_signer_name.strip()
+
             participant_sets.append({
-                "memberInfos": [{"email": additional_signer_email.strip()}],
+                "memberInfos": [co_signer_member],
                 "order": 2,
                 "role": "SIGNER"
             })
@@ -677,6 +685,7 @@ def execute_transactional_pipeline(form):
     client_qbo_id = extract_qbo_id(client_name)
     friendly_name = html.unescape(get_form_val(form, "friendly_name"))
     local_legal_name = html.unescape(get_form_val(form, "local_legal_name"))
+    meta_co_signer_name = html.unescape(get_form_val(form, "meta_co_signer_name"))
     meta_sig = get_form_val(form, "meta_additional_signer").strip()
 
     delivery_method = get_form_val(form, "delivery_method")
@@ -691,7 +700,9 @@ def execute_transactional_pipeline(form):
         adobe_sign_routing_success, adobe_error_context = submit_adobe_sign_transaction(
             client_qbo_id=client_qbo_id,
             pdf_binary_data=live_pdf_buffer.read(),
-            additional_signer_email=meta_sig if "@" in meta_sig else None
+            additional_signer_email=meta_sig if "@" in meta_sig else None,
+            primary_name_override=friendly_name,
+            co_signer_name=meta_co_signer_name
         )
 
     if not adobe_sign_routing_success:
