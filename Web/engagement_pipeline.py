@@ -465,7 +465,7 @@ def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
         print(f"Adobe Sign HTTP Error [{e.code}]: {error_body}", file=sys.stderr)
         raise Exception(f"Adobe Sign Call Failed: {error_body}")
 
-def submit_adobe_sign_transaction(client_qbo_id, engagement_id, estimate_id, pdf_binary_data, co_signer_email=None, is_organization=False, primary_email_override=None):
+def submit_adobe_sign_transaction(client_qbo_id, engagement_id, estimate_id, pdf_binary_data, co_signer_email=None, is_organization=False, primary_email_override=None, primary_name_override=None, co_signer_name=None):
     try:
         primary_email = primary_email_override.strip() if primary_email_override and primary_email_override.strip() else ""
 
@@ -489,22 +489,33 @@ def submit_adobe_sign_transaction(client_qbo_id, engagement_id, estimate_id, pdf
 
         if is_organization:
             participant_sets.append({
-                "memberInfos": [{"email": OWNER_EMAIL}],
+                "memberInfos": [{
+                    "email": OWNER_EMAIL,
+                    "name": OWNER_SIGNATURE
+                }],
                 "order": current_order,
                 "role": "SIGNER"
             })
             current_order += 1
 
+        primary_member = {"email": primary_email}
+        if primary_name_override and primary_name_override.strip():
+            primary_member["name"] = primary_name_override.strip()
+
         participant_sets.append({
-            "memberInfos": [{"email": primary_email}],
+            "memberInfos": [primary_member],
             "order": current_order,
             "role": "SIGNER"
         })
         current_order += 1
 
         if co_signer_email and "@" in co_signer_email:
+            co_signer_member = {"email": co_signer_email.strip()}
+            if co_signer_name and co_signer_name.strip():
+                co_signer_member["name"] = co_signer_name.strip()
+
             participant_sets.append({
-                "memberInfos": [{"email": co_signer_email.strip()}],
+                "memberInfos": [co_signer_member],
                 "order": current_order,
                 "role": "SIGNER"
             })
@@ -2046,7 +2057,9 @@ def execute_transactional_pipeline(form):
             pdf_binary_data=live_pdf_buffer.read(),
             co_signer_email=co_signer_email,
             is_organization=is_org_type,
-            primary_email_override=effective_primary_email
+            primary_email_override=effective_primary_email,
+            primary_name_override=friendly_name,
+            co_signer_name=co_signer_name
         )
         if adobe_sign_routing_success:
             adobe_agreement_id = adobe_error_context
