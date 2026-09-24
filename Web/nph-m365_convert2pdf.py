@@ -105,7 +105,7 @@ try:
     # --- End MSG Handling ---
 
     office_extensions = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.html', '.htm', '.csv']
-    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
+    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic', '.heif']
 
     if ext in office_extensions:
         log.append(f"Converting {ext} via LibreOffice...")
