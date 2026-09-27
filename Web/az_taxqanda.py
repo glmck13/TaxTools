@@ -266,7 +266,7 @@ def generate_base_html():
         }
 
         @media print {
-            @page { size: letter portrait; margin: 0.25in; }
+            @page { size: letter landscape; margin: 0.25in; }
             body { background: white; padding: 0; font-size: 9px; }
             .no-print { display: none !important; }
             header { border: none; padding: 0 0 4px 0; margin-bottom: 4px; border-bottom: 2px solid #000; }
@@ -510,6 +510,7 @@ if export_format == "pdf":
             
             pdf_bytes = page.pdf(
                 format="Letter",
+                landscape=True,
                 print_background=True,
                 margin={"top": "0.25in", "bottom": "0.25in", "left": "0.25in", "right": "0.25in"}
             )
