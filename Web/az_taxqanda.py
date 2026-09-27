@@ -4,10 +4,23 @@ import sys, os
 import json
 import requests
 import subprocess
+import urllib.parse
 
 AZ_DIR = os.environ.get("AZ_DIR", "")
 os.environ['AZURE_CONFIG_DIR'] = AZ_DIR
 os.environ['HOME'] = AZ_DIR
+
+# Parse incoming CGI query string parameters
+query_params = urllib.parse.parse_qs(os.environ.get("QUERY_STRING", ""))
+export_format = query_params.get("export", [None])[0]
+raw_idx = query_params.get("idx", [None])[0]
+
+client_index = None
+if raw_idx is not None:
+    try:
+        client_index = int(raw_idx)
+    except ValueError:
+        client_index = None
 
 TENANT = subprocess.run(
         ['az', 'account', 'show', '--query', 'tenantId', '-o', 'tsv'],
@@ -23,10 +36,10 @@ USERID = subprocess.run(
 
 FORMID = "3ldY-25hvUW4QYupAGZf1U5xmw6h3vpJrX1t2OAg0wFUOU5PNEtERTRKQUlWQ1pBMjBBT0YySVo3Sy4u"
 
-print("Content-Type: text/html\n")
-
 if not (TENANT and TOKEN and USERID and FORMID):
-    exit()
+    sys.stdout.write("Content-Type: text/html\n\n")
+    sys.stdout.write("<h3>Authentication or Configuration Error</h3>")
+    sys.exit(1)
 
 headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json" }
 
@@ -51,7 +64,6 @@ for x in rsp:
 q_list = list(q_and_a.values())
 q_list.sort(key=lambda x: x["order"])
 
-# Exact full-text prompt dictionary map (normalized to lowercase)
 EXACT_QUESTION_MAP = {
     "your name:": "client_name",
     "your email address:": "email",
@@ -71,7 +83,6 @@ EXACT_QUESTION_MAP = {
     "enter your birthdate(s) and the birthdate(s) of your dependents:": "birthdates",
     "have there been any changes in dependents from last year? if so, please provide updated information.": "dep_changes",
     "did you have any children under age 19 or full-time students under age 24 at the end of 2025, with interest and dividend income in excess of $1,300, or total investment income in excess of $2,600?": "kiddie_tax",
-    "did you receive irs document form 1095-a (health insurance marketplace statement)? if so, please upload the form to your shared folder.": "form_1095a",
     "did you receive irs document form 1095-a (health insurance marketplace statement)? if so, please upload the form to your shared folder.": "form_1095a",
     "do you have a high-deductible medical plan?": "high_deductible",
     "did you have any significant difference from your 2024 tax situation (new sources of income or expenses, significant increases to expense or income, non-routine transactions, sale of residence or rental property for discussion)? if so, please explain.": "sit_diff_flag",
@@ -107,11 +118,9 @@ def assign_exact_key(q_text, prev_text):
     clean_q = " ".join(q_text.strip().split()).lower()
     clean_p = " ".join(prev_text.strip().split()).lower() if prev_text else ""
     
-    # Case-insensitive full text lookup
     if clean_q in EXACT_QUESTION_MAP:
         return EXACT_QUESTION_MAP[clean_q]
     
-    # Context-based lookup for repeating "Updated Information:" prompts
     if clean_q.startswith("updated information"):
         if "contact information" in clean_p or "dependents" in clean_p:
             return "updated_contact_info"
@@ -128,8 +137,16 @@ for item in q_list:
     item["key"] = assign_exact_key(item["question"], prev_q)
     prev_q = item["question"]
 
-html = r'''
-<!DOCTYPE html>
+# Validate and clamp client_index boundaries
+name_question = next((q for q in q_list if q.get("key") == "client_name"), None)
+total_answers = len(name_question["answers"]) if name_question else 0
+
+if client_index is not None:
+    if client_index < 0 or (total_answers > 0 and client_index >= total_answers):
+        client_index = 0
+
+def generate_base_html():
+    html = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -182,6 +199,7 @@ html = r'''
             font-size: 10px;
             font-weight: 600;
             cursor: pointer;
+            text-decoration: none;
         }
         .btn-print:hover { background-color: #1d4ed8; }
         .dashboard-grid {
@@ -241,6 +259,11 @@ html = r'''
         .badge-yes { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
         .badge-no { color: var(--text-muted); font-weight: 400; }
         .col-span-2 { grid-column: span 2; }
+        .empty-placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 4px 0;
+        }
 
         @media print {
             @page { size: letter portrait; margin: 0.25in; }
@@ -260,7 +283,7 @@ html = r'''
         <h2 id="header-title">Tax Q&A Summary</h2>
         <div class="controls no-print">
             <div id="master-container"></div>
-            <button class="btn-print" onclick="window.print()">Print Summary</button>
+            <button class="btn-print" onclick="downloadPDF()">Download PDF</button>
         </div>
     </header>
 
@@ -289,10 +312,8 @@ html = r'''
 
     <script>
 '''
-
-html += "const q_and_a = " + json.dumps(q_list) + ";"
-
-html += r'''
+    html += "const q_and_a = " + json.dumps(q_list) + ";"
+    html += r'''
     function getValByKey(keyName, clientIdx) {
         const matches = q_and_a.filter(q => q.key === keyName);
         for (let item of matches) {
@@ -320,6 +341,15 @@ html += r'''
         `;
     }
 
+    function downloadPDF() {
+        const select = document.getElementById('master-select');
+        if (!select || select.value === "") {
+            alert("Please select a taxpayer before downloading the PDF.");
+            return;
+        }
+        window.location.href = `?export=pdf&idx=${select.value}`;
+    }
+
     function init() {
         const masterContainer = document.getElementById('master-container');
 
@@ -338,9 +368,36 @@ html += r'''
                 `).join('')}
             </select>
         `;
+
+        renderEmptyState();
+    }
+
+    function renderEmptyState() {
+        document.getElementById('header-title').textContent = "Tax Q&A Summary: Please Select Taxpayer";
+        const placeholder = `<div class="empty-placeholder">Select a taxpayer to view details</div>`;
+
+        document.getElementById('group-client').innerHTML = placeholder;
+        document.getElementById('group-banking').innerHTML = placeholder;
+        document.getElementById('group-family').innerHTML = placeholder;
+        document.getElementById('group-tax-info').innerHTML = placeholder;
+        document.getElementById('group-compliance').innerHTML = placeholder;
+
+        const btn = document.querySelector('.btn-print');
+        if (btn) btn.style.opacity = '0.5';
     }
 
     function updateDashboard(idx) {
+        if (idx === "" || idx === null || idx === undefined) {
+            renderEmptyState();
+            return;
+        }
+
+        const btn = document.querySelector('.btn-print');
+        if (btn) btn.style.opacity = '1.0';
+
+        const select = document.getElementById('master-select');
+        if (select) select.value = idx;
+
         const nameObj = q_and_a.find(q => q.key === "client_name");
         const clientName = (nameObj && nameObj.answers[idx]) ? nameObj.answers[idx] : "Taxpayer";
         document.getElementById('header-title').textContent = `Tax Q&A Summary: ${clientName}`;
@@ -419,5 +476,52 @@ html += r'''
 </body>
 </html>
 '''
+    return html
 
-print(html)
+# --- ROUTING LOGIC ---
+
+if export_format == "pdf":
+    if client_index is None:
+        sys.stdout.write("Content-Type: text/html\n\n")
+        sys.stdout.write("<h3>Error: No taxpayer selected for PDF export.</h3>")
+        sys.exit(1)
+
+    from playwright.sync_api import sync_playwright
+    
+    html_content = generate_base_html()
+    
+    client_name = "Taxpayer"
+    if name_question and len(name_question.get("answers", [])) > client_index:
+        raw_name = name_question["answers"][client_index].strip()
+        if raw_name:
+            client_name = "".join(c for c in raw_name if c.isalnum() or c in (' ', '_', '-')).rstrip()
+    
+    filename = f"Tax_Summary_{client_name.replace(' ', '_')}.pdf"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            executable_path="/usr/bin/chromium",
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
+        try:
+            page = browser.new_page()
+            page.set_content(html_content, wait_until="networkidle")
+            page.evaluate(f"updateDashboard({client_index});")
+            
+            pdf_bytes = page.pdf(
+                format="Letter",
+                print_background=True,
+                margin={"top": "0.25in", "bottom": "0.25in", "left": "0.25in", "right": "0.25in"}
+            )
+        finally:
+            browser.close()
+
+    sys.stdout.buffer.write(b"Content-Type: application/pdf\n")
+    sys.stdout.buffer.write(f'Content-Disposition: attachment; filename="{filename}"\n\n'.encode('utf-8'))
+    sys.stdout.buffer.write(pdf_bytes)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+else:
+    sys.stdout.write("Content-Type: text/html\n\n")
+    sys.stdout.write(generate_base_html())
