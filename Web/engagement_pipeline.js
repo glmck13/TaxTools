@@ -8,6 +8,10 @@ let rowCounter = 0;
 // Global Configuration
 const BATCH_THROTTLE_DELAY_MS = 500;
 
+// Global State for Batch Table Sorting
+let currentSortColumn = null;
+let currentSortAscending = true;
+
 // Centralized Entity Classification Configuration
 const ORGANIZATION_ENTITY_TYPES = ['s_corp', 'partnership', 'c_corp', 'non_profit', 'trust'];
 
@@ -1092,6 +1096,68 @@ function switchWorkspaceMode(mode) {
     }
 }
 
+function sortBatchTable(columnIndex) {
+    const tbody = document.getElementById('batch-tbody');
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length === 0) return;
+
+    if (currentSortColumn === columnIndex) {
+        currentSortAscending = !currentSortAscending;
+    } else {
+        currentSortColumn = columnIndex;
+        currentSortAscending = true;
+    }
+
+    const getCellValue = (row, colIdx) => {
+        const cell = row.children[colIdx];
+        if (!cell) return '';
+
+        // Total Fee column (Column Index 5) -> Numeric Sorting
+        if (colIdx === 5) {
+            const rawText = cell.innerText.replace(/[^0-9.-]+/g, '');
+            return parseFloat(rawText) || 0;
+        }
+        
+        // Selection Checkbox column (Column Index 0) -> Boolean/State Sorting
+        if (colIdx === 0) {
+            const cb = cell.querySelector('input[type="checkbox"]');
+            return cb ? (cb.checked ? 1 : 0) : 0;
+        }
+
+        return cell.innerText.trim().toLowerCase();
+    };
+
+    rows.sort((a, b) => {
+        const valA = getCellValue(a, columnIndex);
+        const valB = getCellValue(b, columnIndex);
+
+        let comparison = 0;
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            comparison = valA - valB;
+        } else {
+            comparison = String(valA).localeCompare(String(valB));
+        }
+
+        return currentSortAscending ? comparison : -comparison;
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+
+    document.querySelectorAll('.batch-table th.sortable-th').forEach(th => {
+        const thColIdx = parseInt(th.getAttribute('data-col-index'), 10);
+        const indicator = th.querySelector('.sort-indicator');
+        if (indicator) {
+            if (thColIdx === columnIndex) {
+                indicator.innerText = currentSortAscending ? ' ▲' : ' ▼';
+            } else {
+                indicator.innerText = ' ⇅';
+            }
+        }
+    });
+}
+
 function renderBatchTableGrid() {
     const tbody = document.getElementById('batch-tbody');
     if (!tbody || !window.clientData) return;
@@ -1217,6 +1283,12 @@ function renderBatchTableGrid() {
             tbody.appendChild(tr);
         });
     });
+
+    if (currentSortColumn !== null) {
+        const activeCol = currentSortColumn;
+        currentSortColumn = null;
+        sortBatchTable(activeCol);
+    }
 
     updateBatchSummaryMetrics();
 }

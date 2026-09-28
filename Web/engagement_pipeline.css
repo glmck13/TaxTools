@@ -13,12 +13,14 @@ body {
    INITIAL FORM SELECTION LAYOUT (PHASE 1)
    ========================================================================== */
 .wrapper {
-    max-width: 1000px;
+    max-width: 1280px;
+    width: 95%;
     background: #fff;
     padding: 35px;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    margin: 40px auto;
+    margin: 30px auto;
+    box-sizing: border-box;
 }
 
 h1 {
@@ -133,15 +135,15 @@ select {
 .profile-editable-grid-top {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    gap: 16px;
     margin-bottom: 15px;
 }
 
 /* Middle Row: Street, City, State, Zip (4 Columns) */
 .profile-editable-grid-middle {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr;
-    gap: 12px;
+    grid-template-columns: 2.5fr 1.2fr 0.8fr 1fr;
+    gap: 16px;
     margin-bottom: 15px;
 }
 
@@ -149,7 +151,7 @@ select {
 .profile-editable-grid-bottom {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: 16px;
 }
 
 .form-field-group {
@@ -200,9 +202,9 @@ select {
 .verified-bottom-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 15px;
+    gap: 20px;
     border-top: 1px dashed #c6f6d5;
-    padding-top: 12px;
+    padding-top: 14px;
 }
 
 /* ==========================================================================
@@ -247,7 +249,7 @@ select {
     border-collapse: collapse;
     margin-top: 25px;
     margin-bottom: 20px;
-    table-layout: fixed; 
+    table-layout: auto; 
 }
 
 .service-table th {
@@ -269,23 +271,23 @@ select {
 /* Explicit Column Width Allocations */
 .service-table th:nth-child(1),
 .service-table td:nth-child(1) {
-    width: 6%;
+    width: 45px;
     text-align: center;
 }
 
 .service-table th:nth-child(2),
 .service-table td:nth-child(2) {
-    width: 39%;
+    width: 35%;
 }
 
 .service-table th:nth-child(3),
 .service-table td:nth-child(3) {
-    width: 15%;
+    width: 140px;
 }
 
 .service-table th:nth-child(4),
 .service-table td:nth-child(4) {
-    width: 40%;
+    width: auto;
 }
 
 .service-table td:nth-child(2) select {
@@ -294,7 +296,7 @@ select {
 }
 
 .service-table td:nth-child(3) input[type="number"] {
-    width: 90px; 
+    width: 100px; 
     box-sizing: border-box;
 }
 
@@ -495,8 +497,8 @@ select {
 }
 
 .editor-panel {
-    width: 420px;
-    min-width: 420px;
+    width: 440px;
+    min-width: 440px;
     background: #fff;
     border-right: 1px solid #e2e8f0;
     box-shadow: 2px 0 10px rgba(0,0,0,0.03);
@@ -504,7 +506,7 @@ select {
     box-sizing: border-box;
 }
 
-/* Contained overrides to stop component overflow inside the narrow 420px Sidebar */
+/* Contained overrides to stop component overflow inside the narrow Sidebar */
 .editor-panel select,
 .editor-panel input,
 .editor-panel button {
@@ -604,7 +606,7 @@ select {
 
 /* Unified Layout Row Metrics */
 .notes-cell textarea {
-    width: 98%;
+    width: 100%;
     height: 46px; 
     font-family: inherit;
     font-size: 13px;
@@ -735,11 +737,14 @@ select {
     white-space: nowrap;
 }
 
+/* ==========================================================================
+   BATCH DASHBOARD TABLE STYLING
+   ========================================================================== */
 .batch-table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 15px;
-    table-layout: auto !important;
+    table-layout: auto;
 }
 
 .batch-table th {
@@ -747,23 +752,71 @@ select {
     color: #4a5568;
     font-weight: 600;
     text-align: left;
-    padding: 10px 8px;
+    padding: 10px 12px;
     font-size: 13px;
     border-bottom: 2px solid #e2e8f0;
     white-space: nowrap;
 }
 
+.batch-table th.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease-in-out;
+}
+
+.batch-table th.sortable-th:hover {
+    background-color: #edf2f7;
+    color: #0078d4;
+}
+
+.sort-indicator {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-left: 3px;
+}
+
+.batch-table th.sortable-th:hover .sort-indicator {
+    color: #0078d4;
+}
+
 .batch-table td {
-    padding: 10px 8px;
+    padding: 10px 12px;
     border-bottom: 1px solid #e2e8f0;
     vertical-align: middle;
     font-size: 13px;
-    white-space: nowrap;
+}
+
+/* Column allocations for Batch Dashboard */
+.batch-table th:nth-child(1),
+.batch-table td:nth-child(1) {
+    width: 35px;
+    text-align: center;
+}
+
+.batch-table th:nth-child(2),
+.batch-table td:nth-child(2) {
+    width: 75px;
 }
 
 .batch-table th:nth-child(3),
 .batch-table td:nth-child(3) {
     white-space: normal;
+}
+
+.batch-table th:nth-child(4),
+.batch-table td:nth-child(4) {
+    width: 120px;
+}
+
+.batch-table th:nth-child(5),
+.batch-table td:nth-child(5) {
+    width: 110px;
+}
+
+.batch-table th:nth-child(6),
+.batch-table td:nth-child(6) {
+    width: 100px;
+    text-align: right;
 }
 
 .batch-table th:nth-child(7),
@@ -774,7 +827,7 @@ select {
 
 .batch-table th:nth-child(8),
 .batch-table td:nth-child(8) {
-    width: 130px;
+    width: 120px;
     text-align: center;
 }
 
@@ -792,6 +845,7 @@ select {
     background-color: #f1f5f9;
 }
 
+/* Modal Overlay Styling */
 .modal-overlay {
     display: none;
     position: fixed;
@@ -807,14 +861,15 @@ select {
 
 .modal-content {
     background: #fff;
-    width: 900px;
-    max-width: 92vw;
+    width: 1180px;
+    max-width: 95vw;
     max-height: 90vh;
     overflow-y: auto;
     border-radius: 6px;
     padding: 30px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.2);
     position: relative;
+    box-sizing: border-box;
 }
 
 #modal-workspace-container {

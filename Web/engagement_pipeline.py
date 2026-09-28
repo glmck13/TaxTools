@@ -956,13 +956,13 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <thead>
                 <tr>
                     <th style="width: 35px; text-align: center;"><input type="checkbox" onclick="selectAllBatchRows(this.checked)"></th>
-                    <th style="width: 80px;">QBO ID</th>
-                    <th>Client / Engagement</th>
-                    <th>Class</th>
-                    <th>Signers</th>
-                    <th style="text-align: right;">Total Fee</th>
-                    <th>Format</th>
-                    <th>Status</th>
+                    <th class="sortable-th" data-col-index="1" onclick="sortBatchTable(1)" style="width: 80px;">QBO ID<span class="sort-indicator"> ⇅</span></th>
+                    <th class="sortable-th" data-col-index="2" onclick="sortBatchTable(2)">Client / Engagement<span class="sort-indicator"> ⇅</span></th>
+                    <th class="sortable-th" data-col-index="3" onclick="sortBatchTable(3)">Class<span class="sort-indicator"> ⇅</span></th>
+                    <th class="sortable-th" data-col-index="4" onclick="sortBatchTable(4)">Signers<span class="sort-indicator"> ⇅</span></th>
+                    <th class="sortable-th" data-col-index="5" onclick="sortBatchTable(5)" style="text-align: right;">Total Fee<span class="sort-indicator"> ⇅</span></th>
+                    <th class="sortable-th" data-col-index="6" onclick="sortBatchTable(6)">Format<span class="sort-indicator"> ⇅</span></th>
+                    <th class="sortable-th" data-col-index="7" onclick="sortBatchTable(7)">Status<span class="sort-indicator"> ⇅</span></th>
                     <th style="text-align: center; width: 80px;">Actions</th>
                 </tr>
             </thead>
