@@ -952,6 +952,26 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             </div>
         </div>
 
+        <!-- Upper Pagination Toolbar -->
+        <div class="pagination-toolbar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-weight: 600; color: #4a5568; white-space: nowrap; margin: 0;">Items Per Page:</label>
+                <select class="page-size-selector" onchange="setBatchPageSize(this.value)" style="padding: 4px 8px; font-size: 13px;">
+                    <option value="10" selected>10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="all">All</option>
+                </select>
+                <span class="batch-page-info" style="color: #64748b; font-weight: 500; margin-left: 8px; white-space: nowrap; font-size: 13px;">Showing 0 engagements</span>
+            </div>
+            <div class="pagination-controls" style="display: flex; gap: 4px;">
+                <button type="button" onclick="changeBatchPage('first')" class="btn-page-nav">« First</button>
+                <button type="button" onclick="changeBatchPage('prev')" class="btn-page-nav btn-prev-page">‹ Prev</button>
+                <button type="button" onclick="changeBatchPage('next')" class="btn-page-nav btn-next-page">Next ›</button>
+                <button type="button" onclick="changeBatchPage('last')" class="btn-page-nav">Last »</button>
+            </div>
+        </div>
+
         <table class="batch-table">
             <thead>
                 <tr>
@@ -969,9 +989,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <tbody id="batch-tbody"></tbody>
         </table>
 
-        <div id="batch-summary-bar" style="margin-top: 15px; padding: 12px 15px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; color: #4a5568;">
-            Select items to view campaign totals.
-        </div>
+        <!-- Compact Single-Row Summary Strip -->
+        <div id="batch-summary-grid" class="batch-summary-strip"></div>
     </div>
 </div>
 

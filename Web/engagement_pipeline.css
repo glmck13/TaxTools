@@ -738,6 +738,105 @@ select {
 }
 
 /* ==========================================================================
+   PAGINATION TOOLBAR STYLING
+   ========================================================================== */
+.pagination-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;           /* Reduced vertical padding from ~15px/20px down to 6px */
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+
+.pagination-toolbar label {
+    white-space: nowrap;        /* Keeps 'Items Per Page:' on one single line */
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-page-nav {
+    padding: 4px 10px;
+    font-size: 12px;
+    height: 32px;
+    line-height: 1;
+}
+
+.btn-page-nav:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+.btn-page-nav:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: #f1f5f9;
+    border-color: #e2e8f0;
+    color: #94a3b8;
+}
+
+.page-size-selector {
+    width: auto !important;     /* Prevents dropdown from expanding excessively */
+    padding: 4px 8px;
+    font-size: 13px;
+    height: 32px;
+}
+
+/* ==========================================================================
+   COMPACT SINGLE-ROW BATCH SUMMARY STRIP
+   ========================================================================== */
+.batch-summary-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px 20px;
+    margin-top: 15px;
+    font-size: 13px;
+    color: #334155;
+}
+
+.summary-strip-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.strip-label {
+    font-weight: 600;
+    color: #475569;
+}
+
+.strip-value {
+    font-weight: 700;
+    font-size: 15px;
+    color: #0f172a;
+}
+
+.strip-sub {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.summary-strip-divider {
+    color: #cbd5e0;
+    font-weight: 300;
+}
+
+.text-green { color: #16a34a; }
+.text-orange { color: #d97706; }
+.text-blue { color: #0284c7; }
+
+/* ==========================================================================
    BATCH DASHBOARD TABLE STYLING
    ========================================================================== */
 .batch-table {
