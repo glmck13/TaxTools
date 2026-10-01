@@ -39,7 +39,8 @@ if PIPELINE_SANDBOX:
     CARBON_COPIES = []
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox"
 else:
-    ENABLE_BATCH_MODE = "enable_batch" in os.environ.get("QUERY_STRING", "")
+    #ENABLE_BATCH_MODE = "enable_batch" in os.environ.get("QUERY_STRING", "")
+    ENABLE_BATCH_MODE = True
     JS_FILE = "engagement_pipeline.js"
     CSS_FILE = "engagement_pipeline.css"
     ENGAGEMENT_TEMPLATE = "engagement_template.md"
@@ -413,6 +414,11 @@ def populate_form_from_disk_draft(form, c_id, eng_id):
         form["co_signer_email"] = [co_signer.get("email", "")]
         form["co_signer_name"] = [co_signer.get("name", "")]
 
+        form["is_approved"] = ["true" if disk_draft.get("is_approved") else "false"]
+        form["reviewed_by"] = [disk_draft.get("reviewed_by", "")]
+        form["reviewed_at"] = [disk_draft.get("reviewed_at", "")]
+        form["delivery_format"] = [disk_draft.get("delivery_format", "electronic")]
+
         if disk_draft.get("rows"):
             form["selected_rows"] = []
             for idx, r in enumerate(disk_draft["rows"]):
@@ -614,6 +620,10 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                         eng_draft["engagement_id"] = eng_id
                         eng_draft["is_locked"] = is_locked
                         eng_draft["locked_mtime"] = locked_mtime
+                        eng_draft["is_approved"] = eng_draft.get("is_approved", False)
+                        eng_draft["reviewed_by"] = eng_draft.get("reviewed_by", "")
+                        eng_draft["reviewed_at"] = eng_draft.get("reviewed_at", "")
+                        eng_draft["delivery_format"] = eng_draft.get("delivery_format", "electronic")
 
                         if eng_draft.get("rows"):
                             for r in eng_draft["rows"]:
@@ -689,6 +699,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 
         active_oos_dict = extract_out_of_scope_dict(preserved_form)
 
+        is_approved_val = get_form_val(preserved_form, "is_approved", "false").lower() in ["true", "1", "yes"]
+
         heal_data = {
             "engagement_title": html.unescape(get_form_val(preserved_form, "engagement_title", f"{TAX_YEAR} Tax Services Agreement")),
             "primary_signer": {
@@ -708,6 +720,10 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 "zip": get_form_val(preserved_form, "zip")
             },
             "entity_type": get_form_val(preserved_form, "entity_type", "individual"),
+            "is_approved": is_approved_val,
+            "reviewed_by": get_form_val(preserved_form, "reviewed_by", ""),
+            "reviewed_at": get_form_val(preserved_form, "reviewed_at", ""),
+            "delivery_format": get_form_val(preserved_form, "delivery_format", "electronic"),
             "out_of_scope_items": active_oos_dict
         }
         preserved_heal_data_json = json.dumps(heal_data)
@@ -852,7 +868,11 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 <input type="hidden" name="client_name" id="client-select" value="{html.escape(selected_client_label)}">
             </div>
 
-            <div id="profile-healing-container" style="display:none;"></div>
+            <!-- Single Engagement View Approval Control Placement -->
+            <div id="single-approval-card-container" style="display:none; margin-bottom:20px;"></div>
+
+            <!-- Client Metadata Profile Container -->
+            <div id="profile-healing-container" style="display:none; margin-bottom: 25px;"></div>
 
             <!-- QBO Sync Control Toolbar -->
             <div id="qbo-sync-toolbar-container" class="qbo-sync-toolbar" style="display:none;">
@@ -1060,6 +1080,10 @@ def handle_generate_preview(form):
     state = get_form_val(form, "state")
     zip_val = get_form_val(form, "zip")
 
+    is_approved_val = get_form_val(form, "is_approved", "false").lower() in ["true", "1", "yes"]
+    reviewed_by_val = get_form_val(form, "reviewed_by", "").strip().upper()
+    reviewed_at_val = get_form_val(form, "reviewed_at", "").strip()
+
     prior_estimate_id = ""
     existing_draft = {}
     draft_path = get_draft_file_path(client_qbo_id, eng_id)
@@ -1126,6 +1150,8 @@ def handle_generate_preview(form):
     if not is_locked:
         try:
             os.makedirs(DRAFTS_DIR, exist_ok=True)
+            target_delivery_fmt = get_form_val(form, "delivery_format") or existing_draft.get("delivery_format", "electronic")
+
             draft_payload = {
                 "engagement_id": eng_id,
                 "engagement_title": eng_title,
@@ -1142,6 +1168,9 @@ def handle_generate_preview(form):
                 },
                 "entity_type": entity_type,
                 "profile_verified": profile_verified.lower() in ["true", "1", "yes"],
+                "is_approved": is_approved_val if "is_approved" in form else existing_draft.get("is_approved", False),
+                "reviewed_by": reviewed_by_val if "reviewed_by" in form else existing_draft.get("reviewed_by", ""),
+                "reviewed_at": reviewed_at_val if "reviewed_at" in form else existing_draft.get("reviewed_at", ""),
                 "billing_address": {
                     "street": street,
                     "city": city,
@@ -1151,7 +1180,7 @@ def handle_generate_preview(form):
                 "out_of_scope_items": posted_oos_dict,
                 "estimate_id": prior_estimate_id,
                 "rows": processed_rows,
-                "delivery_format": existing_draft.get("delivery_format", "electronic")
+                "delivery_format": target_delivery_fmt
             }
             with open(draft_path, "w", encoding="utf-8") as df:
                 json.dump(draft_payload, df, indent=2)
@@ -1197,6 +1226,9 @@ def handle_generate_preview(form):
             <input type="hidden" name="co_signer_email" value="{html.escape(co_signer_email)}">
             <input type="hidden" name="co_signer_name" value="{html.escape(co_signer_name)}">
             <input type="hidden" name="entity_type" value="{html.escape(entity_type)}">
+            <input type="hidden" name="is_approved" value="{'true' if is_approved_val else 'false'}">
+            <input type="hidden" name="reviewed_by" value="{html.escape(reviewed_by_val)}">
+            <input type="hidden" name="reviewed_at" value="{html.escape(reviewed_at_val)}">
             <input type="hidden" name="estimate_date_option" value="{html.escape(estimate_date_option)}">
             <input type="hidden" name="sync_to_qbo" value="{'true' if sync_to_qbo else 'false'}">
             <input type="hidden" name="prior_estimate_id" value="{html.escape(prior_estimate_id)}">
@@ -1308,6 +1340,10 @@ def handle_save_draft_only(form):
     if not phone:
         phone = existing_draft.get("phone", "")
 
+    is_approved_val = get_form_val(form, "is_approved", "false").lower() in ["true", "1", "yes"]
+    reviewed_by_val = get_form_val(form, "reviewed_by", "").strip().upper()
+    reviewed_at_val = get_form_val(form, "reviewed_at", "").strip()
+
     posted_oos_dict = extract_out_of_scope_dict(form, existing_draft.get("out_of_scope_items"))
 
     processed_rows = []
@@ -1346,6 +1382,9 @@ def handle_save_draft_only(form):
             },
             "entity_type": entity_type,
             "profile_verified": profile_verified.lower() in ["true", "1", "yes"],
+            "is_approved": is_approved_val if "is_approved" in form else existing_draft.get("is_approved", False),
+            "reviewed_by": reviewed_by_val if "reviewed_by" in form else existing_draft.get("reviewed_by", ""),
+            "reviewed_at": reviewed_at_val if "reviewed_at" in form else existing_draft.get("reviewed_at", ""),
             "billing_address": {
                 "street": street,
                 "city": city,
@@ -1354,7 +1393,7 @@ def handle_save_draft_only(form):
             },
             "out_of_scope_items": posted_oos_dict,
             "estimate_id": existing_draft.get("estimate_id", ""),
-            "rows": processed_rows,
+            "rows": processed_rows if processed_rows else existing_draft.get("rows", []),
             "delivery_format": target_delivery_fmt
         }
         with open(draft_path, "w", encoding="utf-8") as df:
@@ -1931,7 +1970,7 @@ def execute_transactional_pipeline(form):
 
     # Preserve format baseline from QBO Notes or disk draft during sync
     existing_qbo_meta = parse_acct_num(fresh_customer.get("Notes", ""))
-    target_qbo_format = existing_qbo_meta.get("delivery_format") or existing_draft_format or "electronic"
+    target_qbo_format = get_form_val(form, "delivery_format") or existing_qbo_meta.get("delivery_format") or existing_draft_format or "electronic"
 
     proposed_notes_json = compile_acct_num(
         friendly_name=friendly_name,
@@ -2053,6 +2092,7 @@ def execute_transactional_pipeline(form):
             active_draft["engagement_title"] = eng_title
             active_draft["estimate_id"] = estimate_id
             active_draft["phone"] = effective_phone
+            active_draft["delivery_format"] = target_qbo_format
             if "primary_signer" not in active_draft:
                 active_draft["primary_signer"] = {}
             active_draft["primary_signer"]["email"] = effective_primary_email
