@@ -78,9 +78,19 @@ function openSingleWorkspaceForClient(qboId, engId) {
         const options = datalist.querySelectorAll('option');
         for (const opt of options) {
             const dataVal = opt.getAttribute('data-value');
-            if (dataVal === targetKey || dataVal?.startsWith(`${qboId}:`)) {
+            if (dataVal === targetKey) {
                 matchedOptionValue = opt.value;
                 break;
+            }
+        }
+        // Fallback to customer default draft if exact engagement ID match was not found
+        if (!matchedOptionValue) {
+            for (const opt of options) {
+                const dataVal = opt.getAttribute('data-value');
+                if (dataVal?.startsWith(`${qboId}:`)) {
+                    matchedOptionValue = opt.value;
+                    break;
+                }
             }
         }
     }
@@ -97,13 +107,16 @@ function openSingleWorkspaceForClient(qboId, engId) {
     if (matchedOptionValue) {
         visibleInput.value = matchedOptionValue;
         hiddenInput.value = matchedOptionValue;
-        
-        // 4. Trigger client change handler to load complete engagement view
-        onClientChange();
-        
-        // 5. Smooth scroll to workspace top
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+        visibleInput.value = `${qboId}:${engId}`;
+        hiddenInput.value = `${qboId}:${engId}`;
     }
+
+    // 4. Trigger client change handler to load complete engagement view
+    onClientChange();
+    
+    // 5. Smooth scroll to workspace top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function toggleEmailComposer() {
@@ -438,9 +451,20 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '') {
 
     let optionsHtml = '<option value="">-- Select Service Item --</option>';
     if (window.clientData) {
-        const sampleClient = Object.values(window.clientData)[0];
-        if (sampleClient && sampleClient.exposed_services) {
-            sampleClient.exposed_services.forEach(s => {
+        // Attempt to match the exposed services list for the current active client
+        const activeInputVal = document.getElementById('client-select-input')?.value || '';
+        let activeClientObj = null;
+
+        for (const k in window.clientData) {
+            if (k === activeInputVal || window.clientData[k].id === activeInputVal) {
+                activeClientObj = window.clientData[k];
+                break;
+            }
+        }
+        
+        const clientForServices = activeClientObj || Object.values(window.clientData)[0];
+        if (clientForServices && clientForServices.exposed_services) {
+            clientForServices.exposed_services.forEach(s => {
                 const sel = String(s.id) === String(itemId) ? 'selected' : '';
                 optionsHtml += `<option value="${s.id}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
             });
@@ -448,21 +472,23 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '') {
     }
 
     tr.innerHTML = `
-        <td style="text-align:center;">
-            <button type="button" class="btn-remove-row" onclick="removeServiceRow('${rowId}')" title="Remove Line Item">×</button>
+        <td style="text-align: center; width: 40px; padding-top: 16px;">
+            <button type="button" class="btn-remove-row" onclick="removeServiceRow('${rowId}')" title="Remove Line">×</button>
             <input type="hidden" name="selected_rows" value="${rowId}">
             <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${itemId}">
         </td>
         <td>
-            <select name="row_service_${rowId}" id="row_service_${rowId}" style="width:100%; padding:8px;" onchange="onServiceDropdownChange('${rowId}')">
+            <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" onchange="onServiceDropdownChange('${rowId}')">
                 ${optionsHtml}
             </select>
         </td>
-        <td>
-            <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" value="${fee}" placeholder="0" style="width:100%; padding:8px; text-align:right;" oninput="recalculateTotals()">
+        <td style="white-space: nowrap; width: 140px;">
+            <span style="position: relative; font-family: monospace; font-size: 15px; top: 4px;">
+                $ <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" step="1" min="-99999" value="${fee}" placeholder="0" oninput="recalculateTotals()" style="width: 90px; padding: 6px;" required>
+            </span>
         </td>
-        <td>
-            <input type="text" name="row_notes_${rowId}" id="row_notes_${rowId}" value="${escapeHtml(notes)}" placeholder="Scope notes or specifications..." style="width:100%; padding:8px;">
+        <td class="notes-cell">
+            <textarea name="row_notes_${rowId}" id="row_notes_${rowId}" placeholder="Enter custom line parameters or scope exclusions..." style="width: 100%; height: 46px; font-family: inherit; font-size: 13px; padding: 6px; box-sizing: border-box; resize: vertical;">${escapeHtml(notes)}</textarea>
         </td>
     `;
 
@@ -487,12 +513,16 @@ function onServiceDropdownChange(rowId) {
     const opt = select.options[select.selectedIndex];
     if (opt && opt.value) {
         if (itemIdHidden) itemIdHidden.value = opt.value;
-        if (feeInput && (!feeInput.value || feeInput.value === '0')) {
+        if (feeInput) {
             feeInput.value = opt.getAttribute('data-fee') || '0';
         }
-        if (notesInput && !notesInput.value) {
+        if (notesInput) {
             notesInput.value = opt.getAttribute('data-notes') || '';
         }
+    } else {
+        if (itemIdHidden) itemIdHidden.value = '';
+        if (feeInput) feeInput.value = '0';
+        if (notesInput) notesInput.value = '';
     }
     recalculateTotals();
 }
@@ -1024,21 +1054,23 @@ function openBatchEditModal(qboId, engId) {
 
         serviceRowsHtml += `
             <tr id="service_row_${rowId}">
-                <td style="text-align:center;">
+                <td style="text-align: center; width: 40px; padding-top: 16px;">
                     <button type="button" class="btn-remove-row" onclick="removeServiceRow('${rowId}')" title="Remove Line Item">×</button>
                     <input type="hidden" name="selected_rows" value="${rowId}">
                     <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${r.item_id || ''}">
                 </td>
                 <td>
-                    <select name="row_service_${rowId}" id="row_service_${rowId}" style="width:100%; padding:6px;" onchange="onServiceDropdownChange('${rowId}')">
+                    <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" onchange="onServiceDropdownChange('${rowId}')">
                         ${optionsHtml}
                     </select>
                 </td>
-                <td>
-                    <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" value="${r.fee || ''}" placeholder="0" style="width:100%; padding:6px; text-align:right;" oninput="recalculateTotals()">
+                <td style="white-space: nowrap; width: 140px;">
+                    <span style="position: relative; font-family: monospace; font-size: 15px; top: 4px;">
+                        $ <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" step="1" min="-99999" value="${r.fee || ''}" placeholder="0" oninput="recalculateTotals()" style="width: 90px; padding: 6px; text-align: right;" required>
+                    </span>
                 </td>
-                <td>
-                    <input type="text" name="row_notes_${rowId}" id="row_notes_${rowId}" value="${escapeHtml(r.notes || '')}" placeholder="Scope notes or specifications..." style="width:100%; padding:6px;">
+                <td class="notes-cell">
+                    <textarea name="row_notes_${rowId}" id="row_notes_${rowId}" placeholder="Scope notes or specifications..." style="width: 100%; height: 46px; font-family: inherit; font-size: 13px; padding: 6px; box-sizing: border-box; resize: vertical;">${escapeHtml(r.notes || '')}</textarea>
                 </td>
             </tr>
         `;
@@ -1053,14 +1085,26 @@ function openBatchEditModal(qboId, engId) {
             <thead>
                 <tr>
                     <th style="text-align:center; width:45px;">Action</th>
-                    <th style="width:35%;">Service Item Offering</th>
-                    <th style="width:140px;">Proposed Amount</th>
+                    <th style="width:30%;">Service Item Offering</th>
+                    <th style="width:140px; text-align:right; white-space:nowrap;">Proposed Amount</th>
                     <th>Scope Specification / Notes</th>
                 </tr>
             </thead>
             <tbody id="service-tbody">
                 ${serviceRowsHtml}
             </tbody>
+            <tfoot>
+                <tr style="background:#fafafa;">
+                    <td colspan="2" style="text-align:right; font-weight:700; padding:10px; color:#b76200;">Client Discount:</td>
+                    <td id="ui-total-discount" class="calc-val" style="padding:10px; text-align:right; color:#b76200;">-$0</td>
+                    <td></td>
+                </tr>
+                <tr class="calc-row-balance">
+                    <td colspan="2" style="text-align:right; font-weight:700; padding:10px;">TOTAL FEES:</td>
+                    <td id="ui-total-balance" class="calc-val" style="padding:10px; text-align:right;">$0</td>
+                    <td></td>
+                </tr>
+            </tfoot>
         </table>
 
         <div style="margin-bottom: 15px;">

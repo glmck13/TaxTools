@@ -336,7 +336,7 @@ select {
     border-collapse: collapse;
     margin-top: 25px;
     margin-bottom: 20px;
-    table-layout: auto; 
+    table-layout: fixed;
 }
 
 .service-table th {
@@ -364,12 +364,23 @@ select {
 
 .service-table th:nth-child(2),
 .service-table td:nth-child(2) {
-    width: 35%;
+    width: 30%;
 }
 
-.service-table th:nth-child(3),
+.service-table th:nth-child(3) {
+    width: 140px;
+    text-align: right;
+}
+
 .service-table td:nth-child(3) {
     width: 140px;
+    text-align: right;
+}
+
+.service-table td:nth-child(3) > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
 }
 
 .service-table th:nth-child(4),
@@ -383,8 +394,9 @@ select {
 }
 
 .service-table td:nth-child(3) input[type="number"] {
-    width: 100px; 
+    width: 100px;
     box-sizing: border-box;
+    text-align: right;
 }
 
 .btn-remove-row {
@@ -447,6 +459,7 @@ select {
     font-size: 15px;
     font-weight: bold;
     text-align: right;
+    padding-right: 12px;
 }
 
 .calc-row-net {

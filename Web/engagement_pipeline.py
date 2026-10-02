@@ -895,12 +895,12 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 <tfoot>
                     <tr style="background:#fafafa;">
                         <td colspan="2" style="text-align:right; font-weight:700; padding:10px; color:#b76200;">Client Discount:</td>
-                        <td id="ui-total-discount" class="calc-val" style="padding:10px; color:#b76200;">$0</td>
+                        <td id="ui-total-discount" class="calc-val" style="padding:10px; text-align:right; color:#b76200;">-$0</td>
                         <td></td>
                     </tr>
                     <tr class="calc-row-balance">
                         <td colspan="2" style="text-align:right; font-weight:700; padding:10px;">TOTAL FEES:</td>
-                        <td id="ui-total-balance" class="calc-val" style="padding:10px;">$0</td>
+                        <td id="ui-total-balance" class="calc-val" style="padding:10px; text-align:right;">$0</td>
                         <td></td>
                     </tr>
                 </tfoot>
