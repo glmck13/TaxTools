@@ -235,8 +235,6 @@ def extract_tax_data(pdf_path: str):
     # 1. Graceful exit on 0-byte input stream (e.g., strip.py found no schedules)
     if not pdf_bytes:
         sys.stderr.write("No PDF stream received (no Schedule C/E pages matched). Skipping extraction.\n")
-        sys.stdout.buffer.write(b"{}\n")
-        sys.stdout.buffer.flush()
         sys.exit(0)
 
     # 2. Inspect PDF structure locally to ensure printable pages exist before calling API
