@@ -13,8 +13,8 @@ body {
    INITIAL FORM SELECTION LAYOUT (PHASE 1)
    ========================================================================== */
 .wrapper {
-    max-width: 1280px;
-    width: 95%;
+    max-width: 1000px;
+    width: 100%;
     background: #fff;
     padding: 35px;
     border-radius: 6px;
@@ -229,7 +229,7 @@ select {
 /* Middle Row: Street, City, State, Zip (4 Columns) */
 .profile-editable-grid-middle {
     display: grid;
-    grid-template-columns: 2.5fr 1.2fr 0.8fr 1fr;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
     gap: 16px;
     margin-bottom: 15px;
 }
@@ -358,22 +358,22 @@ select {
 /* Explicit Column Width Allocations */
 .service-table th:nth-child(1),
 .service-table td:nth-child(1) {
-    width: 45px;
+    width: 6%;
     text-align: center;
 }
 
 .service-table th:nth-child(2),
 .service-table td:nth-child(2) {
-    width: 30%;
+    width: 38%;
 }
 
 .service-table th:nth-child(3) {
-    width: 140px;
+    width: 15%;
     text-align: right;
 }
 
 .service-table td:nth-child(3) {
-    width: 140px;
+    width: 15%;
     text-align: right;
 }
 
@@ -385,7 +385,7 @@ select {
 
 .service-table th:nth-child(4),
 .service-table td:nth-child(4) {
-    width: auto;
+    width: 38%;
 }
 
 .service-table td:nth-child(2) select {
@@ -397,6 +397,17 @@ select {
     width: 100px;
     box-sizing: border-box;
     text-align: right;
+}
+
+/* Hide spinner arrows for number inputs in the service table */
+.service-table input[type="number"]::-webkit-outer-spin-button,
+.service-table input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.service-table input[type="number"] {
+    -moz-appearance: textfield;
 }
 
 .btn-remove-row {
@@ -435,6 +446,21 @@ select {
     text-transform: uppercase;
     letter-spacing: 0.3px;
     box-sizing: border-box;
+}
+
+.badge-clickable {
+    cursor: pointer;
+    transition: transform 0.1s ease, filter 0.15s ease;
+    user-select: none;
+}
+
+.badge-clickable:hover {
+    filter: brightness(0.92);
+    transform: translateY(-1px);
+}
+
+.badge-clickable:active {
+    transform: translateY(0);
 }
 
 .badge-individual {
@@ -597,8 +623,8 @@ select {
 }
 
 .editor-panel {
-    width: 440px;
-    min-width: 440px;
+    width: 420px;
+    min-width: 420px;
     background: #fff;
     border-right: 1px solid #e2e8f0;
     box-shadow: 2px 0 10px rgba(0,0,0,0.03);
@@ -1136,18 +1162,16 @@ select {
 .batch-table td:nth-child(4) {
     width: 85px !important;
 }
+/* ==========================================================================
+   APPROVAL CARD VISIBILITY OVERRIDES
+   ========================================================================== */
 
-/* Action Button Column (Column 9) */
-.batch-table th:nth-child(9),
-.batch-table td:nth-child(9) {
-    width: 75px !important;
-    text-align: center;
+/* Hide approval status card in the main single-client workspace view */
+#single-approval-card-container {
+    display: none !important;
 }
 
-/* Make the button inside the action column compact */
-.batch-table td:nth-child(9) .btn-add-row {
-    padding: 2px 6px !important;
-    font-size: 11px !important;
-    line-height: 1.2 !important;
-    white-space: nowrap;
+/* Ensure approval status card remains visible inside the batch quick-review modal */
+#modal-workspace-container #approval-card-container {
+    display: block !important;
 }

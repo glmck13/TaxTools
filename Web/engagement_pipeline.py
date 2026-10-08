@@ -39,7 +39,6 @@ if PIPELINE_SANDBOX:
     CARBON_COPIES = []
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox"
 else:
-    #ENABLE_BATCH_MODE = "enable_batch" in os.environ.get("QUERY_STRING", "")
     ENABLE_BATCH_MODE = True
     JS_FILE = "engagement_pipeline.js"
     CSS_FILE = "engagement_pipeline.css"
@@ -196,6 +195,7 @@ def load_exposed_services_from_template():
                 id_match = re.match(r'^-\s*ID:\s*(\d+)', clean_line, re.IGNORECASE)
                 type_match = re.match(r'^-\s*Type:\s*(\w+)', clean_line, re.IGNORECASE)
                 fee_match = re.match(r'^-\s*Fee:\s*([0-9.]+)', clean_line, re.IGNORECASE)
+                migrated_match = re.match(r'^-\s*Migrates-From:\s*(\d+)', clean_line, re.IGNORECASE)
                 
                 if id_match:
                     item_id = id_match.group(1)
@@ -203,6 +203,8 @@ def load_exposed_services_from_template():
                     entity_type = type_match.group(1).lower()
                 elif fee_match:
                     fee_val = sanitize_fee_int(fee_match.group(1))
+                elif migrated_match:
+                    continue
                 else:
                     notes_lines.append(clean_line)
             
@@ -221,6 +223,18 @@ def load_exposed_services_from_template():
         return []
 
 EXPOSED_SERVICES = load_exposed_services_from_template()
+
+def resolve_service_line_item(item_id, svc, notes_val):
+    """Resolves service name and default notes from EXPOSED_SERVICES if item_id or svc is numeric/missing."""
+    if (not svc or svc.isdigit()) and (item_id or svc.isdigit()):
+        target_id = item_id if item_id else svc
+        for s in EXPOSED_SERVICES:
+            if str(s.get("id")) == str(target_id):
+                svc = s.get("name", svc)
+                if not notes_val:
+                    notes_val = s.get("notes", "")
+                break
+    return item_id or (svc if svc.isdigit() else ""), svc, notes_val
 
 def qbo_api_request(endpoint, method="GET", payload=None):
     if "?" in endpoint:
@@ -253,24 +267,40 @@ def extract_qbo_id(client_name_str):
 
     if client_name_str.isdigit():
         return client_name_str
-    
-    if ":" in client_name_str and not ("QBO ID:" in client_name_str or "Customer ID:" in client_name_str):
-        parts = client_name_str.split(":")
-        if parts[0].isdigit():
-            return parts[0]
 
+    # 1. Match tagged format with pipe delimiter: "[D] Client Name: QBO_ID | ENG_ID: Title"
+    match_tagged_pipe = re.search(r'\[[\+\w]+\]\s*.*:\s*(\d+)\s*\|', client_name_str)
+    if match_tagged_pipe:
+        return match_tagged_pipe.group(1)
+
+    # 2. Match tagged format without pipe delimiter: "[+] Client Name: QBO_ID"
+    match_tag_simple = re.search(r'\[[\+\w]+\]\s*.*:\s*(\d+)\s*$', client_name_str)
+    if match_tag_simple:
+        return match_tag_simple.group(1)
+
+    # 3. Match labeled format: "Client Name (Customer ID: QBO_ID)"
     match = re.search(r'(?:QBO|Customer)\s*ID:\s*(\d+)', client_name_str, re.IGNORECASE)
     if match:
         return match.group(1)
-    
+
+    # 4. Match leading ID format: "QBO_ID: Client Name"
     match_alt = re.search(r'^(\d+):', client_name_str)
     if match_alt:
         return match_alt.group(1)
-    
-    clean_name = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', client_name_str)
+
+    # 5. Simple "QBO_ID : Client Name" or "Client Name: QBO_ID" check
+    if ":" in client_name_str and not ("QBO ID:" in client_name_str or "Customer ID:" in client_name_str):
+        parts = client_name_str.split(":")
+        if parts[0].strip().isdigit():
+            return parts[0].strip()
+        if parts[-1].strip().isdigit():
+            return parts[-1].strip()
+
+    # 6. Fallback: Isolate DisplayName and query QBO API
+    clean_name = re.sub(r'^\[[A-Za-z0-9\+]+\]\s*', '', client_name_str)
     clean_name = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_name)
-    clean_name = clean_name.split(' — ')[0].strip()
-    
+    clean_name = clean_name.split(' — ')[0].split('|')[0].split(':')[0].strip()
+
     escaped_name = clean_name.replace("'", "\\'")
     try:
         query_res = qbo_api_request(f"query?query=select Id from Customer where DisplayName='{escaped_name}'")
@@ -685,9 +715,9 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             for c_key, c_val in client_data_map.items():
                 if c_val["id"] == parsed_qbo_id:
                     c_title = c_key.split(" (Customer")[0]
-                    if selected_eng_id != "0" and selected_eng_id in c_val.get("engagements", {}):
-                        e_draft = c_val["engagements"][selected_eng_id]
-                        e_title = e_draft.get("engagement_title", f"Engagement #{selected_eng_id}")
+                    if selected_eng_id != "0":
+                        e_draft = c_val.get("engagements", {}).get(selected_eng_id, {})
+                        e_title = e_draft.get("engagement_title") or heal_data.get("engagement_title") or f"Engagement #{selected_eng_id}"
                         tag = TAG_FINAL if e_draft.get("is_locked") else TAG_DRAFT
                         selected_client_label = f"{tag}{c_title}: {parsed_qbo_id} | {selected_eng_id}: {e_title}"
                     else:
@@ -729,15 +759,28 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         preserved_heal_data_json = json.dumps(heal_data)
 
         row_ids = get_form_list(preserved_form, "selected_rows")
-        rows_list = [
-            {
-                "item_id": get_form_val(preserved_form, f"row_item_id_{rid}"),
-                "service": urllib.parse.unquote(get_form_val(preserved_form, f"row_service_{rid}")),
-                "fee": sanitize_fee_int(get_form_val(preserved_form, f"row_fee_{rid}", "0")),
-                "notes": urllib.parse.unquote(get_form_val(preserved_form, f"row_notes_{rid}"))
-            }
-            for rid in row_ids
-        ]
+        rows_list = []
+        for rid in row_ids:
+            item_id = get_form_val(preserved_form, f"row_item_id_{rid}")
+            svc = urllib.parse.unquote(get_form_val(preserved_form, f"row_service_{rid}"))
+            fee_val = get_form_val(preserved_form, f"row_fee_{rid}", "0")
+            notes_val = urllib.parse.unquote(get_form_val(preserved_form, f"row_notes_{rid}"))
+
+            if (not svc or svc.isdigit()) and (item_id or svc.isdigit()):
+                target_id = item_id if item_id else svc
+                for s in EXPOSED_SERVICES:
+                    if str(s.get("id")) == str(target_id):
+                        svc = s.get("name", svc)
+                        if not notes_val:
+                            notes_val = s.get("notes", "")
+                        break
+
+            rows_list.append({
+                "item_id": item_id or (svc if svc.isdigit() else ""),
+                "service": svc,
+                "fee": sanitize_fee_int(fee_val),
+                "notes": notes_val
+            })
         reconstructed_rows_json = json.dumps(rows_list)
 
     checklist_html = '<div id="out-of-scope-checklist-container" style="background: #fafbfc; border: 1px solid #cbd5e0; border-radius: 4px; padding: 15px; margin-top: 10px;">\n'
@@ -842,6 +885,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         <div id="lock-banner-container" style="display:none;"></div>
 
         <form method="POST" action="{SCRIPT_URL}">
+            <input type="hidden" name="engagement_id" id="engagement-id-input" value="{html.escape(selected_eng_id)}">
             <div class="form-group" style="margin-bottom: 25px;">
                 <label for="estimate-date-option">Date for Estimate:</label>
                 <select name="estimate_date_option" id="estimate-date-option" style="width: 100%; padding: 12px; font-size: 14px; border: 1px solid #ccd1d9; border-radius: 4px;">
@@ -1003,7 +1047,6 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                     <th class="sortable-th" data-col-index="5" onclick="sortBatchTable(5)" style="text-align: right;">Total Fee<span class="sort-indicator"> ⇅</span></th>
                     <th class="sortable-th" data-col-index="6" onclick="sortBatchTable(6)">Format<span class="sort-indicator"> ⇅</span></th>
                     <th class="sortable-th" data-col-index="7" onclick="sortBatchTable(7)">Status<span class="sort-indicator"> ⇅</span></th>
-                    <th style="text-align: center; width: 80px;">Actions</th>
                 </tr>
             </thead>
             <tbody id="batch-tbody"></tbody>
@@ -1056,7 +1099,7 @@ def handle_generate_preview(form):
     
     clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
     clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
-    clean_client_title = clean_client_title.split(' — ')[0].strip()
+    clean_client_title = clean_client_title.split(' — ')[0].split('|')[0].split(':')[0].strip()
 
     row_ids = get_form_list(form, "selected_rows")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
@@ -1134,13 +1177,15 @@ def handle_generate_preview(form):
         notes_val = urllib.parse.unquote(get_form_val(form, f"row_notes_{rid}"))
         bp_val = get_form_val(form, f"row_bp_{rid}", "individual")
 
+        resolved_item_id, svc, notes_val = resolve_service_line_item(item_id, svc, notes_val)
+
         if (fee_val is None or fee_val.strip() == "") and idx < len(disk_rows_list):
             fee_val = disk_rows_list[idx].get("fee", 0)
             if not notes_val:
                 notes_val = disk_rows_list[idx].get("notes", "")
 
         processed_rows.append({
-            "item_id": item_id,
+            "item_id": item_id or (svc if svc.isdigit() else ""),
             "service": svc,
             "fee": sanitize_fee_int(fee_val),
             "notes": notes_val,
@@ -1168,9 +1213,9 @@ def handle_generate_preview(form):
                 },
                 "entity_type": entity_type,
                 "profile_verified": profile_verified.lower() in ["true", "1", "yes"],
-                "is_approved": is_approved_val if "is_approved" in form else existing_draft.get("is_approved", False),
-                "reviewed_by": reviewed_by_val if "reviewed_by" in form else existing_draft.get("reviewed_by", ""),
-                "reviewed_at": reviewed_at_val if "reviewed_at" in form else existing_draft.get("reviewed_at", ""),
+                "is_approved": is_approved_val,
+                "reviewed_by": reviewed_by_val if reviewed_by_val else existing_draft.get("reviewed_by", ""),
+                "reviewed_at": reviewed_at_val if reviewed_at_val else existing_draft.get("reviewed_at", ""),
                 "billing_address": {
                     "street": street,
                     "city": city,
@@ -1292,7 +1337,7 @@ def handle_save_draft_only(form):
     
     clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
     clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
-    clean_client_title = clean_client_title.split(' — ')[0].strip()
+    clean_client_title = clean_client_title.split(' — ')[0].split('|')[0].split(':')[0].strip()
 
     row_ids = get_form_list(form, "selected_rows")
     estimate_date_option = get_form_val(form, "estimate_date_option", "next_year")
@@ -1330,10 +1375,14 @@ def handle_save_draft_only(form):
         render_pipeline_error(form, "Draft is locked.", http_code=400)
         return
 
-    friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
-    legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
-    
     p_signer = existing_draft.get("primary_signer", {}) if isinstance(existing_draft.get("primary_signer"), dict) else {}
+
+    raw_friendly = html.unescape(get_form_val(form, "friendly_name")).strip()
+    raw_legal = html.unescape(get_form_val(form, "legal_name")).strip()
+
+    friendly_name = raw_friendly or p_signer.get("friendly_name") or clean_client_title
+    legal_name = raw_legal or p_signer.get("legal_name") or clean_client_title
+
     if not primary_email:
         primary_email = p_signer.get("email", "")
 
@@ -1354,8 +1403,10 @@ def handle_save_draft_only(form):
         notes_val = urllib.parse.unquote(get_form_val(form, f"row_notes_{rid}"))
         bp_val = get_form_val(form, f"row_bp_{rid}", "individual")
 
+        resolved_item_id, svc, notes_val = resolve_service_line_item(item_id, svc, notes_val)
+
         processed_rows.append({
-            "item_id": item_id,
+            "item_id": item_id or (svc if svc.isdigit() else ""),
             "service": svc,
             "fee": sanitize_fee_int(fee_val),
             "notes": notes_val,
@@ -1383,8 +1434,8 @@ def handle_save_draft_only(form):
             "entity_type": entity_type,
             "profile_verified": profile_verified.lower() in ["true", "1", "yes"],
             "is_approved": is_approved_val if "is_approved" in form else existing_draft.get("is_approved", False),
-            "reviewed_by": reviewed_by_val if "reviewed_by" in form else existing_draft.get("reviewed_by", ""),
-            "reviewed_at": reviewed_at_val if "reviewed_at" in form else existing_draft.get("reviewed_at", ""),
+            "reviewed_by": reviewed_by_val if reviewed_by_val else existing_draft.get("reviewed_by", ""),
+            "reviewed_at": reviewed_at_val if reviewed_at_val else existing_draft.get("reviewed_at", ""),
             "billing_address": {
                 "street": street,
                 "city": city,
@@ -1408,6 +1459,121 @@ def handle_save_draft_only(form):
         }))
     except Exception as e:
         render_pipeline_error(form, str(e), http_code=500)
+
+def handle_patch_draft_only(form):
+    """Processes lightweight AJAX updates by patching specific non-empty keys into existing draft JSON on disk."""
+    raw_client_val = get_form_val(form, "client_name")
+    client_qbo_id = extract_qbo_id(raw_client_val)
+    
+    eng_id = get_form_val(form, "engagement_id", "0")
+    if eng_id == "0":
+        eng_id = allocate_next_engagement_id(client_qbo_id)
+
+    draft_path = get_draft_file_path(client_qbo_id, eng_id)
+    if not os.path.exists(draft_path):
+        return render_pipeline_error(form, f"Draft file not found for Customer {client_qbo_id} / Engagement #{eng_id}.", http_code=400)
+
+    is_locked, _ = is_draft_locked(draft_path)
+    if is_locked:
+        return render_pipeline_error(form, "Draft is locked.", http_code=400)
+
+    try:
+        with open(draft_path, "r", encoding="utf-8") as df:
+            draft = json.load(df)
+
+        # Helper: Extract non-empty trimmed value if key exists in form
+        def get_clean_val(key):
+            if key in form:
+                val = html.unescape(get_form_val(form, key, "") or "").strip()
+                return val if val else None
+            return None
+
+        # Patch scalar fields
+        for field in ["delivery_format", "entity_type", "engagement_title", "phone", "reviewed_at"]:
+            val = get_clean_val(field)
+            if val is not None:
+                draft[field] = val
+
+        # Upper-case reviewer initials
+        rev_by = get_clean_val("reviewed_by")
+        if rev_by is not None:
+            draft["reviewed_by"] = rev_by.upper()
+
+        # Patch boolean flags
+        if "is_approved" in form:
+            draft["is_approved"] = get_form_val(form, "is_approved", "false").lower() in ["true", "1", "yes"]
+
+        if "profile_verified" in form:
+            draft["profile_verified"] = get_form_val(form, "profile_verified", "false").lower() in ["true", "1", "yes"]
+
+        # Patch billing address sub-fields
+        if "billing_address" not in draft or not isinstance(draft["billing_address"], dict):
+            draft["billing_address"] = {}
+
+        for addr_key in ["street", "city", "state", "zip"]:
+            val = get_clean_val(addr_key)
+            if val is not None:
+                draft["billing_address"][addr_key] = val
+
+        # Patch primary signer sub-fields
+        if "primary_signer" not in draft or not isinstance(draft["primary_signer"], dict):
+            draft["primary_signer"] = {}
+
+        p_friendly = get_clean_val("friendly_name")
+        if p_friendly is not None:
+            draft["primary_signer"]["friendly_name"] = p_friendly
+
+        p_legal = get_clean_val("legal_name")
+        if p_legal is not None:
+            draft["primary_signer"]["legal_name"] = p_legal
+
+        p_email = get_clean_val("primary_signer_email")
+        if p_email is not None:
+            draft["primary_signer"]["email"] = p_email
+
+        # Patch co-signer sub-fields
+        if "co_signer" not in draft or not isinstance(draft["co_signer"], dict):
+            draft["co_signer"] = {}
+
+        c_name = get_clean_val("co_signer_name")
+        if c_name is not None:
+            draft["co_signer"]["name"] = c_name
+
+        c_email = get_clean_val("co_signer_email")
+        if c_email is not None:
+            draft["co_signer"]["email"] = c_email
+
+        # Patch line item rows ONLY if row parameters were explicitly posted
+        if "selected_rows" in form or any(k.startswith("row_item_id_") or k.startswith("row_service_") for k in form):
+            row_ids = get_form_list(form, "selected_rows")
+            processed_rows = []
+            for rid in row_ids:
+                item_id = get_form_val(form, f"row_item_id_{rid}")
+                svc = urllib.parse.unquote(get_form_val(form, f"row_service_{rid}"))
+                fee_val = get_form_val(form, f"row_fee_{rid}", "0")
+                notes_val = urllib.parse.unquote(get_form_val(form, f"row_notes_{rid}"))
+                bp_val = get_form_val(form, f"row_bp_{rid}", "individual")
+
+                resolved_item_id, svc, notes_val = resolve_service_line_item(item_id, svc, notes_val)
+
+                processed_rows.append({
+                    "item_id": item_id or (svc if svc.isdigit() else ""),
+                    "service": svc,
+                    "fee": sanitize_fee_int(fee_val),
+                    "notes": notes_val,
+                    "bp": bp_val
+                })
+            draft["rows"] = processed_rows
+
+        # Save patched draft back to disk
+        with open(draft_path, "w", encoding="utf-8") as df:
+            json.dump(draft, df, indent=2)
+
+        print("Content-Type: application/json\n")
+        print(json.dumps({"status": "success", "qbo_id": client_qbo_id, "engagement_id": eng_id, "draft": draft}))
+
+    except Exception as e:
+        render_pipeline_error(form, f"Failed patching draft: {str(e)}", http_code=500)
 
 def build_salutation_name(friendly_name, co_signer_name=""):
     prefixes = ("dr.", "dr", "mr.", "mr", "mrs.", "mrs", "ms.", "ms", "prof.", "prof")
@@ -1465,7 +1631,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
 
     clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_name))
     clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
-    clean_client_title = clean_client_title.split(' — ')[0].strip()
+    clean_client_title = clean_client_title.split(' — ')[0].split('|')[0].split(':')[0].strip()
 
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
     legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
@@ -1512,15 +1678,9 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         notes = urllib.parse.unquote(get_form_val(form, f"row_notes_{rid}", ""))
         item_id = get_form_val(form, f"row_item_id_{rid}", "")
 
-        if not raw_svc and item_id:
-            for s in EXPOSED_SERVICES:
-                if str(s.get("id")) == str(item_id):
-                    raw_svc = s.get("name", "Service Item")
-                    if not notes:
-                        notes = s.get("notes", "")
-                    break
+        _, raw_svc, notes = resolve_service_line_item(item_id, raw_svc, notes)
 
-        if not raw_svc:
+        if not raw_svc or raw_svc.isdigit():
             raw_svc = "Service Item"
 
         fee = sanitize_fee_int(raw_fee_val)
@@ -1797,7 +1957,7 @@ def handle_download_pdf(form, prefix="DRAFT"):
 
     clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
     clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
-    clean_client_title = clean_client_title.split(' — ')[0].strip()
+    clean_client_title = clean_client_title.split(' — ')[0].split('|')[0].split(':')[0].strip()
 
     legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
     
@@ -1835,7 +1995,7 @@ def handle_send_resend_email(form):
 
     clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
     clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
-    clean_client_title = clean_client_title.split(' — ')[0].strip()
+    clean_client_title = clean_client_title.split(' — ')[0].split('|')[0].split(':')[0].strip()
 
     legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
     
@@ -2027,6 +2187,14 @@ def execute_transactional_pipeline(form):
         svc_name = urllib.parse.unquote(get_form_val(form, f"row_service_{rid}", "Service Listing"))
         raw_fee_val = get_form_val(form, f"row_fee_{rid}", "")
         notes = urllib.parse.unquote(get_form_val(form, f"row_notes_{rid}"))
+
+        if (svc_name.isdigit() or not svc_name) and item_id:
+            for s in EXPOSED_SERVICES:
+                if str(s.get("id")) == str(item_id):
+                    svc_name = s.get("name", svc_name)
+                    if not notes:
+                        notes = s.get("notes", "")
+                    break
 
         if (raw_fee_val is None or raw_fee_val.strip() == "") and idx < len(disk_rows_list):
             raw_fee_val = disk_rows_list[idx].get("fee", 0)
@@ -2270,6 +2438,8 @@ if __name__ == "__main__":
         handle_generate_preview(form_data)
     elif action == "save_draft_only":
         handle_save_draft_only(form_data)
+    elif action == "patch_draft_only":
+        handle_patch_draft_only(form_data)
     elif action == "render_live_pdf":
         handle_render_live_pdf(form_data)
     elif action == "download_draft_pdf":

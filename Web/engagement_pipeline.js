@@ -20,6 +20,9 @@ document.addEventListener("DOMContentLoaded", function() {
         }
         switchWorkspaceMode('single');
     }
+
+    // Initialize hidden engagement ID sync
+    updateEngagementIdFromSelection();
 });
 
 function escapeHtml(str) {
@@ -35,6 +38,49 @@ function escapeHtml(str) {
 // ==========================================
 // WORKSPACE TAB & INTERACTION HELPERS
 // ==========================================
+
+function updateEngagementIdFromSelection() {
+    const inputEl = document.getElementById('client-select-input');
+    const hiddenEngInput = document.getElementById('engagement-id-input');
+    const datalist = document.getElementById('client-select-options');
+
+    if (!inputEl || !hiddenEngInput) return;
+
+    const val = inputEl.value.trim();
+    if (!val) {
+        hiddenEngInput.value = "0";
+        return;
+    }
+
+    let matchedEngId = null;
+
+    // 1. Try matching against datalist <option> data-value="QBO_ID:ENG_ID"
+    if (datalist && datalist.options) {
+        for (let opt of datalist.options) {
+            if (opt.value === val) {
+                const dataVal = opt.getAttribute('data-value'); // Format: "58:1"
+                if (dataVal && dataVal.includes(':')) {
+                    matchedEngId = dataVal.split(':')[1];
+                }
+                break;
+            }
+        }
+    }
+
+    // 2. Fallback: Parse directly from string format like "[D] Client Name: 58 | 1: Title"
+    if (!matchedEngId && val.includes('|')) {
+        const pipeParts = val.split('|');
+        if (pipeParts.length > 1) {
+            const engPart = pipeParts[1].trim(); // "1: Title"
+            const match = engPart.match(/^(\d+):/);
+            if (match) {
+                matchedEngId = match[1];
+            }
+        }
+    }
+
+    hiddenEngInput.value = matchedEngId ? matchedEngId : "0";
+}
 
 function switchWorkspaceMode(mode) {
     const singleTab = document.getElementById('tab-btn-single');
@@ -66,6 +112,7 @@ function openSingleWorkspaceForClient(qboId, engId) {
     // 2. Target client intake dropdown inputs
     const hiddenInput = document.getElementById('client-select');
     const visibleInput = document.getElementById('client-select-input');
+    const hiddenEngInput = document.getElementById('engagement-id-input');
     const datalist = document.getElementById('client-select-options');
 
     if (!hiddenInput || !visibleInput) return;
@@ -97,7 +144,7 @@ function openSingleWorkspaceForClient(qboId, engId) {
 
     if (!matchedOptionValue && window.clientData) {
         for (const k in window.clientData) {
-            if (window.clientData[k].id === qboId) {
+            if (String(window.clientData[k].id) === String(qboId)) {
                 matchedOptionValue = k;
                 break;
             }
@@ -110,6 +157,10 @@ function openSingleWorkspaceForClient(qboId, engId) {
     } else {
         visibleInput.value = `${qboId}:${engId}`;
         hiddenInput.value = `${qboId}:${engId}`;
+    }
+
+    if (hiddenEngInput) {
+        hiddenEngInput.value = String(engId || "0");
     }
 
     // 4. Trigger client change handler to load complete engagement view
@@ -201,13 +252,16 @@ function onApprovalToggleChange(isChecked) {
             card.classList.add('approval-card-approved');
         }
 
-        if (initialsInput && !initialsInput.value.trim()) {
-            initialsInput.value = getStoredReviewerInitials();
-        }
+        let savedInitials = getStoredReviewerInitials();
+        let typedInitials = initialsInput ? initialsInput.value.trim().toUpperCase() : '';
+        let currentInitials = typedInitials || savedInitials || '';
 
-        let currentInitials = (initialsInput ? initialsInput.value.trim() : '') || 'REV';
-        if (initialsInput) initialsInput.value = currentInitials;
-        setStoredReviewerInitials(currentInitials);
+        if (initialsInput) {
+            initialsInput.value = currentInitials;
+        }
+        if (currentInitials) {
+            setStoredReviewerInitials(currentInitials);
+        }
 
         const nowStr = new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         if (timestampInput) timestampInput.value = nowStr;
@@ -334,6 +388,7 @@ function onClientInput() {
     if (!input || !hiddenInput) return;
 
     hiddenInput.value = input.value;
+    updateEngagementIdFromSelection();
     onClientChange();
 }
 
@@ -341,18 +396,18 @@ function onClientChange() {
     const input = document.getElementById('client-select-input');
     if (!input || !input.value) return;
 
-    const val = input.value;
+    const val = input.value.trim();
     let selectedQboId = '';
-    let selectedEngId = '0';
+    let selectedEngId = document.getElementById('engagement-id-input')?.value || '0';
 
-    // Parse options from data-value if matched in datalist
+    // 1. Resolve IDs from datalist options if available
     const datalist = document.getElementById('client-select-options');
     if (datalist) {
         const options = datalist.querySelectorAll('option');
         for (const opt of options) {
             if (opt.value === val) {
                 const dataVal = opt.getAttribute('data-value');
-                if (dataVal) {
+                if (dataVal && dataVal.includes(':')) {
                     const parts = dataVal.split(':');
                     selectedQboId = parts[0];
                     selectedEngId = parts[1];
@@ -362,10 +417,22 @@ function onClientChange() {
         }
     }
 
+    // 2. Fallback: Parse string formatting directly
+    if (!selectedQboId) {
+        const idMatch = val.match(/:\s*(\d+)(?:\s*\||\s*$)/);
+        if (idMatch) selectedQboId = idMatch[1];
+
+        if (val.includes('|')) {
+            const engMatch = val.split('|')[1].match(/^(\d+):/);
+            if (engMatch) selectedEngId = engMatch[1];
+        }
+    }
+
+    // 3. Fallback: Direct key or ID lookup against clientData
     if (!selectedQboId && window.clientData) {
         for (const k in window.clientData) {
-            if (k === val || window.clientData[k].id === val) {
-                selectedQboId = window.clientData[k].id;
+            if (k === val || String(window.clientData[k].id) === val) {
+                selectedQboId = String(window.clientData[k].id);
                 break;
             }
         }
@@ -373,10 +440,14 @@ function onClientChange() {
 
     if (!selectedQboId) return;
 
-    // Load Client Data into Workspace
+    // Sync hidden engagement ID input
+    const hiddenEngInput = document.getElementById('engagement-id-input');
+    if (hiddenEngInput) hiddenEngInput.value = selectedEngId;
+
+    // Load workspace client object
     let clientObj = null;
     for (const k in window.clientData) {
-        if (window.clientData[k].id === selectedQboId) {
+        if (String(window.clientData[k].id) === String(selectedQboId)) {
             clientObj = window.clientData[k];
             break;
         }
@@ -384,6 +455,7 @@ function onClientChange() {
 
     if (!clientObj) return;
 
+    // Unhide UI containers
     const serviceTable = document.getElementById('service-table');
     const actionsContainer = document.getElementById('actions-container');
     const oosContainer = document.getElementById('out-of-scope-container');
@@ -405,7 +477,7 @@ function onClientChange() {
         draft = clientObj.engagements[selectedEngId];
     }
 
-    // Render Client Metadata Profile Form
+    // Render client metadata profile
     renderProfileCard(clientObj, draft, selectedEngId);
 
     if (approvalContainer) {
@@ -422,26 +494,30 @@ function onClientChange() {
         }
     }
 
-    // Populate rows
-    if (window.reconstructedRows && window.reconstructedRows.length > 0) {
-        window.reconstructedRows.forEach(r => addServiceRow(r.item_id, r.service, r.fee, r.notes));
-        window.reconstructedRows = []; // Clear once consumed
-    } else if (draft && draft.rows && draft.rows.length > 0) {
-        draft.rows.forEach(r => addServiceRow(r.item_id, r.service, r.fee, r.notes));
+    // Handle form row persistence and rendering
+    if (Array.isArray(window.reconstructedRows) && window.reconstructedRows.length > 0) {
+        if (!clientObj.engagements) clientObj.engagements = {};
+        if (!clientObj.engagements[selectedEngId]) {
+            clientObj.engagements[selectedEngId] = { engagement_id: selectedEngId };
+        }
+        clientObj.engagements[selectedEngId].rows = JSON.parse(JSON.stringify(window.reconstructedRows));
+        window.reconstructedRows.forEach(r => addServiceRow(r.item_id, r.service, r.fee, r.notes, clientObj));
+        window.reconstructedRows = null;
+    } else if (draft && Array.isArray(draft.rows) && draft.rows.length > 0) {
+        draft.rows.forEach(r => addServiceRow(r.item_id, r.service, r.fee, r.notes, clientObj));
     } else {
-        // Fallback default row
-        addServiceRow();
+        addServiceRow('', '', '', '', clientObj);
     }
 
     if (submitBtn) {
         submitBtn.style.display = 'inline-block';
-        submitBtn.innerText = '⚡ Generate Document Preview & Execute Pipeline';
+        submitBtn.innerText = '⚡ Render PDF Preview';
     }
 
     recalculateTotals();
 }
 
-function addServiceRow(itemId = '', service = '', fee = '', notes = '') {
+function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicitClientObj = null) {
     const tbody = document.getElementById('service-tbody');
     if (!tbody) return;
 
@@ -449,33 +525,44 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '') {
     const tr = document.createElement('tr');
     tr.id = `service_row_${rowId}`;
 
+    let resolvedItemId = itemId;
     let optionsHtml = '<option value="">-- Select Service Item --</option>';
-    if (window.clientData) {
-        // Attempt to match the exposed services list for the current active client
+
+    // Use passed client object or resolve active client object safely
+    let activeClientObj = explicitClientObj;
+    if (!activeClientObj && window.clientData) {
         const activeInputVal = document.getElementById('client-select-input')?.value || '';
-        let activeClientObj = null;
+        let targetQboId = '';
+        const idMatch = activeInputVal.match(/:\s*(\d+)(?:\s*\||\s*$)/);
+        if (idMatch) targetQboId = idMatch[1];
 
         for (const k in window.clientData) {
-            if (k === activeInputVal || window.clientData[k].id === activeInputVal) {
-                activeClientObj = window.clientData[k];
+            const client = window.clientData[k];
+            if (String(client.id) === String(targetQboId) || String(client.id) === String(activeInputVal) || k === activeInputVal) {
+                activeClientObj = client;
                 break;
             }
         }
-        
-        const clientForServices = activeClientObj || Object.values(window.clientData)[0];
-        if (clientForServices && clientForServices.exposed_services) {
-            clientForServices.exposed_services.forEach(s => {
-                const sel = String(s.id) === String(itemId) ? 'selected' : '';
-                optionsHtml += `<option value="${s.id}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
-            });
-        }
+    }
+
+    const clientForServices = activeClientObj || (window.clientData ? Object.values(window.clientData)[0] : null);
+    if (clientForServices && Array.isArray(clientForServices.exposed_services)) {
+        clientForServices.exposed_services.forEach(s => {
+            const isSelectedByItemId = Boolean(itemId) && String(s.id) === String(itemId);
+            const isSelectedByTitle = Boolean(service) && s.name.trim().toLowerCase() === String(service).trim().toLowerCase();
+            const sel = (isSelectedByItemId || isSelectedByTitle) ? 'selected' : '';
+            if (sel) {
+                resolvedItemId = s.id;
+            }
+            optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
+        });
     }
 
     tr.innerHTML = `
         <td style="text-align: center; width: 40px; padding-top: 16px;">
             <button type="button" class="btn-remove-row" onclick="removeServiceRow('${rowId}')" title="Remove Line">×</button>
             <input type="hidden" name="selected_rows" value="${rowId}">
-            <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${itemId}">
+            <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${escapeHtml(resolvedItemId)}">
         </td>
         <td>
             <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" onchange="onServiceDropdownChange('${rowId}')">
@@ -484,7 +571,7 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '') {
         </td>
         <td style="white-space: nowrap; width: 140px;">
             <span style="position: relative; font-family: monospace; font-size: 15px; top: 4px;">
-                $ <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" step="1" min="-99999" value="${fee}" placeholder="0" oninput="recalculateTotals()" style="width: 90px; padding: 6px;" required>
+                $ <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" step="1" min="-99999" value="${fee !== undefined && fee !== null ? fee : ''}" placeholder="0" oninput="recalculateTotals()" style="width: 90px; padding: 6px; margin-left: 6px;" required>
             </span>
         </td>
         <td class="notes-cell">
@@ -493,6 +580,13 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '') {
     `;
 
     tbody.appendChild(tr);
+
+    // Enforce selection value on DOM node directly
+    if (resolvedItemId) {
+        const selectEl = tr.querySelector(`#row_service_${rowId}`);
+        if (selectEl) selectEl.value = String(resolvedItemId);
+    }
+
     recalculateTotals();
 }
 
@@ -540,8 +634,14 @@ function recalculateTotals() {
         const select = tr.querySelector('select');
         if (feeInput) {
             const val = parseInt(feeInput.value, 10) || 0;
-            const text = select ? select.options[select.selectedIndex]?.text.toLowerCase() || '' : '';
-            if (text.includes('discount') || text.includes('referral')) {
+            
+            let serviceText = '';
+            if (select && select.selectedIndex >= 0) {
+                const opt = select.options[select.selectedIndex];
+                serviceText = (opt?.getAttribute('data-service-name') || opt?.text || opt?.value || '').toLowerCase();
+            }
+
+            if (serviceText.includes('discount') || serviceText.includes('referral')) {
                 discountTotal += Math.abs(val);
             } else {
                 baseTotal += val;
@@ -594,7 +694,7 @@ function applyClonedScopeFromSource() {
 
     let sourceDraft = null;
     for (const k in window.clientData) {
-        if (window.clientData[k].id === qboId) {
+        if (String(window.clientData[k].id) === String(qboId)) {
             sourceDraft = window.clientData[k].engagements?.[engId];
             break;
         }
@@ -663,7 +763,7 @@ function getFilteredBatchRows() {
 
     Object.keys(window.clientData).forEach(clientKey => {
         const client = window.clientData[clientKey];
-        const qboId = client.id;
+        const qboId = String(client.id);
         const meta = client.metadata || {};
         const clientAddr = client.address || {};
         const engagements = client.engagements || {};
@@ -671,7 +771,8 @@ function getFilteredBatchRows() {
         Object.keys(engagements).forEach(engId => {
             const draft = engagements[engId];
             const isLocked = Boolean(draft.is_locked);
-            const isPaper = (draft.delivery_format === 'paper' || meta.delivery_format === 'paper');
+            const effectiveFormat = draft.delivery_format || meta.delivery_format || 'electronic';
+            const isPaper = (effectiveFormat === 'paper');
 
             let clientFee = 0.0;
             if (draft.rows && draft.rows.length > 0) {
@@ -754,7 +855,6 @@ function renderBatchTableGrid() {
     filteredRows.forEach(item => {
         const key = `${item.qboId}:${item.engId}`;
         if (!Object.prototype.hasOwnProperty.call(globalBatchSelections, key)) {
-            // Strictly require isApproved === true for default checkbox selection
             globalBatchSelections[key] = (!item.isLocked && !item.isDataIncomplete && item.isApproved);
         }
     });
@@ -775,20 +875,21 @@ function renderBatchTableGrid() {
         const selectionKey = `${qboId}:${engId}`;
         const isChecked = Boolean(globalBatchSelections[selectionKey]);
 
-        let statusBadge = '<span class="badge badge-needs-review">🔍 Needs Review</span>';
+        const badgeClickAttr = `onclick="openBatchEditModal('${qboId}', '${engId}')" title="Click to review services and fees"`;
+
+        let statusBadge = `<span class="badge badge-needs-review badge-clickable" ${badgeClickAttr}>🔍 Needs Review</span>`;
         let checkboxDisabled = '';
 
         if (isLocked) {
             statusBadge = '<span class="badge badge-locked">🔒 Sent</span>';
             checkboxDisabled = 'disabled';
         } else if (isDataIncomplete) {
-            statusBadge = '<span class="badge badge-warning">⚠️ Data Incomplete</span>';
+            statusBadge = `<span class="badge badge-warning badge-clickable" ${badgeClickAttr}>⚠️ Data Incomplete</span>`;
             checkboxDisabled = 'disabled';
         } else if (isApproved) {
             const byText = reviewedBy ? ` (${escapeHtml(reviewedBy)})` : '';
-            statusBadge = `<span class="badge badge-approved">✅ Approved${byText}</span>`;
+            statusBadge = `<span class="badge badge-approved badge-clickable" ${badgeClickAttr}>✅ Approved${byText}</span>`;
         } else {
-            // Unapproved returns cannot be checked for batch dispatch
             checkboxDisabled = 'disabled';
         }
 
@@ -828,15 +929,6 @@ function renderBatchTableGrid() {
             <td style="text-align: right; font-family: monospace; font-weight: bold; font-size: 14px;">$${Math.round(clientFee).toLocaleString()}</td>
             <td>${formatBadgeHtml}</td>
             <td>${statusBadge}</td>
-            <td style="text-align: center; padding: 4px 4px;">
-                <button type="button" 
-                        class="btn-add-row" 
-                        onclick="openBatchEditModal('${qboId}', '${engId}')" 
-                        title="Quick Review & Sign-off Modal"
-                        style="padding: 2px 8px; font-size: 11px; line-height: 1.2;">
-                    🔍 Review
-                </button>
-            </td>
         `;
         tbody.appendChild(tr);
     });
@@ -888,7 +980,7 @@ function updateBatchSummaryMetrics() {
 
     Object.keys(window.clientData).forEach(clientKey => {
         const client = window.clientData[clientKey];
-        const qboId = client.id;
+        const qboId = String(client.id);
         const meta = client.metadata || {};
         const clientAddr = client.address || {};
         const engagements = client.engagements || {};
@@ -896,7 +988,8 @@ function updateBatchSummaryMetrics() {
         Object.keys(engagements).forEach(engId => {
             const draft = engagements[engId];
             const isLocked = Boolean(draft.is_locked);
-            const isPaper = (draft.delivery_format === 'paper' || meta.delivery_format === 'paper');
+            const effectiveFormat = draft.delivery_format || meta.delivery_format || 'electronic';
+            const isPaper = (effectiveFormat === 'paper');
 
             const pSigner = draft.primary_signer || {};
             const addrObj = draft.billing_address || clientAddr;
@@ -979,7 +1072,7 @@ function selectAllBatchRows(shouldSelect) {
 function toggleClientDeliveryFormat(qboId, engId) {
     let targetDraft = null;
     for (const k in window.clientData) {
-        if (window.clientData[k].id === qboId) {
+        if (String(window.clientData[k].id) === String(qboId)) {
             targetDraft = window.clientData[k].engagements?.[engId];
             break;
         }
@@ -987,13 +1080,16 @@ function toggleClientDeliveryFormat(qboId, engId) {
 
     if (!targetDraft || targetDraft.is_locked) return;
 
-    const currentFmt = targetDraft.delivery_format || 'electronic';
-    const newFmt = (currentFmt === 'paper') ? 'electronic' : 'paper';
+    // Flip value in memory
+    const newFmt = (targetDraft.delivery_format === 'paper') ? 'electronic' : 'paper';
     targetDraft.delivery_format = newFmt;
 
-    // Send async save call to update format on server
+    // Optimistically update UI
+    renderBatchTableGrid();
+
+    // Dispatch minimal patch payload
     const params = new URLSearchParams();
-    params.append('action', 'save_draft_only');
+    params.append('action', 'patch_draft_only');
     params.append('client_name', qboId);
     params.append('engagement_id', engId);
     params.append('delivery_format', newFmt);
@@ -1002,9 +1098,7 @@ function toggleClientDeliveryFormat(qboId, engId) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
-    }).catch(err => console.error('Error toggling format:', err));
-
-    renderBatchTableGrid();
+    }).catch(err => console.error('Error saving format preference:', err));
 }
 
 // ==========================================
@@ -1019,7 +1113,7 @@ function openBatchEditModal(qboId, engId) {
     let clientObj = null;
     let clientKeyName = '';
     for (const k in window.clientData) {
-        if (window.clientData[k].id === qboId) {
+        if (String(window.clientData[k].id) === String(qboId)) {
             clientObj = window.clientData[k];
             clientKeyName = k;
             break;
@@ -1038,17 +1132,23 @@ function openBatchEditModal(qboId, engId) {
     container.setAttribute('data-qbo-id', qboId);
     container.setAttribute('data-eng-id', engId);
 
-    // Build initial rows HTML
     let serviceRowsHtml = '';
     const rows = (draft.rows && draft.rows.length > 0) ? draft.rows : [{ item_id: '', service: '', fee: '', notes: '' }];
 
     rows.forEach((r) => {
         const rowId = `m_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         let optionsHtml = '<option value="">-- Select Service Item --</option>';
+        let resolvedItemId = r.item_id || '';
+
         if (clientObj.exposed_services) {
             clientObj.exposed_services.forEach(s => {
-                const sel = String(s.id) === String(r.item_id) ? 'selected' : '';
-                optionsHtml += `<option value="${s.id}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
+                const isSelectedByItemId = Boolean(r.item_id) && String(s.id) === String(r.item_id);
+                const isSelectedByTitle = Boolean(r.service) && s.name.trim().toLowerCase() === String(r.service).trim().toLowerCase();
+                const sel = (isSelectedByItemId || isSelectedByTitle) ? 'selected' : '';
+                if (sel) {
+                    resolvedItemId = s.id;
+                }
+                optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
             });
         }
 
@@ -1057,7 +1157,7 @@ function openBatchEditModal(qboId, engId) {
                 <td style="text-align: center; width: 40px; padding-top: 16px;">
                     <button type="button" class="btn-remove-row" onclick="removeServiceRow('${rowId}')" title="Remove Line Item">×</button>
                     <input type="hidden" name="selected_rows" value="${rowId}">
-                    <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${r.item_id || ''}">
+                    <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${escapeHtml(resolvedItemId)}">
                 </td>
                 <td>
                     <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" onchange="onServiceDropdownChange('${rowId}')">
@@ -1066,7 +1166,7 @@ function openBatchEditModal(qboId, engId) {
                 </td>
                 <td style="white-space: nowrap; width: 140px;">
                     <span style="position: relative; font-family: monospace; font-size: 15px; top: 4px;">
-                        $ <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" step="1" min="-99999" value="${r.fee || ''}" placeholder="0" oninput="recalculateTotals()" style="width: 90px; padding: 6px; text-align: right;" required>
+                        $ <input type="number" name="row_fee_${rowId}" id="row_fee_${rowId}" step="1" min="-99999" value="${r.fee !== undefined && r.fee !== null ? r.fee : ''}" placeholder="0" oninput="recalculateTotals()" style="width: 90px; padding: 6px; margin-left: 6px;" required>
                     </span>
                 </td>
                 <td class="notes-cell">
@@ -1119,20 +1219,19 @@ function openBatchEditModal(qboId, engId) {
 function closeBatchEditModal() {
     const modal = document.getElementById('batch-edit-modal');
     const container = document.getElementById('modal-workspace-container');
-    if (modal) modal.style.display = 'none';
-
+    
     if (container) {
         const qboId = container.getAttribute('data-qbo-id');
         const engId = container.getAttribute('data-eng-id');
         
-        const isApprovedCheckbox = document.getElementById('is_approved_checkbox');
-        const initialsInput = document.getElementById('reviewed_by_input');
-        const timestampInput = document.getElementById('reviewed_at_input');
+        const isApprovedCheckbox = container.querySelector('#is_approved_checkbox') || document.getElementById('is_approved_checkbox');
+        const initialsInput = container.querySelector('#reviewed_by_input') || document.getElementById('reviewed_by_input');
+        const timestampInput = container.querySelector('#reviewed_at_input') || document.getElementById('reviewed_at_input');
 
         if (qboId && engId) {
             let clientObj = null;
             for (const k in window.clientData) {
-                if (window.clientData[k].id === qboId) {
+                if (String(window.clientData[k].id) === String(qboId)) {
                     clientObj = window.clientData[k];
                     break;
                 }
@@ -1146,7 +1245,6 @@ function closeBatchEditModal() {
                 targetDraft.reviewed_by = initialsInput ? initialsInput.value.trim().toUpperCase() : '';
                 targetDraft.reviewed_at = timestampInput ? timestampInput.value.trim() : '';
 
-                // Extract modified rows from modal
                 const modalRows = [];
                 const tbody = container.querySelector('#service-tbody');
                 if (tbody) {
@@ -1160,8 +1258,14 @@ function closeBatchEditModal() {
                             
                             let serviceName = '';
                             if (selectEl && selectEl.selectedIndex >= 0) {
-                                const rawText = selectEl.options[selectEl.selectedIndex].text || '';
-                                serviceName = rawText.replace(/\s*\(\$[\d,]+\)$/, '').trim();
+                                const selectedOption = selectEl.options[selectEl.selectedIndex];
+                                const attrName = selectedOption.getAttribute('data-service-name');
+                                if (attrName) {
+                                    serviceName = attrName.trim();
+                                } else {
+                                    const rawText = selectedOption.text || '';
+                                    serviceName = rawText.replace(/\s*\(\$[\d,]+\)$/, '').trim();
+                                }
                             }
 
                             const fee = parseInt(tr.querySelector(`#row_fee_${rowId}`)?.value, 10) || 0;
@@ -1171,41 +1275,47 @@ function closeBatchEditModal() {
                             }
                         }
                     });
-                    if (modalRows.length > 0) {
-                        targetDraft.rows = modalRows;
-                    }
+                    
+                    targetDraft.rows = modalRows;
                 }
 
-                // POST parameters including row modifications
                 const params = new URLSearchParams();
-                params.append('action', 'save_draft_only');
+                params.append('action', 'patch_draft_only');
                 params.append('client_name', qboId);
                 params.append('engagement_id', engId);
                 params.append('is_approved', newApprovedState ? 'true' : 'false');
-                params.append('reviewed_by', targetDraft.reviewed_by);
-                params.append('reviewed_at', targetDraft.reviewed_at);
+                params.append('reviewed_by', targetDraft.reviewed_by || '');
+                params.append('reviewed_at', targetDraft.reviewed_at || '');
 
-                targetDraft.rows.forEach((r, idx) => {
+                const safeRows = Array.isArray(targetDraft.rows) ? targetDraft.rows : [];
+                safeRows.forEach((r, idx) => {
                     const rid = idx + 1;
                     params.append('selected_rows', rid);
-                    params.append(`row_item_id_${rid}`, r.item_id);
-                    params.append(`row_service_${rid}`, r.service);
-                    params.append(`row_fee_${rid}`, r.fee);
-                    params.append(`row_notes_${rid}`, r.notes);
+                    params.append(`row_item_id_${rid}`, r.item_id || '');
+                    params.append(`row_service_${rid}`, r.service || '');
+                    params.append(`row_fee_${rid}`, r.fee || 0);
+                    params.append(`row_notes_${rid}`, r.notes || '');
                 });
+
+                const isDataIncomplete = !targetDraft.rows?.length || !targetDraft.primary_signer?.email;
+                globalBatchSelections[`${qboId}:${engId}`] = newApprovedState && !isDataIncomplete;
 
                 fetch(window.location.href, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: params.toString()
-                }).catch(err => console.error('Error saving engagement draft:', err));
-
-                globalBatchSelections[`${qboId}:${engId}`] = newApprovedState;
+                })
+                .then(() => {
+                    renderBatchTableGrid();
+                })
+                .catch(err => console.error('Error saving engagement draft:', err));
             }
         }
         
         container.innerHTML = '';
     }
+
+    if (modal) modal.style.display = 'none';
     renderBatchTableGrid();
 }
 
@@ -1224,14 +1334,14 @@ function applyBatchBulkClonedScope() {
     if (targetKeys.length === 0) return alert('No batch engagements selected.');
 
     const parts = sourceVal.split(':');
-    if (parts.length < 2) return alert('Invalid source engagement selection.');
+    if (parts.length < 2) return alert('Invalid source selection format.');
 
     const sourceQboId = parts[0];
     const sourceEngId = parts[1];
 
     let sourceDraft = null;
     for (const k in window.clientData) {
-        if (window.clientData[k].id === sourceQboId) {
+        if (String(window.clientData[k].id) === String(sourceQboId)) {
             sourceDraft = window.clientData[k].engagements?.[sourceEngId];
             break;
         }
@@ -1256,7 +1366,7 @@ function applyBatchBulkClonedScope() {
         const [qboId, engId] = key.split(':');
         let targetDraft = null;
         for (const k in window.clientData) {
-            if (window.clientData[k].id === qboId) {
+            if (String(window.clientData[k].id) === String(qboId)) {
                 targetDraft = window.clientData[k].engagements?.[engId];
                 break;
             }
@@ -1278,7 +1388,7 @@ function applyBatchBulkClonedScope() {
     if (closeBtn) closeBtn.style.display = 'inline-block';
 }
 
-function executeBatchPipelineSubmission() {
+async function executeBatchPipelineSubmission() {
     const targetKeys = Object.keys(globalBatchSelections).filter(k => globalBatchSelections[k] === true);
     if (targetKeys.length === 0) return alert('No valid, approved engagements selected.');
 
@@ -1295,13 +1405,106 @@ function executeBatchPipelineSubmission() {
 
     let completed = 0;
 
-    targetKeys.forEach(key => {
+    for (const key of targetKeys) {
         const [qboId, engId] = key.split(':');
-        completed++;
-        if (progressBar) progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
-        if (terminalLog) terminalLog.innerHTML += `\n[${completed}/${targetKeys.length}] Processing QBO ID ${qboId} / Eng ${engId}...`;
-    });
+        
+        let clientKey = '';
+        let clientObj = null;
+        for (const k in window.clientData) {
+            if (String(window.clientData[k].id) === String(qboId)) {
+                clientObj = window.clientData[k];
+                clientKey = k;
+                break;
+            }
+        }
+        
+        const draft = clientObj?.engagements?.[engId] || {};
+        const isPaper = (draft.delivery_format === 'paper');
+        
+        const params = new URLSearchParams();
+        params.append('ajax', 'true');
+        params.append('action', isPaper ? 'execute_transactional_pipeline_paper' : 'execute_transactional_pipeline');
+        params.append('client_name', clientKey || qboId);
+        params.append('engagement_id', engId);
+        params.append('engagement_title', draft.engagement_title || '2026 Tax Services Agreement');
+        params.append('delivery_format', draft.delivery_format || 'electronic');
 
-    if (terminalLog) terminalLog.innerHTML += `\n\n========================================\nBatch pipeline execution complete!`;
-    if (closeBtn) closeBtn.style.display = 'inline-block';
+        // Signer & Contact Information
+        const pSigner = draft.primary_signer || {};
+        const coSigner = draft.co_signer || {};
+        const bAddr = draft.billing_address || {};
+
+        params.append('friendly_name', pSigner.friendly_name || draft.friendly_name || clientObj?.metadata?.friendly_name || '');
+        params.append('legal_name', pSigner.legal_name || draft.legal_name || '');
+        params.append('primary_signer_email', pSigner.email || draft.primary_signer_email || clientObj?.metadata?.primary_signer_email || clientObj?.email || '');
+        params.append('co_signer_name', coSigner.name || draft.co_signer_name || clientObj?.metadata?.co_signer_name || '');
+        params.append('co_signer_email', coSigner.email || draft.co_signer_email || clientObj?.metadata?.co_signer_email || '');
+        params.append('phone', draft.phone || clientObj?.metadata?.phone || clientObj?.phone || '');
+        params.append('entity_type', draft.entity_type || clientObj?.metadata?.entity_type || 'individual');
+
+        params.append('street', bAddr.street || clientObj?.address?.street || '');
+        params.append('city', bAddr.city || clientObj?.address?.city || '');
+        params.append('state', bAddr.state || clientObj?.address?.state || '');
+        params.append('zip', bAddr.zip || clientObj?.address?.zip || '');
+
+        // Service Line Items
+        if (Array.isArray(draft.rows)) {
+            draft.rows.forEach((r, idx) => {
+                const rid = idx + 1;
+                params.append('selected_rows', rid);
+                params.append(`row_item_id_${rid}`, r.item_id || '');
+                params.append(`row_service_${rid}`, r.service || '');
+                params.append(`row_fee_${rid}`, Math.round(parseFloat(r.fee || 0)));
+                params.append(`row_notes_${rid}`, r.notes || '');
+                params.append(`row_bp_${rid}`, r.bp || 'individual');
+            });
+        }
+
+        // Out of Scope Items
+        params.append('oos_submitted', 'true');
+        if (draft.out_of_scope_items && typeof draft.out_of_scope_items === 'object') {
+            Object.entries(draft.out_of_scope_items).forEach(([k, v]) => {
+                params.append(k, v);
+            });
+        }
+
+        terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Processing QBO ID ${qboId} / Eng ${engId} (${isPaper ? 'PAPER' : 'E-SIGN'})... `;
+        
+        try {
+            const res = await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: params.toString()
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data.status === 'success') {
+                    if (draft) draft.is_locked = true;
+                    terminalLog.innerHTML += `SUCCESS ✔ (Estimate #${data.estimate_id || 'OK'})`;
+                } else {
+                    terminalLog.innerHTML += `FAILED ❌ (${data.message || 'Pipeline failed'})`;
+                }
+            } else {
+                let errDetail = `HTTP ${res.status}`;
+                try {
+                    const errData = await res.json();
+                    if (errData.message) errDetail = errData.message;
+                } catch(e) {}
+                terminalLog.innerHTML += `FAILED ❌ (${errDetail})`;
+            }
+        } catch (err) {
+            terminalLog.innerHTML += `ERROR ❌ (${err.message})`;
+        }
+
+        completed++;
+        progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
+        terminalLog.scrollTop = terminalLog.scrollHeight;
+    }
+
+    terminalLog.innerHTML += `\n\n========================================\nBatch pipeline execution complete!`;
+    closeBtn.style.display = 'inline-block';
 }
