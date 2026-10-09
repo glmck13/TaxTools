@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 
 import argparse
+import re
 import sys
 import fitz  # PyMuPDF
 
 
-def is_schedule_page(page: fitz.Page) -> tuple[bool, str, bool]:
+# Regex patterns for SSN and EIN formatting
+SSN_REGEX = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+EIN_REGEX = re.compile(r"^\d{2}-\d{7}$")
+
+
+def is_schedule_page(page: fitz.Page) -> tuple[bool, str]:
     """
     Detects if a page belongs to Schedule C or Schedule E by checking form headers
     in the top region of the page.
-    Returns (is_match, schedule_type, is_page_1).
+    Returns (is_match, schedule_type).
     """
     rect = page.rect
-    # Restrict header check to the top 20% of the page to avoid false matches in body text/worksheets
     header_rect = fitz.Rect(0, 0, rect.width, rect.height * 0.20)
     header_text = page.get_text("text", clip=header_rect).upper()
 
@@ -20,48 +25,69 @@ def is_schedule_page(page: fitz.Page) -> tuple[bool, str, bool]:
     is_e = ("SCHEDULE E" in header_text and "SUPPLEMENTAL INCOME AND LOSS" in header_text) or "SCHEDULE E (FORM 1040)" in header_text
 
     if not (is_c or is_e):
-        return False, "", False
+        return False, ""
 
     sched_type = "C" if is_c else "E"
-    
-    # Check full page text to determine if page is Page 1 vs Continuation Page
-    full_text_upper = page.get_text("text").upper()
-    is_page_1 = "PART I" in full_text_upper or "NAME OF PROPRIETOR" in full_text_upper or "TYPE OF PROPERTY" in full_text_upper
-
-    return True, sched_type, is_page_1
+    return True, sched_type
 
 
-def get_redaction_height(page: fitz.Page, is_page_1: bool) -> float:
+def clean_and_redact_page(page: fitz.Page, sched_type: str):
     """
-    Calculates exact bottom Y-coordinate for redaction. Guarantees top PII header scrub
-    without over-redacting Schedule C/E body fields.
+    Removes interactive form annotations and applies precise PII redactions.
+    Preserves Schedule C Business Name/Address (Lines C & E) and Schedule E Property Addresses.
     """
     rect = page.rect
 
-    if not is_page_1:
-        # Continuation pages (Page 2 / Part II/III/V): Cover top banner (~10% height)
-        return rect.height * 0.10
+    # 1. Delete all form field widgets and annotations (ProConnect interactive layer fix)
+    for widget in page.widgets():
+        page.delete_widget(widget)
+    for annot in page.annots():
+        page.delete_annot(annot)
 
-    # Top header anchors located above/at the Taxpayer Name & SSN header boundary
-    anchors = ["ATTACHMENT SEQUENCE NO.", "OMB NO."]
-    min_depth = rect.height * 0.12  # Absolute floor for header PII
-    max_depth = rect.height * 0.20  # Cap to prevent redacting Line A/B/C or Property fields
+    # 2. Top Header Redaction (Taxpayer Name & SSN Header Strip)
+    header_strip = fitz.Rect(0, 0, rect.width, rect.height * 0.18)
+    top_anchors = ["Social security number", "Name of proprietor", "ATTACHMENT SEQUENCE NO.", "OMB No."]
+    anchor_boxes = []
+    
+    for anchor in top_anchors:
+        matches = page.search_for(anchor, clip=header_strip)
+        anchor_boxes.extend(matches)
 
-    for anchor in anchors:
-        matches = page.search_for(anchor)
-        if matches:
-            found_y = matches[0].y1 + 4.0  # Just below header rule
-            return min(max(found_y, min_depth), max_depth)
+    if anchor_boxes:
+        max_y = max(box.y1 for box in anchor_boxes) + 25.0
+        page.add_redact_annot(fitz.Rect(0, 0, rect.width, min(max_y, rect.height * 0.20)), fill=(0, 0, 0))
+    else:
+        page.add_redact_annot(fitz.Rect(0, 0, rect.width, rect.height * 0.12), fill=(0, 0, 0))
 
-    return min_depth
+    # 3. Target ONLY Schedule C Line D (Employer ID number)
+    if sched_type == "C":
+        for match in page.search_for("Employer ID number"):
+            ein_box = fitz.Rect(match.x0, match.y0 - 2.0, rect.width, match.y1 + 14.0)
+            page.add_redact_annot(ein_box, fill=(0, 0, 0))
+
+    # 4. Label-Based Redactions for Body Items (EIN & SSN Labels)
+    body_labels = ["Employer identification number", "Social security number"]
+    for label in body_labels:
+        for match in page.search_for(label):
+            label_box = fitz.Rect(match.x0, match.y0 - 2, rect.width, match.y1 + 18)
+            page.add_redact_annot(label_box, fill=(0, 0, 0))
+
+    # 5. Regex Scanning Fallback (Purges isolated SSNs or EINs anywhere on the page)
+    words = page.get_text("words")
+    for w in words:
+        text = w[4].strip()
+        if SSN_REGEX.match(text) or EIN_REGEX.match(text):
+            word_rect = fitz.Rect(w[0] - 2, w[1] - 2, w[2] + 2, w[3] + 2)
+            page.add_redact_annot(word_rect, fill=(0, 0, 0))
+
+    # 6. Execute permanent vector & text stream purging
+    page.apply_redactions()
 
 
 def extract_and_redact_schedules(input_pdf_path: str, output_pdf_path: str):
     """
     Extracts Schedule C and E pages and applies permanent vector stream redactions.
-    Supports '-' for reading stdin or writing stdout.
     """
-    # Load document from stdin pipe or disk file
     if input_pdf_path == "-":
         pdf_data = sys.stdin.buffer.read()
         if not pdf_data:
@@ -73,14 +99,13 @@ def extract_and_redact_schedules(input_pdf_path: str, output_pdf_path: str):
 
     matched_pages = []
 
-    # 1. Scan and detect pages using header bounding check
+    # 1. Scan and detect target pages
     for idx, page in enumerate(src_doc):
-        is_match, sched_type, is_p1 = is_schedule_page(page)
+        is_match, sched_type = is_schedule_page(page)
         if is_match:
             matched_pages.append({
                 "src_index": idx,
-                "sched_type": sched_type,
-                "is_page_1": is_p1
+                "sched_type": sched_type
             })
 
     if not matched_pages:
@@ -95,21 +120,10 @@ def extract_and_redact_schedules(input_pdf_path: str, output_pdf_path: str):
 
     src_doc.close()
 
-    # 3. Apply redactions
+    # 3. Apply annotations cleanup and redactions
     for idx, page in enumerate(dst_doc):
         meta = matched_pages[idx]
-        rect = page.rect
-
-        redact_bottom_y = get_redaction_height(
-            page=page,
-            is_page_1=meta["is_page_1"]
-        )
-
-        redact_box = fitz.Rect(0, 0, rect.width, redact_bottom_y)
-        page.add_redact_annot(redact_box, fill=(0, 0, 0))
-
-        # Permanently purge text and graphics streams
-        page.apply_redactions()
+        clean_and_redact_page(page, sched_type=meta["sched_type"])
 
     # 4. Save sanitized PDF to disk or stdout stream
     if output_pdf_path == "-":
@@ -128,16 +142,16 @@ if __name__ == "__main__":
         description="Sanitize ProConnect/Lacerte Schedule C and Schedule E PDF exports."
     )
     parser.add_argument(
-        "input_pdf", 
+        "input_pdf",
         nargs="?",
         default="-",
-        help="Path to the input PDF file (or '-' for stdin)"
+        help="Path to input PDF (or '-' for stdin)"
     )
     parser.add_argument(
-        "output_pdf", 
-        nargs="?", 
-        default="sanitized_schedules.pdf", 
-        help="Path for sanitized output PDF (or '-' for stdout, default: sanitized_schedules.pdf)"
+        "output_pdf",
+        nargs="?",
+        default="sanitized_schedules.pdf",
+        help="Path for output PDF (or '-' for stdout)"
     )
 
     args = parser.parse_args()

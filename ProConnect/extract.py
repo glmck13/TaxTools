@@ -4,7 +4,7 @@ import argparse
 import sys
 import warnings
 
-# Suppress Google GenAI SDK AFC warnings prior to package imports
+# Suppress Google GenAI SDK warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", module="google.*")
@@ -22,9 +22,9 @@ from pydantic import BaseModel, Field
 
 class OtherExpenseItem(BaseModel):
     description: str = Field(
-        ..., description="Description/line item name of the expense"
+        description="Description/line item name of the expense"
     )
-    amount: float = Field(..., description="Expense amount")
+    amount: float = Field(description="Expense amount")
 
 
 class ScheduleCExpenses(BaseModel):
@@ -85,7 +85,7 @@ class ScheduleCExpenses(BaseModel):
         None, description="Line 26: Wages (less employment credits)"
     )
     other_expenses_detail: List[OtherExpenseItem] = Field(
-        default_factory=list,
+        default=[],
         description="Line 27a / Part V: Itemized breakdown of other expenses",
     )
     other_expenses_total: Optional[float] = Field(
@@ -119,8 +119,8 @@ class ScheduleC(BaseModel):
         None, description="Line 7: Gross income"
     )
 
-    expenses: ScheduleCExpenses = Field(
-        default_factory=ScheduleCExpenses,
+    expenses: Optional[ScheduleCExpenses] = Field(
+        None,
         description="Itemized business expenses",
     )
     total_expenses: Optional[float] = Field(
@@ -164,7 +164,7 @@ class RentalPropertyExpenses(BaseModel):
         None, description="Line 18: Depreciation expense or depletion"
     )
     other_expenses_detail: List[OtherExpenseItem] = Field(
-        default_factory=list,
+        default=[],
         description="Line 19: Itemized breakdown of other expenses for this property",
     )
     other_expenses_total: Optional[float] = Field(
@@ -174,7 +174,7 @@ class RentalPropertyExpenses(BaseModel):
 
 class RentalProperty(BaseModel):
     property_letter: str = Field(
-        ..., description="Property indicator on schedule (e.g., 'A', 'B', 'C')"
+        description="Property indicator on schedule (e.g., 'A', 'B', 'C')"
     )
     property_address: Optional[str] = Field(
         None, description="Line 1a: Physical street address"
@@ -186,8 +186,8 @@ class RentalProperty(BaseModel):
     rents_received: Optional[float] = Field(
         None, description="Line 3: Rents received"
     )
-    expenses: RentalPropertyExpenses = Field(
-        default_factory=RentalPropertyExpenses,
+    expenses: Optional[RentalPropertyExpenses] = Field(
+        None,
         description="Itemized expenses for this property",
     )
     total_expenses: Optional[float] = Field(
@@ -200,7 +200,7 @@ class RentalProperty(BaseModel):
 
 class ScheduleE(BaseModel):
     rental_properties: List[RentalProperty] = Field(
-        default_factory=list, description="Properties listed under Part I"
+        default=[], description="Properties listed under Part I"
     )
     total_rental_real_estate_income_loss: Optional[float] = Field(
         None, description="Line 26: Total rental real estate income or (loss)"
@@ -209,7 +209,7 @@ class ScheduleE(BaseModel):
 
 class ClientTaxReturnSummary(BaseModel):
     schedule_c_businesses: List[ScheduleC] = Field(
-        default_factory=list, description="List of Schedule C businesses"
+        default=[], description="List of Schedule C businesses"
     )
     schedule_e: Optional[ScheduleE] = Field(
         None, description="Schedule E summary"
@@ -232,12 +232,10 @@ def extract_tax_data(pdf_path: str):
         sys.stderr.write(f"Error reading input PDF stream/file '{pdf_path}': {e}\n")
         sys.exit(1)
 
-    # 1. Graceful exit on 0-byte input stream (e.g., strip.py found no schedules)
     if not pdf_bytes:
         sys.stderr.write("No PDF stream received (no Schedule C/E pages matched). Skipping extraction.\n")
         sys.exit(0)
 
-    # 2. Inspect PDF structure locally to ensure printable pages exist before calling API
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         if doc.page_count == 0:
@@ -258,13 +256,16 @@ def extract_tax_data(pdf_path: str):
     Extract all financial data and summaries from Schedule C and Schedule E in the attached PDF.
     
     Rules:
-    1. Parse numeric values into floats. Convert parenthetical amounts like (1,250.00) into negative floats (-1250.0).
+    1. Parse numeric values into floats. Convert parenthetical amounts like (1,250.00) or explicit negative signs like -534. into negative floats (e.g., -1250.0 or -534.0).
     2. Map all numeric codes, checkboxes, or abbreviations (such as Property Type codes 1-8 or Accounting Method indicators) into clear, human-readable text descriptions.
     3. If multiple pages belong to a single Schedule C business or Schedule E return (including continuation sheets for properties C, D, E, etc.), consolidate all related pages into single structured business/property entries.
-    4. Do NOT extract empty or unpopulated property columns (e.g. columns labeled B or C on a continuation sheet that have no street address or financial entries). Only extract actual properties.
-    5. For 'Other Expenses' on Schedule C (Line 27a / Part V) and Schedule E (Line 19), extract every itemized description and amount into 'other_expenses_detail', and extract the sum into 'other_expenses_total'.
-    6. If a field is blank or zero on the form, return null.
-    7. If Schedule C or Schedule E is not present in the document, leave those fields/lists empty.
+    4. Line Item Precision:
+       - On Schedule C Part II, carefully align line numbers with their exact horizontal rows. Line 22 is Supplies; Line 23 is Taxes and licenses. Do not swap adjacent row values.
+       - On Schedule E Line 19, if text references a statement (e.g. 'See Stm 1'), include 'See Stm 1' as the description in 'other_expenses_detail' along with the listed amount.
+    5. Do NOT extract empty or unpopulated property columns (e.g. columns labeled B or C on a continuation sheet that have no street address or financial entries). Only extract actual properties.
+    6. For 'Other Expenses' on Schedule C (Line 27a / Part V) and Schedule E (Line 19), extract every itemized description and amount into 'other_expenses_detail', and extract the sum into 'other_expenses_total'.
+    7. If a field is blank, zero, or covered by a black redaction block on the form, return null.
+    8. If Schedule C or Schedule E is not present in the document, leave those fields/lists empty.
     """
 
     source_label = "stdin stream" if pdf_path == "-" else f"file '{pdf_path}'"
@@ -277,14 +278,13 @@ def extract_tax_data(pdf_path: str):
             response_mime_type="application/json",
             response_schema=ClientTaxReturnSummary,
             temperature=0.0,
+            seed=42,  # Enforces deterministic model decoding across identical requests
         ),
     )
 
     try:
-        # 1. Validate response against Pydantic schema
         summary = ClientTaxReturnSummary.model_validate_json(response.text)
 
-        # 2. Robust Post-Filter: Purge unpopulated property objects without dropping valid 0-rent properties
         if summary.schedule_e and summary.schedule_e.rental_properties:
             summary.schedule_e.rental_properties = [
                 prop
@@ -293,12 +293,11 @@ def extract_tax_data(pdf_path: str):
                     prop.property_address is not None,
                     prop.rents_received is not None,
                     prop.total_expenses is not None,
-                    prop.expenses.other_expenses_total is not None,
-                    bool(prop.expenses.other_expenses_detail)
+                    prop.expenses and prop.expenses.other_expenses_total is not None,
+                    bool(prop.expenses and prop.expenses.other_expenses_detail)
                 ])
             ]
 
-        # 3. Output clean JSON directly to stdout binary buffer and flush
         json_bytes = summary.model_dump_json(indent=2).encode("utf-8") + b"\n"
         sys.stdout.buffer.write(json_bytes)
         sys.stdout.buffer.flush()
