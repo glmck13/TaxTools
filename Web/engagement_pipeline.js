@@ -554,7 +554,7 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicit
             if (sel) {
                 resolvedItemId = s.id;
             }
-            optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
+            optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)}</option>`;
         });
     }
 
@@ -1148,7 +1148,7 @@ function openBatchEditModal(qboId, engId) {
                 if (sel) {
                     resolvedItemId = s.id;
                 }
-                optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)} ($${s.fee})</option>`;
+                optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)}</option>`;
             });
         }
 
