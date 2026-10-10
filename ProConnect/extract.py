@@ -256,16 +256,16 @@ def extract_tax_data(pdf_path: str):
     Extract all financial data and summaries from Schedule C and Schedule E in the attached PDF.
     
     Rules:
-    1. Parse numeric values into floats. Convert parenthetical amounts like (1,250.00) or explicit negative signs like -534. into negative floats (e.g., -1250.0 or -534.0).
-    2. Map all numeric codes, checkboxes, or abbreviations (such as Property Type codes 1-8 or Accounting Method indicators) into clear, human-readable text descriptions.
-    3. If multiple pages belong to a single Schedule C business or Schedule E return (including continuation sheets for properties C, D, E, etc.), consolidate all related pages into single structured business/property entries.
-    4. Line Item Precision:
+    1. Tax Year Verification: Verify that each schedule (Schedule C and Schedule E) is for the 2025 tax year (check the header year, e.g., "2025" at the top of the form). Extract data ONLY from forms belonging to the 2025 tax year. If a schedule is for a year other than 2025, or is missing entirely, leave its corresponding schema field/list empty.
+    2. Parse numeric values into floats. Convert parenthetical amounts like (1,250.00) or explicit negative signs like -534. into negative floats (e.g., -1250.0 or -534.0).
+    3. Map all numeric codes, checkboxes, or abbreviations (such as Property Type codes 1-8 or Accounting Method indicators) into clear, human-readable text descriptions.
+    4. If multiple pages belong to a single Schedule C business or Schedule E return (including continuation sheets for properties C, D, E, etc.), consolidate all related pages into single structured business/property entries.
+    5. Line Item Precision:
        - On Schedule C Part II, carefully align line numbers with their exact horizontal rows. Line 22 is Supplies; Line 23 is Taxes and licenses. Do not swap adjacent row values.
        - On Schedule E Line 19, if text references a statement (e.g. 'See Stm 1'), include 'See Stm 1' as the description in 'other_expenses_detail' along with the listed amount.
-    5. Do NOT extract empty or unpopulated property columns (e.g. columns labeled B or C on a continuation sheet that have no street address or financial entries). Only extract actual properties.
-    6. For 'Other Expenses' on Schedule C (Line 27a / Part V) and Schedule E (Line 19), extract every itemized description and amount into 'other_expenses_detail', and extract the sum into 'other_expenses_total'.
-    7. If a field is blank, zero, or covered by a black redaction block on the form, return null.
-    8. If Schedule C or Schedule E is not present in the document, leave those fields/lists empty.
+    6. Do NOT extract empty or unpopulated property columns (e.g. columns labeled B or C on a continuation sheet that have no street address or financial entries). Only extract actual properties.
+    7. For 'Other Expenses' on Schedule C (Line 27a / Part V) and Schedule E (Line 19), extract every itemized description and amount into 'other_expenses_detail', and extract the sum into 'other_expenses_total'.
+    8. If a field is blank, zero, or covered by a black redaction block on the form, return null.
     """
 
     source_label = "stdin stream" if pdf_path == "-" else f"file '{pdf_path}'"
