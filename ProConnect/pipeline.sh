@@ -6,7 +6,7 @@ do
 	s=${f%.pdf}-scheds.pdf
 	strip.py $f $s
 	[ -f $s ] || continue
-	JSON=$(extract.py $s)
+	JSON=$(azextract.py $s)
 	[ "$JSON" ] || continue
 	report.py - -o ${f%.*}.html <<<${JSON}
 	jq . >${f%.*}.json <<<${JSON}
