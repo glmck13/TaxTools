@@ -7,7 +7,7 @@ import sys
 import warnings
 from typing import List, Optional
 
-import pymupdf as fitz
+import pymupdf
 from openai import APIError, AzureOpenAI
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -272,7 +272,7 @@ def validate_environment():
 def extract_pdf_page_payloads(pdf_bytes: bytes):
     """Extracts 300 DPI base64 image AND clean text blocks per PDF page."""
     pages = []
-    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
         for idx, page in enumerate(doc):
             pix = page.get_pixmap(dpi=300)
             img_bytes = pix.tobytes("png")
