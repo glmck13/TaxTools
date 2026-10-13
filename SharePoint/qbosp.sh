@@ -3,14 +3,14 @@
 export HOME=/var/www/tarrantadvisors
 export PATH=$HOME/bin:$PATH
 
-TOKENFILE=/var/www/etc/qboTokens.conf
 qboRefresh.sh >/dev/null
-. $TOKENFILE
+. ${HOME}/etc/qboTokens.conf
 
-export HOME=/var/www/m365; cd
-. ./.bashrc
-cd - >/dev/null
-
+export M365_DIR=/var/www/m365
+export HOME=$M365_DIR
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 export CLIMICROSOFT365_CONFIG_DIR=$HOME
 
 export TENANT_URL="https://tarrantadvisors.sharepoint.com"
@@ -20,5 +20,5 @@ export AUTH_TOKEN=$(m365 util accesstoken get --resource "$TENANT_URL" --output 
 source /var/www/webenv/bin/activate
 
 cd /tmp
-export GEMINI_API_KEY=""
+export GOOGLE_API_KEY=""
 qbosp.py
