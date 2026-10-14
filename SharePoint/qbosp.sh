@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export HOME=/var/www/tarrantadvisors
-export PATH=$HOME/bin:$PATH
+export PATH=:$HOME/bin:$PATH
 
 qboRefresh.sh >/dev/null
 . ${HOME}/etc/qboTokens.conf
@@ -19,6 +19,5 @@ export AUTH_TOKEN=$(m365 util accesstoken get --resource "$TENANT_URL" --output 
 
 source /var/www/webenv/bin/activate
 
-cd /tmp
-export GOOGLE_API_KEY=""
+export GEMINI_API_KEY="AIzaSyAXww-yDVh2G6lhIuMYYFZ0kTO_rSWefVQ"
 qbosp.py
