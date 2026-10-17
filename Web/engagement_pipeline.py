@@ -469,7 +469,7 @@ def populate_form_from_disk_draft(form, c_id, eng_id):
 
     return form
 
-def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
+def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None, raw_response=False):
     url = f"{ADOBE_APIBASE}/{endpoint}"
     headers = {"Authorization": f"Bearer {ADOBE_TOKEN}"}
 
@@ -495,6 +495,8 @@ def adobe_sign_api_request(endpoint, method="POST", payload=None, files=None):
 
     try:
         with urllib.request.urlopen(req) as response:
+            if raw_response:
+                return response.read()
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
@@ -654,6 +656,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                         eng_draft["reviewed_by"] = eng_draft.get("reviewed_by", "")
                         eng_draft["reviewed_at"] = eng_draft.get("reviewed_at", "")
                         eng_draft["delivery_format"] = eng_draft.get("delivery_format", "electronic")
+                        eng_draft["adobe_agreement_id"] = eng_draft.get("adobe_agreement_id", "")
+                        eng_draft["adobe_completed_at"] = eng_draft.get("adobe_completed_at", "")
 
                         if eng_draft.get("rows"):
                             for r in eng_draft["rows"]:
@@ -1225,7 +1229,9 @@ def handle_generate_preview(form):
                 "out_of_scope_items": posted_oos_dict,
                 "estimate_id": prior_estimate_id,
                 "rows": processed_rows,
-                "delivery_format": target_delivery_fmt
+                "delivery_format": target_delivery_fmt,
+                "adobe_agreement_id": existing_draft.get("adobe_agreement_id", ""),
+                "adobe_completed_at": existing_draft.get("adobe_completed_at", "")
             }
             with open(draft_path, "w", encoding="utf-8") as df:
                 json.dump(draft_payload, df, indent=2)
@@ -1445,7 +1451,9 @@ def handle_save_draft_only(form):
             "out_of_scope_items": posted_oos_dict,
             "estimate_id": existing_draft.get("estimate_id", ""),
             "rows": processed_rows if processed_rows else existing_draft.get("rows", []),
-            "delivery_format": target_delivery_fmt
+            "delivery_format": target_delivery_fmt,
+            "adobe_agreement_id": existing_draft.get("adobe_agreement_id", ""),
+            "adobe_completed_at": existing_draft.get("adobe_completed_at", "")
         }
         with open(draft_path, "w", encoding="utf-8") as df:
             json.dump(draft_payload, df, indent=2)
@@ -1564,6 +1572,10 @@ def handle_patch_draft_only(form):
                     "bp": bp_val
                 })
             draft["rows"] = processed_rows
+
+        # Explicitly preserve tracking fields
+        draft["adobe_agreement_id"] = draft.get("adobe_agreement_id", "") or get_form_val(form, "adobe_agreement_id", "")
+        draft["adobe_completed_at"] = draft.get("adobe_completed_at", "") or get_form_val(form, "adobe_completed_at", "")
 
         # Save patched draft back to disk
         with open(draft_path, "w", encoding="utf-8") as df:
@@ -1969,6 +1981,40 @@ def handle_download_pdf(form, prefix="DRAFT"):
     sys.stdout.buffer.write(f"Content-Disposition: attachment; filename={urllib.parse.quote(filename)}\n\n".encode('utf-8'))
     sys.stdout.buffer.write(generated_buffer.read())
 
+def handle_view_signed_pdf(form):
+    raw_client_val = get_form_val(form, "client_name")
+    eng_id = get_form_val(form, "engagement_id", "0")
+    if not raw_client_val or eng_id == "0":
+        return render_pipeline_error(form, "Missing client selection or engagement ID for signed document viewing.", http_code=400)
+
+    try:
+        c_id = extract_qbo_id(raw_client_val)
+    except Exception as ex:
+        return render_pipeline_error(form, f"Unable to resolve customer ID: {str(ex)}", http_code=400)
+
+    draft_path = get_draft_file_path(c_id, eng_id)
+    if not os.path.exists(draft_path):
+        return render_pipeline_error(form, f"Draft file not found for Customer #{c_id} / Engagement #{eng_id}.", http_code=404)
+
+    try:
+        with open(draft_path, "r", encoding="utf-8") as df:
+            draft = json.load(df)
+        
+        adobe_agreement_id = draft.get("adobe_agreement_id")
+        if not adobe_agreement_id:
+            return render_pipeline_error(form, f"No Adobe Agreement ID recorded for Customer #{c_id} / Engagement #{eng_id}.", http_code=400)
+
+        pdf_bytes = adobe_sign_api_request(f"agreements/{adobe_agreement_id}/combinedDocument", method="GET", raw_response=True)
+        
+        legal_name = draft.get("primary_signer", {}).get("legal_name") or f"Customer_{c_id}"
+        filename = f"Signed_Tax_Agreement_{legal_name.replace(' ', '_')}.pdf"
+
+        sys.stdout.buffer.write(b"Content-Type: application/pdf\n")
+        sys.stdout.buffer.write(f"Content-Disposition: inline; filename={urllib.parse.quote(filename)}\n\n".encode('utf-8'))
+        sys.stdout.buffer.write(pdf_bytes)
+    except Exception as ex:
+        render_pipeline_error(form, f"Failed retrieving signed document from Adobe Sign: {str(ex)}", http_code=500)
+
 def handle_send_resend_email(form):
     raw_client_val = get_form_val(form, "client_name")
     eng_id = get_form_val(form, "engagement_id", "0")
@@ -2251,25 +2297,6 @@ def execute_transactional_pipeline(form):
     except Exception as e:
         return render_pipeline_error(form, f"QuickBooks Error: Failed to generate transaction record. ({str(e)})")
 
-    try:
-        if os.path.exists(draft_path):
-            unlock_draft(draft_path)
-            with open(draft_path, "r", encoding="utf-8") as df:
-                active_draft = json.load(df)
-            active_draft["engagement_id"] = eng_id
-            active_draft["engagement_title"] = eng_title
-            active_draft["estimate_id"] = estimate_id
-            active_draft["phone"] = effective_phone
-            active_draft["delivery_format"] = target_qbo_format
-            if "primary_signer" not in active_draft:
-                active_draft["primary_signer"] = {}
-            active_draft["primary_signer"]["email"] = effective_primary_email
-            with open(draft_path, "w", encoding="utf-8") as df:
-                json.dump(active_draft, df, indent=2)
-            lock_draft(draft_path)
-    except Exception as de:
-        print(f"DEBUG: Post-transaction draft update failed: {str(de)}", file=sys.stderr)
-
     live_pdf_buffer = compile_reportlab_pdf_buffer(form, include_esign_tags=not is_paper_mode)
     live_pdf_buffer.seek(0)
 
@@ -2298,6 +2325,27 @@ def execute_transactional_pipeline(form):
         except Exception as rollback_err:
             print(f"CRITICAL ERROR: Rollback failed for Estimate {estimate_id}: {str(rollback_err)}", file=sys.stderr)
         return render_pipeline_error(form, f"Adobe Sign Routing Error: Contract delivery failed. QuickBooks transaction backed out. Details: {adobe_error_context}")
+
+    try:
+        if os.path.exists(draft_path):
+            unlock_draft(draft_path)
+            with open(draft_path, "r", encoding="utf-8") as df:
+                active_draft = json.load(df)
+            active_draft["engagement_id"] = eng_id
+            active_draft["engagement_title"] = eng_title
+            active_draft["estimate_id"] = estimate_id
+            active_draft["phone"] = effective_phone
+            active_draft["delivery_format"] = target_qbo_format
+            if adobe_agreement_id:
+                active_draft["adobe_agreement_id"] = adobe_agreement_id
+            if "primary_signer" not in active_draft:
+                active_draft["primary_signer"] = {}
+            active_draft["primary_signer"]["email"] = effective_primary_email
+            with open(draft_path, "w", encoding="utf-8") as df:
+                json.dump(active_draft, df, indent=2)
+            lock_draft(draft_path)
+    except Exception as de:
+        print(f"DEBUG: Post-transaction draft update failed: {str(de)}", file=sys.stderr)
 
     if is_ajax_request(form):
         print("Content-Type: application/json\n")
@@ -2446,6 +2494,8 @@ if __name__ == "__main__":
         handle_download_pdf(form_data, prefix="DRAFT")
     elif action == "download_final_pdf":
         handle_download_pdf(form_data, prefix="FINAL")
+    elif action == "view_signed_pdf":
+        handle_view_signed_pdf(form_data)
     elif action == "send_resend_email":
         handle_send_resend_email(form_data)
     elif action == "execute_transactional_pipeline_paper":

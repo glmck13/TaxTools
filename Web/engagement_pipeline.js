@@ -823,20 +823,57 @@ function getFilteredBatchRows() {
     if (currentSortColumn !== null) {
         allRecords.sort((a, b) => {
             let valA, valB;
+
+            // Rank Status Priority:
+            // 4: Signed | 3: Out for Signature | 2: Approved | 1: Needs Review | 0: Data Incomplete
+            const getStatusRank = (rec) => {
+                if (rec.draft && rec.draft.adobe_completed_at) return 4;
+                if (rec.isLocked) return 3;
+                if (rec.isDataIncomplete) return 0;
+                if (rec.isApproved) return 2;
+                return 1; // Needs Review
+            };
+
             switch (currentSortColumn) {
-                case 1: valA = parseInt(a.qboId, 10) || 0; valB = parseInt(b.qboId, 10) || 0; break;
-                case 2: valA = a.clientNameClean.toLowerCase(); valB = b.clientNameClean.toLowerCase(); break;
-                case 3: valA = (a.entityType || '').toLowerCase(); valB = (b.entityType || '').toLowerCase(); break;
-                case 4: valA = a.isDualSigner ? 1 : 0; valB = b.isDualSigner ? 1 : 0; break;
-                case 5: valA = a.clientFee; valB = b.clientFee; break;
-                case 6: valA = a.isPaper ? 1 : 0; valB = b.isPaper ? 1 : 0; break;
-                case 7: valA = a.isLocked ? 3 : (a.isDataIncomplete ? 0 : (a.isApproved ? 2 : 1)); valB = b.isLocked ? 3 : (b.isDataIncomplete ? 0 : (b.isApproved ? 2 : 1)); break;
-                default: valA = 0; valB = 0;
+                case 1: 
+                    valA = parseInt(a.qboId, 10) || 0; 
+                    valB = parseInt(b.qboId, 10) || 0; 
+                    break;
+                case 2: 
+                    valA = (a.clientNameClean || '').toLowerCase(); 
+                    valB = (b.clientNameClean || '').toLowerCase(); 
+                    break;
+                case 3: 
+                    valA = (a.entityType || '').toLowerCase(); 
+                    valB = (b.entityType || '').toLowerCase(); 
+                    break;
+                case 4: 
+                    valA = a.isDualSigner ? 1 : 0; 
+                    valB = b.isDualSigner ? 1 : 0; 
+                    break;
+                case 5: 
+                    valA = Number(a.clientFee) || 0; 
+                    valB = Number(b.clientFee) || 0; 
+                    break;
+                case 6: 
+                    valA = a.isPaper ? 1 : 0; 
+                    valB = b.isPaper ? 1 : 0; 
+                    break;
+                case 7: 
+                    valA = getStatusRank(a); 
+                    valB = getStatusRank(b); 
+                    break;
+                default: 
+                    valA = 0; 
+                    valB = 0;
             }
 
-            let comparison = (typeof valA === 'number' && typeof valB === 'number')
-                ? valA - valB
-                : String(valA).localeCompare(String(valB));
+            let comparison = 0;
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                comparison = valA - valB;
+            } else {
+                comparison = String(valA).localeCompare(String(valB));
+            }
 
             return currentSortAscending ? comparison : -comparison;
         });
@@ -871,7 +908,7 @@ function renderBatchTableGrid() {
     tbody.innerHTML = '';
 
     paginatedSlice.forEach(item => {
-        const { qboId, engId, isLocked, isPaper, clientFee, entityType, isDualSigner, coSignerNameVal, coSignerEmailVal, isDataIncomplete, isApproved, reviewedBy, clientNameClean, engTitle } = item;
+        const { qboId, engId, draft, isLocked, isPaper, clientFee, entityType, isDualSigner, coSignerNameVal, coSignerEmailVal, isDataIncomplete, isApproved, reviewedBy, clientNameClean, engTitle } = item;
         const selectionKey = `${qboId}:${engId}`;
         const isChecked = Boolean(globalBatchSelections[selectionKey]);
 
@@ -880,15 +917,23 @@ function renderBatchTableGrid() {
         let statusBadge = `<span class="badge badge-needs-review badge-clickable" ${badgeClickAttr}>🔍 Needs Review</span>`;
         let checkboxDisabled = '';
 
-        if (isLocked) {
-            statusBadge = '<span class="badge badge-locked">🔒 Sent</span>';
+        if (draft.adobe_completed_at) {
+            const pdfUrl = `${window.location.pathname}?action=view_signed_pdf&client_name=${encodeURIComponent(qboId)}&engagement_id=${encodeURIComponent(engId)}`;
+            // GREEN (badge-approved): Fully Signed & Executed PDF available
+            statusBadge = `<a href="${pdfUrl}" target="_blank" class="badge badge-approved badge-clickable" style="text-decoration: none;" title="Click to open signed PDF in a new tab">✅ Signed 📄</a>`;
+            checkboxDisabled = 'disabled';
+        } else if (isLocked) {
+            // YELLOW/AMBER (badge-warning): Locked & Out for Signature
+            statusBadge = `<span class="badge badge-warning">Out for Signature</span>`;
             checkboxDisabled = 'disabled';
         } else if (isDataIncomplete) {
+            // YELLOW/AMBER (badge-warning): Missing required fields
             statusBadge = `<span class="badge badge-warning badge-clickable" ${badgeClickAttr}>⚠️ Data Incomplete</span>`;
             checkboxDisabled = 'disabled';
         } else if (isApproved) {
             const byText = reviewedBy ? ` (${escapeHtml(reviewedBy)})` : '';
-            statusBadge = `<span class="badge badge-approved badge-clickable" ${badgeClickAttr}>✅ Approved${byText}</span>`;
+            // BLUE (badge-info): Internally approved, ready to send
+            statusBadge = `<span class="badge badge-info badge-clickable" ${badgeClickAttr}>✅ Approved${byText}</span>`;
         } else {
             checkboxDisabled = 'disabled';
         }
