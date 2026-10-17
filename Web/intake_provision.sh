@@ -111,7 +111,7 @@ else:
     params = {k: v[0] for k, v in parsed.items() if v}
 
 keys = [
-    'qbo_id', 'client_name', 'friendly_name', 'client_email', 'client_phone',
+    'action', 'qbo_id', 'client_name', 'friendly_name', 'client_email', 'client_phone',
     'contact_date', 'responder', 'entity_type', 'delivery_format', 'co_signer_name', 
     'co_signer_email', 'street', 'city', 'state', 'zip', 'notes', 'is_new_lead'
 ]
@@ -122,7 +122,7 @@ for key in keys:
     print(f'{key.upper()}={shlex.quote(val)}')
 ")"
 
-# Fallbacks
+# Fallbacks and normalization
 CLIENT_NAME="${CLIENT_NAME:-New Client}"
 FRIENDLY_NAME="${FRIENDLY_NAME:-$CLIENT_NAME}"
 CONTACT_DATE="${CONTACT_DATE:-$(date +%Y-%m-%d)}"
@@ -130,6 +130,15 @@ RESPONDER="${RESPONDER:-${REMOTE_USER:-nobody}}"
 ENTITY_TYPE="${ENTITY_TYPE:-individual}"
 DELIVERY_FORMAT="${DELIVERY_FORMAT:-electronic}"
 IS_NEW_LEAD="${IS_NEW_LEAD:-true}"
+
+# Derive ACTION fallback if not explicitly provided
+if [ -z "$ACTION" ]; then
+    if [ "$IS_NEW_LEAD" = "true" ]; then
+        ACTION="lead"
+    else
+        ACTION="heal"
+    fi
+fi
 
 # 1. SHAREPOINT NAME: Full name, stripping trailing spaces and periods
 CLEAN_CLIENT_NAME="${CLIENT_NAME%"${CLIENT_NAME##*[!. ]}"}"
@@ -143,9 +152,9 @@ PREFIX_COMBINED="${W1}${W2}${W3}"
 CLEAN_LOG_PREFIX="${PREFIX_COMBINED//[^a-zA-Z0-9]/}"
 LOGFILE_NAME="Log-${CLEAN_LOG_PREFIX:-Client}.xlsx"
 
+debug "Action Mode: '$ACTION'"
 debug "Passed QBO ID: '${QBO_ID:-None}'"
 debug "Clean Client Name: '$CLEAN_CLIENT_NAME'"
-debug "Generated Log File Name: '$LOGFILE_NAME'"
 debug "Is New Lead: $IS_NEW_LEAD | Entity: $ENTITY_TYPE | Delivery Format: $DELIVERY_FORMAT | Responder: $RESPONDER"
 
 # ==============================================================================
@@ -168,21 +177,9 @@ SHARED_FOLDERS=("2026" "Prior to 2026" "Tax Returns")
 COMPANY_FOLDERS=("2025 - Not Prepared by TA" "2026" "2026/Agreements & Invoices" "2026/BU Detail")
 
 # ==============================================================================
-# STEP 1: QUICKBOOKS ONLINE CUSTOMER LOOKUP & SYNC
+# QUICKBOOKS ONLINE CUSTOMER LOOKUP
 # ==============================================================================
-if [ "$ENTITY_TYPE" = "individual" ]; then
-    QBO_DISPLAY_NAME="$CLEAN_CLIENT_NAME"
-    QBO_COMPANY_NAME=""
-else
-    QBO_DISPLAY_NAME="$CLEAN_CLIENT_NAME"
-    QBO_COMPANY_NAME="$CLEAN_CLIENT_NAME"
-fi
-
-debug "Target QBO DisplayName: '$QBO_DISPLAY_NAME' | CompanyName: '$QBO_COMPANY_NAME'"
-
 QUERY_URI="/company/${QBO_REALMID}/query"
-
-# 1. ALWAYS SEARCH QBO BY NAME FIRST (SEQUENTIAL LOOKUP TO AVOID 'OR' SYNTAX ERROR)
 SEARCH_NAME=$(echo "$CLEAN_CLIENT_NAME" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g" -e 's/"/\\"/g')
 
 # Search DisplayName
@@ -205,13 +202,119 @@ if [ -z "$EXISTING_ID" ] && [ -n "$QBO_ID" ]; then
     EXISTING_SYNC_TOKEN=$(echo "$QUERY_RESP" | jq -r '.QueryResponse.Customer[0].SyncToken // empty' 2>/dev/null || echo "")
 fi
 
-if [ -n "$EXISTING_ID" ]; then
-    debug "Auto-adopting existing QBO Customer ID: $EXISTING_ID (SyncToken: $EXISTING_SYNC_TOKEN) for '$CLEAN_CLIENT_NAME'"
-else
-    debug "No existing QBO Customer found for '$CLEAN_CLIENT_NAME'. Preparing to create new record."
+# ==============================================================================
+# ISOLATED BRANCH 1: CLIENT DEACTIVATION & ARCHIVING (ACTION="deactivate")
+# ==============================================================================
+if [ "$ACTION" = "deactivate" ]; then
+    debug "=== Initiating Client Deactivation Pipeline for '${CLEAN_CLIENT_NAME}' ==="
+
+    TARGET_QBO_ID="${EXISTING_ID:-$QBO_ID}"
+
+    if [ -n "$TARGET_QBO_ID" ] && [ "$TARGET_QBO_ID" != "Unknown" ]; then
+        debug "Deactivating Customer ID $TARGET_QBO_ID in QBO (Active: false)..."
+        
+        QBO_DEACTIVATE_PAYLOAD=$(jq -n \
+          --arg id "$TARGET_QBO_ID" \
+          --arg sync_token "$EXISTING_SYNC_TOKEN" \
+          '{
+            sparse: true,
+            Id: $id,
+            SyncToken: $sync_token,
+            Active: false
+          }')
+
+        QBO_POST_URI="/company/${QBO_REALMID}/customer"
+        QBO_DEACT_RESP=$(echo "$QBO_DEACTIVATE_PAYLOAD" | qbo.sh POST "$QBO_POST_URI" 2>&1 || echo "")
+        debug "QBO Deactivation POST complete."
+    else
+        debug "WARNING: No valid QBO ID found for deactivation."
+    fi
+
+    # 2. MOVE SHAREPOINT FOLDERS TO !Inactive Clients
+    debug "Moving SharePoint folders to !Inactive Clients..."
+    
+    # Company Site Folder Move
+    COMPANY_SRC="Shared Documents/${CLEAN_CLIENT_NAME}"
+    COMPANY_DST="Shared Documents/!Inactive Clients"
+    
+    m365 spo folder move \
+      --webUrl "$COMPANY_SITE" \
+      --sourceUrl "$COMPANY_SRC" \
+      --targetUrl "$COMPANY_DST" >&2 || true
+
+    # Share Site Folder Move
+    SHARE_SRC="Shared Documents/${CLEAN_CLIENT_NAME} - SHARED"
+    SHARE_DST="Shared Documents/!Inactive Clients"
+
+    m365 spo folder move \
+      --webUrl "$SHARE_SITE" \
+      --sourceUrl "$SHARE_SRC" \
+      --targetUrl "$SHARE_DST" >&2 || true
+
+    # 3. REVOKE ALL GUEST SHARING LINKS ON MOVED SHARE FOLDER
+    MOVED_SHARE_LIB_PATH="Shared Documents/!Inactive Clients/${CLEAN_CLIENT_NAME} - SHARED"
+    MOVED_SHARE_SERVER_REL=$(to_server_rel_path "$SHARE_SITE" "$MOVED_SHARE_LIB_PATH")
+    
+    debug "Querying list item ID for moved folder: '$MOVED_SHARE_SERVER_REL'..."
+    MOVED_ITEM_ID=$(m365 request \
+      --url "${SHARE_SITE}/_api/web/getfolderbyserverrelativeurl('${MOVED_SHARE_SERVER_REL}')/ListItemAllFields" \
+      -o json 2>&1 | jq -r '.ID // .d.ID // empty' 2>/dev/null)
+
+    if [ -n "$MOVED_ITEM_ID" ]; then
+        debug "Revoking guest sharing links on moved folder (Item ID: $MOVED_ITEM_ID)..."
+        
+        # Unshare object payload
+        UNSHARE_PAYLOAD=$(jq -n \
+          --arg url "${SHARE_SITE}/${MOVED_SHARE_LIB_PATH}" \
+          '{
+            url: $url
+          }')
+
+        m365 request \
+          --url "${SHARE_SITE}/_api/SP.Web.UnshareObject" \
+          --method POST \
+          --headers '{"accept":"application/json;odata=verbose","content-type":"application/json;odata=verbose"}' \
+          --body "$UNSHARE_PAYLOAD" >/dev/null 2>&1 || debug "Note: Unshare call completed."
+    else
+        debug "WARNING: Could not resolve List Item ID for '$MOVED_SHARE_SERVER_REL'."
+    fi
+
+    # 4. SEND EMAIL NOTIFICATION
+    debug "Sending client deactivation team email notification..."
+    DEACT_EMAIL_BODY="<p><b>Actioned by:</b> ${RESPONDER}</p>\
+<h1>Client Deactivated</h1>\
+<p>\
+<b>Client Name:</b> ${CLEAN_CLIENT_NAME}<br>\
+<b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
+<b>Primary Email:</b> ${CLIENT_EMAIL}<br>\
+<b>Phone Number:</b> ${CLIENT_PHONE}<br>\
+<b>Entity Classification:</b> ${ENTITY_TYPE}<br>\
+<b>QBO ID:</b> ${TARGET_QBO_ID:-Unknown}<br>\
+<b>QBO Status:</b> Marked Inactive (Active: false)<br>\
+<b>SharePoint Status:</b> Folders moved to !Inactive Clients & guest permissions revoked\
+</p>"
+
+    send_resend_email \
+      "Client Deactivated on Tarrant Advisors: ${CLEAN_CLIENT_NAME}" \
+      "${DEACT_EMAIL_BODY}" \
+      "${NOTIFY}"
+
+    debug "=== Client deactivation complete for '$CLEAN_CLIENT_NAME' ==="
+    echo "{\"status\": \"success\", \"action\": \"deactivate\", \"qbo_id\": \"${TARGET_QBO_ID:-Unknown}\", \"message\": \"Client ${CLEAN_CLIENT_NAME} deactivated in QBO and folders archived to !Inactive Clients.\"}"
+    exit 0
 fi
 
-# 2. BUILD PAYLOAD & SYNC TO QBO
+# ==============================================================================
+# QBO CUSTOMER CREATION / UPDATE (RUNS FOR BOTH 'LEAD' AND 'HEAL')
+# ==============================================================================
+if [ "$ENTITY_TYPE" = "individual" ]; then
+    QBO_DISPLAY_NAME="$CLEAN_CLIENT_NAME"
+    QBO_COMPANY_NAME=""
+else
+    QBO_DISPLAY_NAME="$CLEAN_CLIENT_NAME"
+    QBO_COMPANY_NAME="$CLEAN_CLIENT_NAME"
+fi
+
 NOTES_JSON=$(jq -n -c \
   --arg entity "$ENTITY_TYPE" \
   --arg format "$DELIVERY_FORMAT" \
@@ -255,8 +358,6 @@ QBO_POST_URI="/company/${QBO_REALMID}/customer"
 debug "Posting Customer Payload to QBO (Sparse Update Enabled)..."
 
 QBO_RESPONSE=$(echo "$QBO_PATCH_PAYLOAD" | qbo.sh POST "$QBO_POST_URI" 2>&1 || echo "")
-
-# Extract Customer ID cleanly; fallback to EXISTING_ID if POST response lacks Customer wrapper
 QBO_CUSTOMER_ID=$(echo "$QBO_RESPONSE" | jq -r '.Customer.Id // empty' 2>/dev/null)
 
 if [ -z "$QBO_CUSTOMER_ID" ]; then
@@ -266,12 +367,12 @@ fi
 debug "QBO Sync complete. Resolved Numeric QBO ID: $QBO_CUSTOMER_ID"
 
 # ==============================================================================
-# BRANCHING POINT: EXISTING CLIENT PROFILE HEALING
+# EXISTING CLIENT PROFILE HEALING (ACTION="heal" or IS_NEW_LEAD="false")
 # ==============================================================================
-if [ "$IS_NEW_LEAD" != "true" ]; then
+if [ "$ACTION" = "heal" ] || [ "$IS_NEW_LEAD" != "true" ]; then
     debug "Sending profile update email notification..."
     HEAL_EMAIL_BODY="<p><b>Updated by:</b> ${RESPONDER}</p>\
-<h1>QBO Profile Updated:</h1>\
+<h1>Client Updated</h1>\
 <p>\
 <b>Name:</b> ${CLEAN_CLIENT_NAME}<br>\
 <b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
@@ -285,8 +386,8 @@ if [ "$IS_NEW_LEAD" != "true" ]; then
 
     send_resend_email \
       "QBO Profile Updated on Tarrant Advisors: ${CLEAN_CLIENT_NAME}" \
-      "$HEAL_EMAIL_BODY" \
-      "$NOTIFY"
+      "${HEAL_EMAIL_BODY}" \
+      "${NOTIFY}"
 
     debug "Profile update complete. Exiting."
     echo "{\"status\": \"success\", \"is_new_lead\": false, \"qbo_id\": \"$QBO_CUSTOMER_ID\", \"message\": \"Profile for ${CLEAN_CLIENT_NAME} updated successfully.\"}"
@@ -294,7 +395,7 @@ if [ "$IS_NEW_LEAD" != "true" ]; then
 fi
 
 # ==============================================================================
-# NEW CLIENT PROVISIONING ONLY (IS_NEW_LEAD="true")
+# NEW CLIENT PROVISIONING ONLY (ACTION="lead")
 # ==============================================================================
 
 # ==============================================================================
@@ -382,13 +483,11 @@ cat <<EOF > "$HTML_TEMP_FILE"
 <head>
 <style>
   body { margin: 50px; font-family: sans-serif; }
-  h1 { color: #0078d4; }
-  ul { line-height: 1.6; }
 </style>
 </head>
 <body>
 <b>Submitted by: </b>${RESPONDER}<br>
-<h1>Client Info:</h1>
+<h1>Client Added</h1>
 <b>Name: </b>${CLEAN_CLIENT_NAME}<br>
 <b>Contact Name: </b>${FRIENDLY_NAME}<br>
 <b>Email address: </b>${CLIENT_EMAIL}<br>
@@ -428,7 +527,7 @@ fi
 debug "Sending team notification email via Resend API..."
 
 EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
-<h1>Client Info:</h1>\
+<h1>Client Added</h1>\
 <p>\
 <b>Name:</b> ${CLEAN_CLIENT_NAME}<br>\
 <b>Contact Name:</b> ${FRIENDLY_NAME}<br>\
@@ -450,8 +549,8 @@ EMAIL_BODY="<p><b>Submitted by:</b> ${RESPONDER}</p>\
 
 send_resend_email \
   "New Client Intake submitted on Tarrant Advisors: ${CLEAN_CLIENT_NAME}" \
-  "$EMAIL_BODY" \
-  "$NOTIFY"
+  "${EMAIL_BODY}" \
+  "${NOTIFY}"
 
 debug "=== Client provisioning complete for '$CLEAN_CLIENT_NAME' ==="
 

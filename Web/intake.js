@@ -3,7 +3,7 @@
    ========================================================================== */
 
 let customerCatalog = {};
-let currentMode = "lead"; // Default mode: "lead" (New Lead)
+let currentMode = "lead"; // Modes: "lead", "heal", "deactivate"
 
 // Environment detection
 const urlParams = new URLSearchParams(window.location.search);
@@ -63,14 +63,44 @@ function populateDatalist() {
 }
 
 /**
- * Switch mode between "lead" (New Lead) and "heal" (Existing QBO Client)
- * Clears and resets all input fields upon tab transition.
+ * Toggle form fields read-only / disabled state for Deactivate mode
+ */
+function setFieldsReadOnly(isReadOnly) {
+    const inputIds = [
+        "friendly_name", "contact_date", "primary_email", "phone_number",
+        "co_signer_name", "co_signer_email", "responder", "street", "city",
+        "state", "zip", "notes"
+    ];
+
+    inputIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (isReadOnly) {
+                el.setAttribute("readonly", "readonly");
+            } else {
+                el.removeAttribute("readonly");
+            }
+        }
+    });
+
+    const selectIds = ["entity_type", "delivery_format"];
+    selectIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = isReadOnly;
+        }
+    });
+}
+
+/**
+ * Switch mode between "lead" (New Lead), "heal" (Existing Client), and "deactivate" (Archive Client)
  */
 function setMode(mode) {
     currentMode = mode;
     
     const btnLead = document.getElementById("btn-mode-lead");
     const btnHeal = document.getElementById("btn-mode-heal");
+    const btnDeactivate = document.getElementById("btn-mode-deactivate");
     const submitBtn = document.getElementById("btn-submit");
     const clientInput = document.getElementById("client-select-input");
     const notesSection = document.getElementById("section-notes");
@@ -90,16 +120,46 @@ function setMode(mode) {
         contactDateInput.value = new Date().toISOString().split("T")[0];
     }
 
+    // Reset button active tab states
+    if (btnLead) btnLead.classList.remove("active");
+    if (btnHeal) btnHeal.classList.remove("active");
+    if (btnDeactivate) btnDeactivate.classList.remove("active");
+
+    // Reset section accent classes
+    formSections.forEach(section => {
+        section.classList.remove("heal-mode", "deactivate-mode");
+    });
+
     // 2. Adjust tab-specific styling & properties
-    if (mode === "heal") {
+    if (mode === "deactivate") {
+        if (btnDeactivate) btnDeactivate.classList.add("active");
+        if (notesSection) notesSection.classList.add("hidden");
+
+        formSections.forEach(section => section.classList.add("deactivate-mode"));
+        setFieldsReadOnly(true);
+
+        if (badge) {
+            badge.textContent = "Deactivate Client";
+            badge.className = "badge-status deactivate";
+        }
+
+        if (submitBtn) {
+            submitBtn.className = "btn-submit deactivate-mode";
+            submitBtn.innerHTML = "🚫 Deactivate Client & Archive Folders";
+        }
+
+        if (clientInput) {
+            clientInput.setAttribute("list", "client-select-options");
+            clientInput.placeholder = "Select client to deactivate...";
+        }
+
+    } else if (mode === "heal") {
         if (btnHeal) btnHeal.classList.add("active");
-        if (btnLead) btnLead.classList.remove("active");
-        
         if (notesSection) notesSection.classList.add("hidden");
 
         formSections.forEach(section => section.classList.add("heal-mode"));
+        setFieldsReadOnly(false);
 
-        // Update Badge for Heal Mode
         if (badge) {
             badge.textContent = "Existing Client";
             badge.className = "badge-status heal";
@@ -114,15 +174,13 @@ function setMode(mode) {
             clientInput.setAttribute("list", "client-select-options");
             clientInput.placeholder = "Select or search QBO client...";
         }
-    } else {
+
+    } else { // "lead"
         if (btnLead) btnLead.classList.add("active");
-        if (btnHeal) btnHeal.classList.remove("active");
-        
         if (notesSection) notesSection.classList.remove("hidden");
 
-        formSections.forEach(section => section.classList.remove("heal-mode"));
+        setFieldsReadOnly(false);
 
-        // Update Badge for Lead Mode
         if (badge) {
             badge.textContent = "New Client";
             badge.className = "badge-status lead";
@@ -266,11 +324,47 @@ function closeStatusOverlay(shouldReset = false) {
 }
 
 /**
- * Handle form submission via POST
+ * Deactivation Confirmation Modal Handlers
  */
-async function handleFormSubmit(event) {
+function cancelDeactivationPrompt() {
+    const modal = document.getElementById("confirm-modal-overlay");
+    if (modal) modal.classList.add("hidden");
+}
+
+function executeDeactivationSubmit() {
+    const modal = document.getElementById("confirm-modal-overlay");
+    if (modal) modal.classList.add("hidden");
+    sendIntakeFormRequest();
+}
+
+/**
+ * Handle form submission entry point
+ */
+function handleFormSubmit(event) {
     event.preventDefault();
 
+    // If in deactivate mode, prompt user for confirmation first
+    if (currentMode === "deactivate") {
+        const clientInput = document.getElementById("client-select-input");
+        const clientName = clientInput ? clientInput.value : "this client";
+        const confirmTextEl = document.getElementById("confirm-modal-text");
+        
+        if (confirmTextEl) {
+            confirmTextEl.innerHTML = `Are you sure you want to set <strong>${clientName}</strong> to inactive in QBO and move their folders to <strong>!Inactive Clients</strong>?`;
+        }
+
+        const modal = document.getElementById("confirm-modal-overlay");
+        if (modal) modal.classList.remove("hidden");
+        return;
+    }
+
+    sendIntakeFormRequest();
+}
+
+/**
+ * Send POST request payload to CGI script
+ */
+async function sendIntakeFormRequest() {
     const overlay = document.getElementById("status-overlay");
     const statusTitle = document.getElementById("status-title");
     const statusText = document.getElementById("status-text");
@@ -281,18 +375,31 @@ async function handleFormSubmit(event) {
     if (statusSpinner) statusSpinner.style.display = "block";
     if (btnClose) btnClose.style.display = "none";
 
+    const isDeactivate = (currentMode === "deactivate");
     const isNewLead = (currentMode === "lead");
 
     if (statusTitle) {
-        statusTitle.textContent = isNewLead ? "Provisioning New Client..." : "Updating QBO Profile...";
-    }
-    if (statusText) {
-        statusText.textContent = isNewLead 
-            ? "Creating QBO Customer record, generating SharePoint folder trees, copying log files, and sending team notifications..."
-            : "Syncing updated metadata to QuickBooks Online and sending email notification...";
+        if (isDeactivate) {
+            statusTitle.textContent = "Deactivating Client & Archiving Folders...";
+        } else if (isNewLead) {
+            statusTitle.textContent = "Provisioning New Client...";
+        } else {
+            statusTitle.textContent = "Updating QBO Profile...";
+        }
     }
 
-    const formData = new FormData(event.target);
+    if (statusText) {
+        if (isDeactivate) {
+            statusText.textContent = "Setting QBO status to inactive, moving SharePoint folders to !Inactive Clients, revoking folder access, and notifying team...";
+        } else if (isNewLead) {
+            statusText.textContent = "Creating QBO Customer record, generating SharePoint folder trees, copying log files, and sending team notifications...";
+        } else {
+            statusText.textContent = "Syncing updated metadata to QuickBooks Online and sending email notification...";
+        }
+    }
+
+    const formEl = document.getElementById("intake-form");
+    const formData = new FormData(formEl);
     const payload = {};
 
     for (let [key, value] of formData.entries()) {
@@ -306,6 +413,21 @@ async function handleFormSubmit(event) {
         payload[key] = cleanVal;
     }
 
+    // Capture values from disabled/readonly inputs ignored by FormData
+    const getVal = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value : "";
+    };
+
+    payload["entity_type"] = payload["entity_type"] || getVal("entity_type");
+    payload["delivery_format"] = payload["delivery_format"] || getVal("delivery_format");
+    payload["friendly_name"] = payload["friendly_name"] || getVal("friendly_name");
+    payload["client_email"] = payload["client_email"] || getVal("primary_email");
+    payload["client_phone"] = payload["client_phone"] || getVal("phone_number");
+    payload["responder"] = payload["responder"] || getVal("responder");
+
+    // Explicit Action Parameter
+    payload["action"] = currentMode; // "lead", "heal", or "deactivate"
     payload["is_new_lead"] = isNewLead ? "true" : "false";
 
     try {
@@ -324,8 +446,16 @@ async function handleFormSubmit(event) {
         if (result.status === "success") {
             if (statusSpinner) statusSpinner.style.display = "none";
             if (statusTitle) {
-                statusTitle.style.color = isNewLead ? "#15803d" : "#0369a1";
-                statusTitle.textContent = isNewLead ? "✨ New Client Provisioned!" : "🟢 Profile Updated Successfully!";
+                if (isDeactivate) {
+                    statusTitle.style.color = "#b91c1c";
+                    statusTitle.textContent = "🚫 Client Deactivated & Archived Successfully!";
+                } else if (isNewLead) {
+                    statusTitle.style.color = "#15803d";
+                    statusTitle.textContent = "✨ New Client Provisioned!";
+                } else {
+                    statusTitle.style.color = "#0369a1";
+                    statusTitle.textContent = "🟢 Profile Updated Successfully!";
+                }
             }
             if (statusText) {
                 statusText.textContent = result.message || "Operation completed successfully.";
@@ -333,7 +463,7 @@ async function handleFormSubmit(event) {
             
             if (btnClose) {
                 btnClose.textContent = "Done & Reset Form";
-                btnClose.className = "btn-submit";
+                btnClose.className = isDeactivate ? "btn-submit deactivate-mode" : "btn-submit";
                 btnClose.onclick = () => closeStatusOverlay(true);
                 btnClose.style.display = "inline-block";
             }

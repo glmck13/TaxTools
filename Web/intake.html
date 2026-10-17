@@ -19,6 +19,9 @@
         <button type="button" id="btn-mode-heal" class="mode-btn" data-mode="heal" onclick="setMode('heal')">
             🔵 Update Existing QBO Client
         </button>
+        <button type="button" id="btn-mode-deactivate" class="mode-btn" data-mode="deactivate" onclick="setMode('deactivate')">
+            🚫 Deactivate Client
+        </button>
     </div>
 
     <!-- Main Intake Form -->
@@ -141,7 +144,7 @@
             </div>
         </div>
 
-        <!-- SECTION 4: GENERAL NOTES (Hidden in Heal Mode) -->
+        <!-- SECTION 4: GENERAL NOTES (Hidden in Heal and Deactivate Modes) -->
         <div id="section-notes" class="form-section">
             <div class="section-title-bar">
                 <span class="section-title">📝 Intake & Service Notes</span>
@@ -157,6 +160,22 @@
             ⚡ Provision New Client & Folders
         </button>
     </form>
+</div>
+
+<!-- SAFETY DEACTIVATION CONFIRMATION MODAL -->
+<div id="confirm-modal-overlay" class="hidden">
+    <div class="status-card">
+        <h2 style="color: #b91c1c; margin-top: 0;">⚠️ Confirm Client Deactivation</h2>
+        <p id="confirm-modal-text">Are you sure you want to deactivate this client in QBO and move their SharePoint folders to <strong>!Inactive Clients</strong>?</p>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="button" id="btn-confirm-cancel" class="btn-submit" style="background-color: #64748b;" onclick="cancelDeactivationPrompt()">
+                Cancel
+            </button>
+            <button type="button" id="btn-confirm-proceed" class="btn-submit deactivate-mode" onclick="executeDeactivationSubmit()">
+                Yes, Deactivate Client
+            </button>
+        </div>
+    </div>
 </div>
 
 <!-- STATUS / PROGRESS OVERLAY -->

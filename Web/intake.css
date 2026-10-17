@@ -16,6 +16,9 @@
     --heal-bg: #f0f9ff;
     --lead-color: #15803d;
     --lead-bg: #f0fdf4;
+    --deactivate-color: #b91c1c;    /* Red accent for customer deactivation */
+    --deactivate-hover: #991b1b;
+    --deactivate-bg: #fef2f2;
     --accent-unfilled-border: #f59e0b; /* Amber accent border for empty fields */
     --accent-unfilled-bg: #fffbeb;     /* Warm subtle tint background for empty fields */
     --radius: 10px;
@@ -100,6 +103,12 @@ h1 {
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 
+.mode-btn.active[data-mode="deactivate"] {
+    background: var(--card-bg);
+    color: var(--deactivate-color);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
 /* Optional Banner - Hidden unless required */
 .mode-banner {
     display: none;
@@ -120,9 +129,13 @@ h1 {
     transition: border-left-color 0.2s ease;
 }
 
-/* Dynamic section accent when switching to Heal Mode */
+/* Dynamic section accents */
 .form-section.heal-mode {
     border-left-color: var(--heal-color);
+}
+
+.form-section.deactivate-mode {
+    border-left-color: var(--deactivate-color);
 }
 
 .section-title-bar {
@@ -208,30 +221,41 @@ textarea {
     transition: all 0.15s ease-in-out;
 }
 
-/* Accent for unpopulated / empty fields */
-input[type="text"]:placeholder-shown,
-input[type="email"]:placeholder-shown,
-input[type="tel"]:placeholder-shown,
-input[type="date"]:placeholder-shown,
-textarea:placeholder-shown,
-select:invalid {
+/* Styling for Read-Only / Disabled states in Deactivate mode */
+input[readonly],
+textarea[readonly],
+select[disabled] {
+    background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #64748b !important;
+    cursor: not-allowed;
+    box-shadow: none !important;
+}
+
+/* Accent for unpopulated / empty fields (only when active/editable) */
+input[type="text"]:not([readonly]):placeholder-shown,
+input[type="email"]:not([readonly]):placeholder-shown,
+input[type="tel"]:not([readonly]):placeholder-shown,
+input[type="date"]:not([readonly]):placeholder-shown,
+textarea:not([readonly]):placeholder-shown,
+select:not([disabled]):invalid {
     border-color: var(--accent-unfilled-border);
     background-color: var(--accent-unfilled-bg);
 }
 
-input[type="text"]:hover:not(:focus),
-input[type="email"]:hover:not(:focus),
-input[type="tel"]:hover:not(:focus),
-input[type="date"]:hover:not(:focus),
-select:hover:not(:focus),
-textarea:hover:not(:focus) {
+input[type="text"]:hover:not(:focus):not([readonly]),
+input[type="email"]:hover:not(:focus):not([readonly]),
+input[type="tel"]:hover:not(:focus):not([readonly]),
+input[type="date"]:hover:not(:focus):not([readonly]),
+select:hover:not(:focus):not([disabled]),
+textarea:hover:not(:focus):not([readonly]) {
     border-color: #475569;
     box-shadow: 0 2px 5px rgba(0,0,0,0.08);
 }
 
-input:focus,
-select:focus,
-textarea:focus {
+input:focus:not([readonly]),
+select:focus:not([disabled]),
+textarea:focus:not([readonly]) {
     background-color: #ffffff !important;
     border-color: var(--primary) !important;
     box-shadow: 0 0 0 4px rgba(0, 120, 212, 0.25), 0 2px 4px rgba(0,0,0,0.05);
@@ -281,6 +305,16 @@ textarea {
     box-shadow: 0 6px 16px rgba(3, 105, 161, 0.4);
 }
 
+.btn-submit.deactivate-mode {
+    background-color: var(--deactivate-color);
+    box-shadow: 0 4px 12px rgba(185, 28, 28, 0.3);
+}
+
+.btn-submit.deactivate-mode:hover {
+    background-color: var(--deactivate-hover);
+    box-shadow: 0 6px 16px rgba(185, 28, 28, 0.4);
+}
+
 .badge-status {
     font-size: 11px;
     font-weight: 800;
@@ -301,10 +335,11 @@ textarea {
 }
 
 /* ==========================================================================
-   STATUS OVERLAY & SPINNER
+   STATUS & CONFIRMATION OVERLAYS
    ========================================================================== */
 
-#status-overlay {
+#status-overlay,
+#confirm-modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -312,10 +347,17 @@ textarea {
     height: 100vh;
     background: rgba(15, 23, 42, 0.6);
     backdrop-filter: blur(4px);
-    display: none;
     align-items: center;
     justify-content: center;
     z-index: 9999;
+}
+
+#status-overlay {
+    display: none; /* Keep hidden on initial page load */
+}
+
+#confirm-modal-overlay {
+    display: flex; /* Centered flex container when .hidden class is removed */
 }
 
 .status-card {
@@ -345,4 +387,8 @@ textarea {
 
 .hidden {
     display: none !important;
+}.badge-status.deactivate {
+    background-color: #fecdd3;
+    color: #b91c1c;
 }
+
