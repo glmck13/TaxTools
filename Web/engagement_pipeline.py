@@ -604,6 +604,33 @@ def get_form_data():
                 form_data[k] = v
     return form_data
 
+def handle_delete_draft(form):
+    """Deletes a single engagement draft file from disk and returns to a fresh workspace."""
+    raw_client_val = get_form_val(form, "client_name")
+    
+    try:
+        client_qbo_id = extract_qbo_id(raw_client_val)
+    except Exception as ex:
+        return render_pipeline_error(form, f"Cannot resolve client ID for deletion: {str(ex)}")
+
+    eng_id = get_form_val(form, "engagement_id", "0")
+    if eng_id == "0":
+        return render_pipeline_error(form, "No active draft engagement selected to delete.")
+
+    draft_path = get_draft_file_path(client_qbo_id, eng_id)
+    is_locked, _ = is_draft_locked(draft_path)
+
+    if is_locked:
+        return render_pipeline_error(form, "Cannot delete a locked or dispatched engagement.")
+
+    if os.path.exists(draft_path):
+        try:
+            os.remove(draft_path)
+        except Exception as ex:
+            return render_pipeline_error(form, f"Failed to delete draft file: {str(ex)}", http_code=500)
+
+    render_phase1_workspace()
+
 def render_phase1_workspace(error_msg=None, preserved_form=None):
     print("Content-Type: text/html\n")
 
@@ -958,6 +985,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
                 <div style="display:flex; gap:10px; align-items:center;">
                     <button type="button" class="btn-add-row" onclick="addServiceRow()">+ Add Service Line Item</button>
                     <button type="button" class="btn-add-row btn-action-copy-trigger" onclick="toggleInlineCopyBar(true)">📋 Copy Scope & Fees from Existing Engagement...</button>
+                    <button type="submit" name="action" value="delete_draft" class="btn-add-row btn-delete-draft" onclick="return confirm('Are you sure you want to permanently delete this engagement draft?');">🗑️ Delete Draft</button>
                 </div>
 
                 <div id="inline-copy-toolbar" class="inline-copy-toolbar" style="display:none;">
@@ -2487,6 +2515,8 @@ if __name__ == "__main__":
         handle_save_draft_only(form_data)
     elif action == "patch_draft_only":
         handle_patch_draft_only(form_data)
+    elif action == "delete_draft":
+        handle_delete_draft(form_data)
     elif action == "render_live_pdf":
         handle_render_live_pdf(form_data)
     elif action == "download_draft_pdf":

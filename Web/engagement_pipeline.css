@@ -1182,3 +1182,15 @@ select {
 #modal-workspace-container #approval-card-container {
     display: block !important;
 }
+
+.btn-delete-draft {
+    background: #fee2e2;
+    color: #dc2626;
+    border-color: #fca5a5;
+    margin-left: auto;
+}
+
+.btn-delete-draft:hover {
+    background: #fca5a5;
+    color: #7f1d1d;
+}
