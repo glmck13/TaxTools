@@ -625,7 +625,11 @@ function recalculateTotals() {
     let baseTotal = 0;
     let discountTotal = 0;
 
-    const tbody = document.getElementById('service-tbody');
+    // Target the modal's tbody if the batch modal is open, otherwise fallback to the main workspace tbody
+    const modalContainer = document.getElementById('modal-workspace-container');
+    const modalTbody = modalContainer ? modalContainer.querySelector('#service-tbody') : null;
+    const tbody = modalTbody || document.getElementById('service-tbody');
+    
     if (!tbody) return;
 
     const rows = tbody.querySelectorAll('tr');
@@ -650,8 +654,11 @@ function recalculateTotals() {
     });
 
     const netTotal = baseTotal - discountTotal;
-    const discountEl = document.getElementById('ui-total-discount');
-    const balanceEl = document.getElementById('ui-total-balance');
+    
+    // Target the active container (modal vs main single-client view) for summary element updates
+    const activeContext = (modalContainer && modalTbody) ? modalContainer : document;
+    const discountEl = activeContext.querySelector('#ui-total-discount');
+    const balanceEl = activeContext.querySelector('#ui-total-balance');
 
     if (discountEl) discountEl.innerText = `-$${discountTotal.toLocaleString()}`;
     if (balanceEl) balanceEl.innerText = `$${netTotal.toLocaleString()}`;
