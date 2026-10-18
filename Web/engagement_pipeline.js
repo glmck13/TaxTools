@@ -801,7 +801,7 @@ function getFilteredBatchRows() {
             const coSignerEmailVal = coSigner.email || draft.co_signer_email || meta.co_signer_email || '';
             const coSignerNameVal = coSigner.name || draft.co_signer_name || meta.co_signer_name || '';
             const isDualSigner = (coSignerEmailVal.includes('@') || coSignerNameVal.length > 0);
-            const clientNameClean = pSigner.friendly_name || draft.friendly_name || meta.friendly_name || clientKey.split(' (Customer')[0];
+            const clientNameClean = clientKey.split(' (Customer')[0] || pSigner.friendly_name || draft.friendly_name || meta.friendly_name;
 
             const searchableText = `${qboId} ${clientNameClean} ${engTitle} ${entityType} ${clientFee} ${reviewedBy}`.toLowerCase();
 
