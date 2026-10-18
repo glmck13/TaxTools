@@ -1,7 +1,7 @@
 # 1. Define Variables
 TENANT_URL="https://tarrantadvisors.sharepoint.com"
 SITE_URL="${TENANT_URL}/sites/Company"
-QUERY_TEXT="filename:invoice* fileextension:pdf IsDocument:1"
+QUERY_TEXT="filename:\"Tax Agreement*\" fileextension:pdf IsDocument:1"
 
 # 2. Get Access Token for SharePoint
 export AUTH_TOKEN=$(m365 util accesstoken get --resource "$TENANT_URL" --output text)
@@ -40,7 +40,7 @@ m365 spo search \
   --selectProperties "Title,UniqueId,OriginalPath,SPSiteUrl" \
   --allResults \
   --query "[*].{Name: Title, UUID: UniqueId, URL: OriginalPath, SiteURL: SPSiteUrl}" \
-  -o json | jq -j --arg SITE "$SITE_URL" '.[] | select(.SiteURL == $SITE) | (
+  -o json | jq -j --arg SITE "$SITE_URL" '.[] | select(.SiteURL == $SITE) | select(.URL | test("/2026/"; "i")) | (
       (.SiteURL // ""),                               # Web site URL
       "\u0000",                                       # NUL byte
       ((.UUID // "") | gsub("[{}]"; "")),             # Clean UUID
