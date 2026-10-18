@@ -993,9 +993,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             <div style="display: flex; gap: 10px; flex-grow: 1; max-width: 500px;">
                 <input type="text" id="batch-search-input" placeholder="🔍 Search Client, Entity, QBO ID..." onkeyup="filterBatchTableGrid()" style="padding: 10px; font-size: 13px; border: 1px solid #cbd5e0; border-radius: 4px; flex-grow: 1;">
                 <select id="batch-format-filter" onchange="filterBatchTableGrid()" style="width: 150px; padding: 10px; font-size: 13px; border: 1px solid #cbd5e0; border-radius: 4px;">
-                    <option value="all">All Delivery Formats</option>
-                    <option value="electronic">Electronic Only</option>
-                    <option value="paper">Paper Only</option>
+                    <option value="all">All Engagements</option>
+                    <option value="not_finalized">Not Finalized</option>
                 </select>
             </div>
             

@@ -811,13 +811,15 @@ function getFilteredBatchRows() {
             const clientNameClean = clientKey.split(' (Customer')[0] || pSigner.friendly_name || draft.friendly_name || meta.friendly_name;
 
             const searchableText = `${qboId} ${clientNameClean} ${engTitle} ${entityType} ${clientFee} ${reviewedBy}`.toLowerCase();
-
+            const isSigned = Boolean(draft.adobe_completed_at);
             const matchesSearch = searchableText.includes(searchQuery);
-            let matchesFormat = true;
-            if (formatFilter === 'paper') matchesFormat = isPaper;
-            if (formatFilter === 'electronic') matchesFormat = !isPaper;
-
-            if (matchesSearch && matchesFormat) {
+            let matchesFilter = true;
+            if (formatFilter === 'not_finalized') {
+                matchesFilter = !isSigned;
+            } else if (formatFilter === 'signed') {
+                matchesFilter = isSigned;
+            }
+            if (matchesSearch && matchesFilter) {
                 allRecords.push({
                     qboId, engId, clientKey, client, draft, isLocked, isPaper,
                     clientFee, entityType, isDualSigner, coSignerNameVal, coSignerEmailVal,
