@@ -2,28 +2,77 @@
 import csv
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
 import urllib.request
+from datetime import datetime
 
 # ==============================================================================
-# CONFIGURATION
+# CONFIGURATION & PATH SETUP
 # ==============================================================================
 
+DOCUMENT_ROOT = os.environ.get("DOCUMENT_ROOT", "/var/www/tarrantadvisors")
 PIPELINE_SANDBOX = os.environ.get("PIPELINE_SANDBOX")
+
 if PIPELINE_SANDBOX:
     SP_WEB_URL = "https://tarrantadvisors.sharepoint.com"
-    QBOSP_MATCH_FILE = os.environ.get("DOCUMENT_ROOT", ".") + "/etc/sandbox-qbosp.csv"
+    QBOSP_MATCH_FILE = os.path.join(DOCUMENT_ROOT, "etc/sandbox-qbosp.csv")
+    ENGAGEMENTS_DIR = os.path.join(DOCUMENT_ROOT, "sandbox")
 else:
     SP_WEB_URL = "https://tarrantadvisors.sharepoint.com/sites/Company"
-    QBOSP_MATCH_FILE = os.environ.get("DOCUMENT_ROOT", ".") + "/etc/qbosp.csv"
+    QBOSP_MATCH_FILE = os.path.join(DOCUMENT_ROOT, "etc/qbosp.csv")
+    ENGAGEMENTS_DIR = os.path.join(DOCUMENT_ROOT, "engagements")
 
 SP_TARGET_FOLDER = "Shared Documents/!Adobe Signed Agreements"
 TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
 
 ADOBE_APIBASE = os.environ.get("ADOBE_APIBASE", "")
 ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
+
+
+def update_engagement_json_file(filepath, completed_at):
+    """Safely unlocks, updates JSON atomically with completion timestamp, and restores permissions."""
+    if not os.path.exists(filepath):
+        print(f"DEBUG: Target JSON file '{filepath}' does not exist for real-time hook update.", file=sys.stderr)
+        return False
+
+    file_stat = os.stat(filepath)
+    orig_mode = file_stat.st_mode
+    dir_name = os.path.dirname(filepath)
+
+    try:
+        # 1. Grant temporary write permission (chmod u+w)
+        os.chmod(filepath, orig_mode | stat.S_IWUSR)
+
+        # 2. Read existing JSON content
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # 3. Update completion timestamp
+        data["adobe_completed_at"] = completed_at
+
+        # 4. Atomic Write: Write to temporary file in the same directory
+        with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tf:
+            temp_path = tf.name
+            json.dump(data, tf, indent=2)
+
+        # 5. Atomic Replace
+        os.replace(temp_path, filepath)
+
+        print(f"DEBUG: Successfully updated {os.path.basename(filepath)} with adobe_completed_at='{completed_at}'", file=sys.stderr)
+        return True
+
+    except Exception as e:
+        print(f"DEBUG: Failed updating JSON {os.path.basename(filepath)}: {str(e)}", file=sys.stderr)
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
+    finally:
+        # 6. Restore original file permissions
+        os.chmod(filepath, orig_mode)
+
 
 def run_m365_command(args):
     """Executes an m365 CLI command using the pre-authenticated active session."""
@@ -181,6 +230,21 @@ def handle_post_notification():
         doc_type = meta.get("doc_type", "Unknown")
         qbo_customer_id = str(meta.get("qbo_id", "0"))
         engagement_id = str(meta.get("engagement_id", "0"))
+
+        # Determine completion timestamp (completedAt -> displayDate -> current ISO time)
+        completed_at_stamp = (
+            agreement_info.get("completedAt")
+            or agreement_info.get("displayDate")
+            or datetime.now().isoformat()
+        )
+
+        # Real-time JSON State Update (Executed BEFORE SharePoint operations)
+        if qbo_customer_id != "0" and engagement_id != "0":
+            json_file_path = os.path.join(ENGAGEMENTS_DIR, f"{qbo_customer_id}_{engagement_id}.json")
+            try:
+                update_engagement_json_file(json_file_path, completed_at_stamp)
+            except Exception as json_err:
+                print(f"DEBUG: Real-time JSON update failed for {json_file_path}: {json_err}", file=sys.stderr)
 
         # Determine target SharePoint folder based on QBOSP_MATCH_FILE lookup
         matched_sp_folder = lookup_sp_folder(qbo_customer_id)
