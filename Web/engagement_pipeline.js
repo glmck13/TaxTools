@@ -460,7 +460,6 @@ function onClientChange() {
     const actionsContainer = document.getElementById('actions-container');
     const oosContainer = document.getElementById('out-of-scope-container');
     const submitBtn = document.getElementById('btn-submit-main');
-    const lockBanner = document.getElementById('lock-banner-container');
     const syncToolbar = document.getElementById('qbo-sync-toolbar-container');
     const approvalContainer = document.getElementById('single-approval-card-container');
 
@@ -485,13 +484,24 @@ function onClientChange() {
         approvalContainer.innerHTML = renderApprovalCardHtml(draft);
     }
 
+    // Lock Banner & Delete Draft Button Visibility Control
+    const lockBanner = document.getElementById('lock-banner-container');
+    const deleteBtn = document.getElementById('btn-delete-draft');
+    const isLocked = Boolean(draft && draft.is_locked);
+
     if (lockBanner) {
-        if (draft && draft.is_locked) {
+        if (isLocked) {
             lockBanner.style.display = 'block';
             lockBanner.innerHTML = `<div style="background:#fff3cd; border:1px solid #ffebaa; color:#856404; padding:12px; margin-bottom:15px; border-radius:4px;">🔒 <strong>Engagement #${selectedEngId} is locked.</strong> Sourced on ${draft.locked_mtime}.</div>`;
         } else {
             lockBanner.style.display = 'none';
+            lockBanner.innerHTML = '';
         }
+    }
+
+    // Ensure Delete Draft button renders ONLY when engagement exists and is NOT locked
+    if (deleteBtn) {
+        deleteBtn.style.display = (draft && !isLocked) ? 'inline-block' : 'none';
     }
 
     // Handle form row persistence and rendering
