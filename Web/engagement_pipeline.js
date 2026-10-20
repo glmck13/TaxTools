@@ -290,7 +290,7 @@ function renderProfileCard(clientObj, draft, selectedEngId) {
     const coSigner = draft?.co_signer || {};
 
     const friendlyName = pSigner.friendly_name || draft?.friendly_name || meta.friendly_name || '';
-    const legalName = pSigner.legal_name || draft?.legal_name || meta.friendly_name || '';
+    const legalName = pSigner.legal_name || draft?.legal_name || meta.legal_name || meta.friendly_name || '';
     const primaryEmail = pSigner.email || draft?.primary_signer_email || meta.primary_signer_email || clientObj.email || '';
     const phone = draft?.phone || meta.phone || clientObj.phone || '';
 

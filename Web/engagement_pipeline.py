@@ -656,6 +656,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         qbo_phone = c.get("PrimaryPhone", {}).get("FreeFormNumber", "")
 
         meta = parse_acct_num(acct_num)
+        meta["legal_name"] = c_name
         
         if not meta.get("friendly_name"):
             meta["friendly_name"] = c_name
