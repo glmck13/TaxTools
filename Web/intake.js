@@ -210,7 +210,7 @@ function onClientSearchInput() {
     
     // 1. If user selected a full datalist option like "Sper, Karyn (ID: 55)"
     if (customerCatalog[inputVal]) {
-        if (currentMode !== "heal") {
+        if (currentMode === "lead") {
             setMode("heal");
         }
         fillClientFields(customerCatalog[inputVal], inputVal);
