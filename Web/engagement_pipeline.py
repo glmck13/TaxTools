@@ -881,7 +881,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Tarrant Advisors - 2026 Engagement Portal</title>
+    <title>Engagement Portal</title>
     <link rel="stylesheet" type="text/css" href="/css/{get_asset_url(CSS_FILE)}">
     <script>
         window.APP_CONFIG = {{
@@ -906,7 +906,10 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 </head>
 <body>
 <div class="wrapper">
-    <h1>Tarrant Advisors LLC — Account Engagement Portal</h1>
+    <div class="header-title-bar">
+        <h1>Account Engagement Portal</h1>
+        <a href="/intake.html" id="app-switch-link" class="btn-app-switch"> 👤 Client Intake Hub &rarr; </a>
+    </div>
     
     <div class="mode-tabs">
         <button type="button" id="tab-btn-single" class="tab-btn active" onclick="switchWorkspaceMode('single')">👤 Single Client Intake</button>
