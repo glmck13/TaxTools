@@ -130,6 +130,7 @@ RESPONDER="${RESPONDER:-${REMOTE_USER:-nobody}}"
 ENTITY_TYPE="${ENTITY_TYPE:-individual}"
 DELIVERY_FORMAT="${DELIVERY_FORMAT:-electronic}"
 IS_NEW_LEAD="${IS_NEW_LEAD:-true}"
+QBOSP_FILE="${DOCUMENT_ROOT}/etc/${QBO_SANDBOX}qbosp.csv"
 
 # Derive ACTION fallback if not explicitly provided
 if [ -z "$ACTION" ]; then
@@ -231,20 +232,17 @@ if [ "$ACTION" = "deactivate" ]; then
     fi
 
     # 2. MOVE SHAREPOINT FOLDERS TO !Inactive Clients
-    debug "Moving SharePoint folders to !Inactive Clients..."
-    
-    # Company Site Folder Move
-    COMPANY_SRC="Shared Documents/${CLEAN_CLIENT_NAME}"
+    debug 'Moving SharePoint folders to !Inactive Clients...'
+    QBOSP_CLIENT_NAME=$(grep "^${TARGET_QBO_ID}:" ${QBOSP_FILE} | cut -f3 -d:)
+    SHARE_SRC="Shared Documents/${QBOSP_CLIENT_NAME}"
+    SHARE_DST="Shared Documents/!Inactive Clients"
+    COMPANY_SRC="Shared Documents/${QBOSP_CLIENT_NAME% - SHARED}"
     COMPANY_DST="Shared Documents/!Inactive Clients"
     
     m365 spo folder move \
       --webUrl "$COMPANY_SITE" \
       --sourceUrl "$COMPANY_SRC" \
       --targetUrl "$COMPANY_DST" >&2 || true
-
-    # Share Site Folder Move
-    SHARE_SRC="Shared Documents/${CLEAN_CLIENT_NAME} - SHARED"
-    SHARE_DST="Shared Documents/!Inactive Clients"
 
     m365 spo folder move \
       --webUrl "$SHARE_SITE" \
@@ -517,8 +515,7 @@ m365 spo file add \
 
 rm -f "$HTML_TEMP_FILE"
 
-QBOSP_FILE="${DOCUMENT_ROOT}/etc/${QBO_SANDBOX}qbosp.csv"
-if [ -f "$QBOSP_FILE" ] && [ -n "$QBO_CUSTOMER_ID" ] && [ "$QBO_CUSTOMER_ID" != "Unknown" ]; then
+if [ -n "$QBO_CUSTOMER_ID" ] && [ "$QBO_CUSTOMER_ID" != "Unknown" ]; then
     echo "${QBO_CUSTOMER_ID}:${CLEAN_CLIENT_NAME}:${CLEAN_CLIENT_NAME} - SHARED:::" >> "$QBOSP_FILE"
     debug "Appended $QBO_CUSTOMER_ID to $QBOSP_FILE"
 fi
