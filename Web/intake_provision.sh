@@ -243,10 +243,10 @@ if [ "$ACTION" = "deactivate" ]; then
     QBOSP_CLIENT_NAME=$(grep "^${TARGET_QBO_ID}:" "$QBOSP_FILE" | cut -f3 -d:)
 
     if [ -n "${QBOSP_CLIENT_NAME}" ]; then
-        SHARE_SRC="Shared Documents/${QBOSP_CLIENT_NAME}"
-        SHARE_DST="Shared Documents/!Inactive Clients"
-        COMPANY_SRC="Shared Documents/${QBOSP_CLIENT_NAME% - SHARED}"
-        COMPANY_DST="Shared Documents/!Inactive Clients"
+        SHARE_SRC=$(to_server_rel_path "$SHARE_SITE" "Shared Documents/${QBOSP_CLIENT_NAME}")
+        SHARE_DST=$(to_server_rel_path "$SHARE_SITE" "Shared Documents/!Inactive Clients")
+        COMPANY_SRC=$(to_server_rel_path "$COMPANY_SITE" "Shared Documents/${QBOSP_CLIENT_NAME% - SHARED}")
+        COMPANY_DST=$(to_server_rel_path "$COMPANY_SITE" "Shared Documents/!Inactive Clients")
         
         m365 spo folder move \
           --webUrl "$COMPANY_SITE" \
