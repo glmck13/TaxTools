@@ -250,7 +250,7 @@ if [ "$ACTION" = "deactivate" ]; then
       --targetUrl "$SHARE_DST" >&2 || true
 
     # 3. REVOKE ALL GUEST SHARING LINKS ON MOVED SHARE FOLDER
-    MOVED_SHARE_LIB_PATH="Shared Documents/!Inactive Clients/${CLEAN_CLIENT_NAME} - SHARED"
+    MOVED_SHARE_LIB_PATH="Shared Documents/!Inactive Clients/${QBOSP_CLIENT_NAME}"
     MOVED_SHARE_SERVER_REL=$(to_server_rel_path "$SHARE_SITE" "$MOVED_SHARE_LIB_PATH")
     
     debug "Querying list item ID for moved folder: '$MOVED_SHARE_SERVER_REL'..."
