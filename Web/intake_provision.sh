@@ -212,6 +212,13 @@ if [ "$ACTION" = "deactivate" ]; then
     TARGET_QBO_ID="${EXISTING_ID:-$QBO_ID}"
 
     if [ -n "$TARGET_QBO_ID" ] && [ "$TARGET_QBO_ID" != "Unknown" ]; then
+        # Ensure SyncToken is present for deactivate payload
+        if [ -z "$EXISTING_SYNC_TOKEN" ]; then
+            debug "Fetching SyncToken for target QBO ID $TARGET_QBO_ID..."
+            SYNC_QUERY_RESP=$(qbo.sh GET "$QUERY_URI" "query=select SyncToken from Customer where Id = '${TARGET_QBO_ID}'" 2>&1 || echo "")
+            EXISTING_SYNC_TOKEN=$(echo "$SYNC_QUERY_RESP" | jq -r '.QueryResponse.Customer[0].SyncToken // "0"' 2>/dev/null || echo "0")
+        fi
+
         debug "Deactivating Customer ID $TARGET_QBO_ID in QBO (Active: false)..."
         
         QBO_DEACTIVATE_PAYLOAD=$(jq -n \
@@ -233,48 +240,53 @@ if [ "$ACTION" = "deactivate" ]; then
 
     # 2. MOVE SHAREPOINT FOLDERS TO !Inactive Clients
     debug 'Moving SharePoint folders to !Inactive Clients...'
-    QBOSP_CLIENT_NAME=$(grep "^${TARGET_QBO_ID}:" ${QBOSP_FILE} | cut -f3 -d:)
-    SHARE_SRC="Shared Documents/${QBOSP_CLIENT_NAME}"
-    SHARE_DST="Shared Documents/!Inactive Clients"
-    COMPANY_SRC="Shared Documents/${QBOSP_CLIENT_NAME% - SHARED}"
-    COMPANY_DST="Shared Documents/!Inactive Clients"
-    
-    m365 spo folder move \
-      --webUrl "$COMPANY_SITE" \
-      --sourceUrl "$COMPANY_SRC" \
-      --targetUrl "$COMPANY_DST" >&2 || true
+    QBOSP_CLIENT_NAME=$(grep "^${TARGET_QBO_ID}:" "$QBOSP_FILE" | cut -f3 -d:)
 
-    m365 spo folder move \
-      --webUrl "$SHARE_SITE" \
-      --sourceUrl "$SHARE_SRC" \
-      --targetUrl "$SHARE_DST" >&2 || true
-
-    # 3. REVOKE ALL GUEST SHARING LINKS ON MOVED SHARE FOLDER
-    MOVED_SHARE_LIB_PATH="Shared Documents/!Inactive Clients/${QBOSP_CLIENT_NAME}"
-    MOVED_SHARE_SERVER_REL=$(to_server_rel_path "$SHARE_SITE" "$MOVED_SHARE_LIB_PATH")
-    
-    debug "Querying list item ID for moved folder: '$MOVED_SHARE_SERVER_REL'..."
-    MOVED_ITEM_ID=$(m365 request \
-      --url "${SHARE_SITE}/_api/web/getfolderbyserverrelativeurl('${MOVED_SHARE_SERVER_REL}')/ListItemAllFields" \
-      -o json 2>&1 | jq -r '.ID // .d.ID // empty' 2>/dev/null)
-
-    if [ -n "$MOVED_ITEM_ID" ]; then
-        debug "Revoking guest sharing links on moved folder (Item ID: $MOVED_ITEM_ID)..."
+    if [ -n "${QBOSP_CLIENT_NAME}" ]; then
+        SHARE_SRC="Shared Documents/${QBOSP_CLIENT_NAME}"
+        SHARE_DST="Shared Documents/!Inactive Clients"
+        COMPANY_SRC="Shared Documents/${QBOSP_CLIENT_NAME% - SHARED}"
+        COMPANY_DST="Shared Documents/!Inactive Clients"
         
-        # Unshare object payload
-        UNSHARE_PAYLOAD=$(jq -n \
-          --arg url "${SHARE_SITE}/${MOVED_SHARE_LIB_PATH}" \
-          '{
-            url: $url
-          }')
+        m365 spo folder move \
+          --webUrl "$COMPANY_SITE" \
+          --sourceUrl "$COMPANY_SRC" \
+          --targetUrl "$COMPANY_DST" >&2 || true
 
-        m365 request \
-          --url "${SHARE_SITE}/_api/SP.Web.UnshareObject" \
-          --method POST \
-          --headers '{"accept":"application/json;odata=verbose","content-type":"application/json;odata=verbose"}' \
-          --body "$UNSHARE_PAYLOAD" >/dev/null 2>&1 || debug "Note: Unshare call completed."
+        m365 spo folder move \
+          --webUrl "$SHARE_SITE" \
+          --sourceUrl "$SHARE_SRC" \
+          --targetUrl "$SHARE_DST" >&2 || true
+
+        # 3. REVOKE ALL GUEST SHARING LINKS ON MOVED SHARE FOLDER
+        MOVED_SHARE_LIB_PATH="Shared Documents/!Inactive Clients/${QBOSP_CLIENT_NAME}"
+        MOVED_SHARE_SERVER_REL=$(to_server_rel_path "$SHARE_SITE" "$MOVED_SHARE_LIB_PATH")
+        
+        debug "Querying list item ID for moved folder: '$MOVED_SHARE_SERVER_REL'..."
+        MOVED_ITEM_RESP=$(m365 request \
+          --url "${SHARE_SITE}/_api/web/getfolderbyserverrelativeurl('${MOVED_SHARE_SERVER_REL}')/ListItemAllFields" \
+          -o json 2>&1 || echo "")
+        MOVED_ITEM_ID=$(echo "$MOVED_ITEM_RESP" | jq -r '.ID // .d.ID // empty' 2>/dev/null || echo "")
+
+        if [ -n "$MOVED_ITEM_ID" ]; then
+            debug "Revoking guest sharing links on moved folder (Item ID: $MOVED_ITEM_ID)..."
+            
+            UNSHARE_PAYLOAD=$(jq -n \
+              --arg url "${SHARE_SITE}/${MOVED_SHARE_LIB_PATH}" \
+              '{
+                url: $url
+              }')
+
+            m365 request \
+              --url "${SHARE_SITE}/_api/SP.Web.UnshareObject" \
+              --method POST \
+              --headers '{"accept":"application/json;odata=verbose","content-type":"application/json;odata=verbose"}' \
+              --body "$UNSHARE_PAYLOAD" >/dev/null 2>&1 || debug "Note: Unshare call completed."
+        else
+            debug "WARNING: Could not resolve List Item ID for '$MOVED_SHARE_SERVER_REL'."
+        fi
     else
-        debug "WARNING: Could not resolve List Item ID for '$MOVED_SHARE_SERVER_REL'."
+        debug "${TARGET_QBO_ID} not found in ${QBOSP_FILE}, skipping..."
     fi
 
     # 4. SEND EMAIL NOTIFICATION
@@ -415,9 +427,10 @@ SHARE_FOLDER_SERVER_REL=$(to_server_rel_path "$SHARE_SITE" "$SHARE_LIB_PATH")
 
 debug "Querying folder item ID for server-relative path: '$SHARE_FOLDER_SERVER_REL'..."
 
-SHARE_FOLDER_ITEM_ID=$(m365 request \
+SHARE_FOLDER_RESP=$(m365 request \
   --url "${SHARE_SITE}/_api/web/getfolderbyserverrelativeurl('${SHARE_FOLDER_SERVER_REL}')/ListItemAllFields" \
-  -o json 2>&1 | jq -r '.ID // .d.ID // empty' 2>/dev/null)
+  -o json 2>&1 || echo "")
+SHARE_FOLDER_ITEM_ID=$(echo "$SHARE_FOLDER_RESP" | jq -r '.ID // .d.ID // empty' 2>/dev/null || echo "")
 
 debug "Resolved SharePoint Folder Item ID: '${SHARE_FOLDER_ITEM_ID:-Not Found}'"
 
