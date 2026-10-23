@@ -283,7 +283,7 @@ MATCHING CRITERIA (In Order of Priority):
 3. NAME INVERSIONS & HOUSEHOLD MATCHING:
    - Account for name inversions (e.g., "Smith, John" vs "John Smith").
    - Match individual names to household folders (e.g., "John Smith" -> "John & Mary Smith - SHARED").
-   - Map business entities, DBAs, and trusts to their principal's personal folder ONLY IF no dedicated entity folder exists (e.g., "Murphy Law Firm" -> "Murphy, Starr & Christopher - SHARED").
+   - DO NOT map business entities, DBAs, and trusts to their principal's personal folder
 
 CONSTRAINTS & RULES:
 - MUST return a result object for EVERY QBO customer in the batch.
