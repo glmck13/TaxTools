@@ -285,6 +285,10 @@ if [ "$ACTION" = "deactivate" ]; then
         else
             debug "WARNING: Could not resolve List Item ID for '$MOVED_SHARE_SERVER_REL'."
         fi
+
+        sed -i "/^${TARGET_QBO_ID}:/d" "$QBOSP_FILE"
+        debug "Removed ${TARGET_QBO_ID} from ${QBOSP_FILE}"
+
     else
         debug "${TARGET_QBO_ID} not found in ${QBOSP_FILE}, skipping..."
     fi
