@@ -24,6 +24,7 @@ ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
 
 # Standard status strings that denote an executed agreement in Adobe Sign
 COMPLETED_STATUSES = {"SIGNED", "COMPLETED", "APPROVED", "DELIVERED", "ACCEPTED"}
+TERMINAL_CANCELLED_STATUSES = {"CANCELLED", "REJECTED", "DECLINED", "EXPIRED"}
 
 
 def log(msg):
@@ -39,20 +40,20 @@ def check_adobe_status(agreement_id):
         "Authorization": f"Bearer {ADOBE_TOKEN}",
         "Accept": "application/json",
     }
-    
+
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             status = data.get("status", "").upper()
-            
+
             # Extract completion date/time with fallbacks
             completed_at = (
                 data.get("completedAt") 
                 or data.get("displayDate") 
                 or datetime.now().isoformat()
             )
-            
+
             return status, completed_at
         else:
             log(f"⚠️ Adobe API returned HTTP {resp.status_code} for agreement {agreement_id}")
@@ -108,7 +109,7 @@ def main():
         sys.exit(1)
 
     log(f"Starting Adobe signature sync scan in: {ENGAGEMENTS_DIR}")
-    
+
     scanned_count = 0
     updated_count = 0
 
@@ -137,7 +138,11 @@ def main():
 
             if status in COMPLETED_STATUSES:
                 log(f"  🎉 Document {filename} is SIGNED! (Status: {status})")
-                update_json_file(filepath, adobe_completed_time)
+                update_json_file(filepath, f"+{adobe_completed_time}")
+                updated_count += 1
+            elif status in TERMINAL_CANCELLED_STATUSES:
+                log(f"  🛑 Document {filename} was {status}.")
+                update_json_file(filepath, f"!{adobe_completed_time}")
                 updated_count += 1
             else:
                 log(f"  ⏳ Document {filename} status is '{status}'. No update needed.")

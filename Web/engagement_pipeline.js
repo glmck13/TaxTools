@@ -12,7 +12,7 @@ let currentSortAscending = true;
 document.addEventListener("DOMContentLoaded", function() {
     const isBatchEnabled = Boolean(window.APP_CONFIG && window.APP_CONFIG.enableBatchMode === true);
     const modeTabsContainer = document.querySelector('.mode-tabs');
-    
+
     if (!isBatchEnabled) {
         if (modeTabsContainer) {
             modeTabsContainer.classList.add('mode-tabs-hidden');
@@ -38,6 +38,17 @@ function escapeHtml(str) {
 // ==========================================
 // WORKSPACE TAB & INTERACTION HELPERS
 // ==========================================
+
+function parseAdobeCompletion(rawVal) {
+    if (!rawVal) return { isSigned: false, isCancelled: false, date: '' };
+
+    const str = String(rawVal).trim();
+    return {
+        isSigned: str.startsWith('+'),
+        isCancelled: str.startsWith('!'),
+        date: str.slice(1)
+    };
+}
 
 function updateEngagementIdFromSelection() {
     const inputEl = document.getElementById('client-select-input');
@@ -165,7 +176,7 @@ function openSingleWorkspaceForClient(qboId, engId) {
 
     // 4. Trigger client change handler to load complete engagement view
     onClientChange();
-    
+
     // 5. Smooth scroll to workspace top
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -307,7 +318,7 @@ function renderProfileCard(clientObj, draft, selectedEngId) {
     container.innerHTML = `
         <div class="profile-card profile-card-complete">
             <div class="profile-card-title">Client Account & Signer Profile Metadata</div>
-            
+
             <div class="profile-editable-grid-top">
                 <div class="form-field-group engagement-title-group">
                     <label class="field-label">Engagement Document Title:</label>
@@ -639,7 +650,7 @@ function recalculateTotals() {
     const modalContainer = document.getElementById('modal-workspace-container');
     const modalTbody = modalContainer ? modalContainer.querySelector('#service-tbody') : null;
     const tbody = modalTbody || document.getElementById('service-tbody');
-    
+
     if (!tbody) return;
 
     const rows = tbody.querySelectorAll('tr');
@@ -648,7 +659,7 @@ function recalculateTotals() {
         const select = tr.querySelector('select');
         if (feeInput) {
             const val = parseInt(feeInput.value, 10) || 0;
-            
+
             let serviceText = '';
             if (select && select.selectedIndex >= 0) {
                 const opt = select.options[select.selectedIndex];
@@ -664,7 +675,7 @@ function recalculateTotals() {
     });
 
     const netTotal = baseTotal - discountTotal;
-    
+
     // Target the active container (modal vs main single-client view) for summary element updates
     const activeContext = (modalContainer && modalTbody) ? modalContainer : document;
     const discountEl = activeContext.querySelector('#ui-total-discount');
@@ -821,14 +832,19 @@ function getFilteredBatchRows() {
             const clientNameClean = clientKey.split(' (Customer')[0] || pSigner.friendly_name || draft.friendly_name || meta.friendly_name;
 
             const searchableText = `${qboId} ${clientNameClean} ${engTitle} ${entityType} ${clientFee} ${reviewedBy}`.toLowerCase();
-            const isSigned = Boolean(draft.adobe_completed_at);
+            const completion = parseAdobeCompletion(draft.adobe_completed_at);
+            
+            // Both Signed (+) and Cancelled (!) are terminal finalized states
+            const isFinalized = completion.isSigned || completion.isCancelled;
+
             const matchesSearch = searchableText.includes(searchQuery);
             let matchesFilter = true;
+
+            // Only filter when "Not Finalized" is chosen; "All Engagements" lets everything pass
             if (formatFilter === 'not_finalized') {
-                matchesFilter = !isSigned;
-            } else if (formatFilter === 'signed') {
-                matchesFilter = isSigned;
+                matchesFilter = !isFinalized; // Excludes both Signed (+) and Cancelled (!)
             }
+
             if (matchesSearch && matchesFilter) {
                 allRecords.push({
                     qboId, engId, clientKey, client, draft, isLocked, isPaper,
@@ -844,13 +860,15 @@ function getFilteredBatchRows() {
             let valA, valB;
 
             // Rank Status Priority:
-            // 4: Signed | 3: Out for Signature | 2: Approved | 1: Needs Review | 0: Data Incomplete
             const getStatusRank = (rec) => {
-                if (rec.draft && rec.draft.adobe_completed_at) return 4;
-                if (rec.isLocked) return 3;
-                if (rec.isDataIncomplete) return 0;
-                if (rec.isApproved) return 2;
-                return 1; // Needs Review
+                const comp = parseAdobeCompletion(rec.draft && rec.draft.adobe_completed_at);
+
+                if (comp.isCancelled) return 5;     // Rank 5: Cancelled / Terminated
+                if (comp.isSigned) return 4;        // Rank 4: Signed / Executed
+                if (rec.isLocked) return 3;         // Rank 3: Out for Signature
+                if (rec.isDataIncomplete) return 0; // Rank 0: Incomplete Data
+                if (rec.isApproved) return 2;       // Rank 2: Approved
+                return 1;                           // Rank 1: Needs Review
             };
 
             switch (currentSortColumn) {
@@ -933,25 +951,26 @@ function renderBatchTableGrid() {
 
         const badgeClickAttr = `onclick="openBatchEditModal('${qboId}', '${engId}')" title="Click to review services and fees"`;
 
+        const completion = parseAdobeCompletion(draft.adobe_completed_at);
+
         let statusBadge = `<span class="badge badge-needs-review badge-clickable" ${badgeClickAttr}>🔍 Needs Review</span>`;
         let checkboxDisabled = '';
 
-        if (draft.adobe_completed_at) {
+        if (completion.isCancelled) {
+            statusBadge = `<span class="badge badge-clickable" ${badgeClickAttr} style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5;" title="Cancelled/Declined in Adobe Sign (${escapeHtml(completion.date)})">🚫 Cancelled</span>`;
+            checkboxDisabled = 'disabled';
+        } else if (completion.isSigned) {
             const pdfUrl = `${window.location.pathname}?action=view_signed_pdf&client_name=${encodeURIComponent(qboId)}&engagement_id=${encodeURIComponent(engId)}`;
-            // GREEN (badge-approved): Fully Signed & Executed PDF available
-            statusBadge = `<a href="${pdfUrl}" target="_blank" class="badge badge-approved badge-clickable" style="text-decoration: none;" title="Click to open signed PDF in a new tab">✅ Signed 📄</a>`;
+            statusBadge = `<a href="${pdfUrl}" target="_blank" class="badge badge-approved badge-clickable" style="text-decoration: none;" title="Signed on ${escapeHtml(completion.date)}">✅ Signed 📄</a>`;
             checkboxDisabled = 'disabled';
         } else if (isLocked) {
-            // YELLOW/AMBER (badge-warning): Locked & Out for Signature
             statusBadge = `<span class="badge badge-warning">Out for Signature</span>`;
             checkboxDisabled = 'disabled';
         } else if (isDataIncomplete) {
-            // YELLOW/AMBER (badge-warning): Missing required fields
             statusBadge = `<span class="badge badge-warning badge-clickable" ${badgeClickAttr}>⚠️ Data Incomplete</span>`;
             checkboxDisabled = 'disabled';
         } else if (isApproved) {
             const byText = reviewedBy ? ` (${escapeHtml(reviewedBy)})` : '';
-            // BLUE (badge-info): Internally approved, ready to send
             statusBadge = `<span class="badge badge-info badge-clickable" ${badgeClickAttr}>✅ Approved${byText}</span>`;
         } else {
             checkboxDisabled = 'disabled';
@@ -1188,7 +1207,7 @@ function openBatchEditModal(qboId, engId) {
 
     const draft = clientObj.engagements?.[engId] || {};
     const titleEl = document.getElementById('modal-client-title');
-    
+
     if (titleEl) {
         titleEl.innerText = `Quick Review & Sign-Off: ${clientKeyName.split(' (Customer')[0]} (#${engId})`;
     }
@@ -1283,11 +1302,11 @@ function openBatchEditModal(qboId, engId) {
 function closeBatchEditModal() {
     const modal = document.getElementById('batch-edit-modal');
     const container = document.getElementById('modal-workspace-container');
-    
+
     if (container) {
         const qboId = container.getAttribute('data-qbo-id');
         const engId = container.getAttribute('data-eng-id');
-        
+
         const isApprovedCheckbox = container.querySelector('#is_approved_checkbox') || document.getElementById('is_approved_checkbox');
         const initialsInput = container.querySelector('#reviewed_by_input') || document.getElementById('reviewed_by_input');
         const timestampInput = container.querySelector('#reviewed_at_input') || document.getElementById('reviewed_at_input');
@@ -1304,7 +1323,7 @@ function closeBatchEditModal() {
             if (clientObj && clientObj.engagements?.[engId]) {
                 const targetDraft = clientObj.engagements[engId];
                 const newApprovedState = Boolean(isApprovedCheckbox && isApprovedCheckbox.checked);
-                
+
                 targetDraft.is_approved = newApprovedState;
                 targetDraft.reviewed_by = initialsInput ? initialsInput.value.trim().toUpperCase() : '';
                 targetDraft.reviewed_at = timestampInput ? timestampInput.value.trim() : '';
@@ -1319,7 +1338,7 @@ function closeBatchEditModal() {
                             const rowId = rowIdInput.value;
                             const itemId = tr.querySelector(`#row_item_id_${rowId}`)?.value || '';
                             const selectEl = tr.querySelector(`#row_service_${rowId}`);
-                            
+
                             let serviceName = '';
                             if (selectEl && selectEl.selectedIndex >= 0) {
                                 const selectedOption = selectEl.options[selectEl.selectedIndex];
@@ -1339,7 +1358,7 @@ function closeBatchEditModal() {
                             }
                         }
                     });
-                    
+
                     targetDraft.rows = modalRows;
                 }
 
@@ -1375,7 +1394,7 @@ function closeBatchEditModal() {
                 .catch(err => console.error('Error saving engagement draft:', err));
             }
         }
-        
+
         container.innerHTML = '';
     }
 
@@ -1471,7 +1490,7 @@ async function executeBatchPipelineSubmission() {
 
     for (const key of targetKeys) {
         const [qboId, engId] = key.split(':');
-        
+
         let clientKey = '';
         let clientObj = null;
         for (const k in window.clientData) {
@@ -1481,10 +1500,10 @@ async function executeBatchPipelineSubmission() {
                 break;
             }
         }
-        
+
         const draft = clientObj?.engagements?.[engId] || {};
         const isPaper = (draft.delivery_format === 'paper');
-        
+
         const params = new URLSearchParams();
         params.append('ajax', 'true');
         params.append('action', isPaper ? 'execute_transactional_pipeline_paper' : 'execute_transactional_pipeline');
@@ -1533,7 +1552,7 @@ async function executeBatchPipelineSubmission() {
         }
 
         terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Processing QBO ID ${qboId} / Eng ${engId} (${isPaper ? 'PAPER' : 'E-SIGN'})... `;
-        
+
         try {
             const res = await fetch(window.location.href, {
                 method: 'POST',
