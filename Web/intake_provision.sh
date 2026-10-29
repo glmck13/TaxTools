@@ -75,7 +75,7 @@ send_resend_email() {
     curl -s -X POST "https://api.resend.com/emails" \
       -H "Authorization: Bearer ${RESEND_API_KEY}" \
       -H "Content-Type: application/json" \
-      -d "$payload" >&2 || true
+      -d "$payload" >/dev/null 2>&1 || true
 }
 
 # ==============================================================================
@@ -251,12 +251,14 @@ if [ "$ACTION" = "deactivate" ]; then
         m365 spo folder move \
           --webUrl "$COMPANY_SITE" \
           --sourceUrl "$COMPANY_SRC" \
-          --targetUrl "$COMPANY_DST" >&2 || true
+          --targetUrl "$COMPANY_DST" \
+          --output none || true
 
         m365 spo folder move \
           --webUrl "$SHARE_SITE" \
           --sourceUrl "$SHARE_SRC" \
-          --targetUrl "$SHARE_DST" >&2 || true
+          --targetUrl "$SHARE_DST" \
+          --output none || true
 
         # 3. REVOKE ALL GUEST SHARING LINKS ON MOVED SHARE FOLDER
         MOVED_SHARE_LIB_PATH="Shared Documents/!Inactive Clients/${QBOSP_CLIENT_NAME}"
@@ -281,7 +283,8 @@ if [ "$ACTION" = "deactivate" ]; then
               --url "${SHARE_SITE}/_api/SP.Web.UnshareObject" \
               --method POST \
               --headers '{"accept":"application/json;odata=verbose","content-type":"application/json;odata=verbose"}' \
-              --body "$UNSHARE_PAYLOAD" >/dev/null 2>&1 || debug "Note: Unshare call completed."
+              --body "$UNSHARE_PAYLOAD" \
+              --output none || debug "Note: Unshare call completed."
         else
             debug "WARNING: Could not resolve List Item ID for '$MOVED_SHARE_SERVER_REL'."
         fi
@@ -424,7 +427,8 @@ SHARE_LIB_PATH="Shared Documents/${SHARE_ROOT_NAME}"
 m365 spo folder add \
   --webUrl "$SHARE_SITE" \
   --parentFolderUrl "Shared Documents" \
-  --name "$SHARE_ROOT_NAME" >&2 || true
+  --name "$SHARE_ROOT_NAME" \
+  --output none || true
 
 # 2. Query folder's underlying list item ID via SharePoint REST API
 SHARE_FOLDER_SERVER_REL=$(to_server_rel_path "$SHARE_SITE" "$SHARE_LIB_PATH")
@@ -443,7 +447,8 @@ for subfolder in "${SHARED_FOLDERS[@]}"; do
   m365 spo folder add \
     --webUrl "$SHARE_SITE" \
     --parentFolderUrl "$SHARE_LIB_PATH" \
-    --name "$subfolder" >&2 || true
+    --name "$subfolder" \
+    --output none || true
 done
 
 # 4. Idempotently create company site folder tree
@@ -451,13 +456,15 @@ COMPANY_ROOT_PATH="Shared Documents/${CLEAN_CLIENT_NAME}"
 m365 spo folder add \
   --webUrl "$COMPANY_SITE" \
   --parentFolderUrl "Shared Documents" \
-  --name "$CLEAN_CLIENT_NAME" >&2 || true
+  --name "$CLEAN_CLIENT_NAME" \
+  --output none || true
 
 for subfolder in "${COMPANY_FOLDERS[@]}"; do
   m365 spo folder add \
     --webUrl "$COMPANY_SITE" \
     --parentFolderUrl "$COMPANY_ROOT_PATH" \
-    --name "$subfolder" >&2 || true
+    --name "$subfolder" \
+    --output none || true
 done
 
 # STEP 3: COPY LOGFILE TEMPLATE & UPDATE METADATA
@@ -487,7 +494,8 @@ if [ -n "$SHARE_FOLDER_ITEM_ID" ]; then
       --Format "$SPO_FORMAT" \
       --Questionnaire "Not Found" \
       --RetLoaded "No" \
-      --ClientLog "$LOGFILE_LINK" >&2 || true
+      --ClientLog "$LOGFILE_LINK" \
+      --output none || true
 fi
 
 # STEP 4: ARCHIVE INTAKE SUMMARY HTML FILE
@@ -528,7 +536,8 @@ m365 spo file add \
   --folder "$COMPANY_ROOT_PATH" \
   --path "$HTML_TEMP_FILE" \
   --fileName "Client Intake Form.html" \
-  --overwrite true >&2 || true
+  --overwrite true \
+  --output none || true
 
 rm -f "$HTML_TEMP_FILE"
 
