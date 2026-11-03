@@ -35,6 +35,26 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+/**
+ * Common utility function to evaluate whether engagement data or client profile is incomplete.
+ * @param {Object} clientObj - Main client object from window.clientData
+ * @param {Object} draft - Specific engagement draft object
+ * @returns {boolean} True if data is incomplete; false otherwise.
+ */
+function isProfileIncomplete(clientObj, draft) {
+    if (!clientObj) return true;
+
+    const meta = clientObj.metadata || {};
+    const addrObj = draft?.billing_address || clientObj.address || {};
+    const pSigner = draft?.primary_signer || {};
+
+    const isAddressMissing = !addrObj.street || !addrObj.city;
+    const isConfigMissing = !draft?.entity_type && !meta.entity_type;
+    const isEmailMissing = !pSigner.email && !draft?.primary_signer_email && !clientObj.email;
+
+    return isAddressMissing || isConfigMissing || isEmailMissing;
+}
+
 // ==========================================
 // WORKSPACE TAB & INTERACTION HELPERS
 // ==========================================
@@ -311,13 +331,19 @@ function renderProfileCard(clientObj, draft, selectedEngId) {
     const zip = addr.zip || addr.PostalCode || '';
 
     const entityType = draft?.entity_type || meta.entity_type || 'individual';
+    const deliveryFormat = draft?.delivery_format || meta.delivery_format || 'electronic';
     const coSignerName = coSigner.name || draft?.co_signer_name || meta.co_signer_name || '';
     const coSignerEmail = coSigner.email || draft?.co_signer_email || meta.co_signer_email || '';
     const engTitle = draft?.engagement_title || '2026 Tax Services Agreement';
 
+    const isIncomplete = isProfileIncomplete(clientObj, draft);
+    const cardClass = isIncomplete ? 'profile-card-incomplete' : 'profile-card-complete';
+    const warningBadge = isIncomplete ? ' <span class="badge badge-warning">⚠️ Data Incomplete</span>' : '';
+
     container.innerHTML = `
-        <div class="profile-card profile-card-complete">
-            <div class="profile-card-title">Client Account & Signer Profile Metadata</div>
+        <div class="profile-card ${cardClass}">
+            <input type="hidden" id="delivery_format" name="delivery_format" value="${escapeHtml(deliveryFormat)}">
+            <div class="profile-card-title">Client Account & Signer Profile Metadata${warningBadge}</div>
 
             <div class="profile-editable-grid-top">
                 <div class="form-field-group engagement-title-group">
@@ -387,6 +413,92 @@ function renderProfileCard(clientObj, draft, selectedEngId) {
     `;
 
     container.style.display = 'block';
+}
+
+// ==========================================
+// OUT-OF-SCOPE CHECKLIST STATE SYNCHRONIZER
+// ==========================================
+
+function syncOutOfScopeChecklistFromDraft(draft) {
+    const container = document.getElementById('out-of-scope-checklist-container');
+    if (!container) return;
+
+    const oosData = draft?.out_of_scope_items || null;
+
+    // 1. Uncheck all boilerplate inputs first
+    const inputs = container.querySelectorAll('input[type="checkbox"]');
+    inputs.forEach(cb => {
+        if (!cb.name.includes('custom')) {
+            cb.checked = false;
+        }
+    });
+
+    // 2. Remove existing custom item DOM rows
+    const customRows = container.querySelectorAll('.custom-out-of-scope-item');
+    customRows.forEach(el => el.remove());
+
+    // 3. If draft has stored items, check matched boilerplate items & rebuild custom items
+    if (oosData && typeof oosData === 'object') {
+        Object.entries(oosData).forEach(([key, val]) => {
+            if (key.includes('custom')) {
+                // Rebuild custom item row
+                const div = document.createElement('div');
+                div.className = 'out-of-scope-checklist-item custom-out-of-scope-item';
+                div.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #e2e8f0;';
+                div.innerHTML = `
+                    <label style="font-weight: normal; display: flex; align-items: center; gap: 8px; cursor: pointer; flex-grow: 1;">
+                        <input type="checkbox" name="${escapeHtml(key)}" value="${escapeHtml(val)}" checked>
+                        <span>${escapeHtml(val)}</span>
+                    </label>
+                    <button type="button" class="btn-remove-row" onclick="this.parentElement.remove()" title="Remove Custom Exclusion" style="margin-left: 10px;">×</button>
+                `;
+                container.appendChild(div);
+            } else {
+                // Check matching boilerplate checkbox
+                const targetCb = container.querySelector(`input[name="${key}"]`);
+                if (targetCb) {
+                    targetCb.checked = true;
+                }
+            }
+        });
+    } else {
+        // Brand new engagement draft: default all boilerplate checkboxes to checked
+        inputs.forEach(cb => {
+            if (!cb.name.includes('custom')) {
+                cb.checked = true;
+            }
+        });
+    }
+}
+
+// ==========================================
+// SEGMENTED PILL CONTROL (WELCOME LETTER TOGGLE)
+// ==========================================
+
+function setSegmentedWelcomeLetter(enable) {
+    const btnStd = document.getElementById('seg-btn-std');
+    const btnWelcome = document.getElementById('seg-btn-welcome');
+    const hiddenInput = document.getElementById('include-cover-letter-input');
+
+    if (enable) {
+        if (btnWelcome) btnWelcome.classList.add('active');
+        if (btnStd) btnStd.classList.remove('active');
+        if (hiddenInput) hiddenInput.value = 'true';
+    } else {
+        if (btnStd) btnStd.classList.add('active');
+        if (btnWelcome) btnWelcome.classList.remove('active');
+        if (hiddenInput) hiddenInput.value = 'false';
+    }
+}
+
+function renderSegmentedPillControl() {
+    return `
+        <div class="segmented-control-container">
+            <button type="button" id="seg-btn-std" class="segmented-btn active" onclick="setSegmentedWelcomeLetter(false)">Standard</button>
+            <button type="button" id="seg-btn-welcome" class="segmented-btn" onclick="setSegmentedWelcomeLetter(true)">+ Welcome Letter</button>
+            <input type="hidden" name="include_cover_letter" id="include-cover-letter-input" value="false">
+        </div>
+    `;
 }
 
 // ==========================================
@@ -471,6 +583,7 @@ function onClientChange() {
     const actionsContainer = document.getElementById('actions-container');
     const oosContainer = document.getElementById('out-of-scope-container');
     const submitBtn = document.getElementById('btn-submit-main');
+    const submitContainer = submitBtn ? submitBtn.parentElement : null;
     const syncToolbar = document.getElementById('qbo-sync-toolbar-container');
     const approvalContainer = document.getElementById('single-approval-card-container');
 
@@ -489,6 +602,12 @@ function onClientChange() {
 
     // Render client metadata profile
     renderProfileCard(clientObj, draft, selectedEngId);
+
+    const effectiveFormat = draft?.delivery_format || clientObj?.metadata?.delivery_format || 'electronic';
+    const formatSelect = document.getElementById('delivery_format');
+    if (formatSelect) {
+        formatSelect.value = effectiveFormat;
+    }
 
     if (approvalContainer) {
         approvalContainer.style.display = 'block';
@@ -533,13 +652,32 @@ function onClientChange() {
     if (submitBtn) {
         submitBtn.style.display = 'inline-block';
         submitBtn.innerText = '⚡ Render PDF Preview';
+
+        if (submitContainer && !document.getElementById('seg-btn-std')) {
+            submitContainer.classList.add('submit-container-flex');
+            submitContainer.insertAdjacentHTML('afterbegin', renderSegmentedPillControl());
+        }
     }
 
     recalculateTotals();
+
+    // Sync out-of-scope checkboxes and custom items from the loaded draft state
+    syncOutOfScopeChecklistFromDraft(draft);
+
+    // Re-assert visibility after row setup and calculations complete
+    if (oosContainer) oosContainer.style.display = 'block';
 }
 
 function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicitClientObj = null) {
-    const tbody = document.getElementById('service-tbody');
+    // Detect if the Batch Edit Modal is currently visible
+    const batchModal = document.getElementById('batch-edit-modal');
+    const isModalOpen = batchModal && getComputedStyle(batchModal).display !== 'none';
+
+    // Route to the modal's table body if open, otherwise target the main workspace table body
+    const tbody = (isModalOpen && batchModal) 
+        ? batchModal.querySelector('#service-tbody') 
+        : document.getElementById('service-tbody');
+
     if (!tbody) return;
 
     const rowId = Date.now() + Math.floor(Math.random() * 1000);
@@ -547,19 +685,29 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicit
     tr.id = `service_row_${rowId}`;
 
     let resolvedItemId = itemId;
-    let optionsHtml = '<option value="">-- Select Service Item --</option>';
+    let selectedOptionValue = service || '';
+    const defaultSelected = (!service && !resolvedItemId) ? 'selected' : '';
+    let optionsHtml = '<option value="" disabled ' + defaultSelected + '>-- Select Service Item --</option>';
 
     // Use passed client object or resolve active client object safely
     let activeClientObj = explicitClientObj;
     if (!activeClientObj && window.clientData) {
-        const activeInputVal = document.getElementById('client-select-input')?.value || '';
         let targetQboId = '';
-        const idMatch = activeInputVal.match(/:\s*(\d+)(?:\s*\||\s*$)/);
-        if (idMatch) targetQboId = idMatch[1];
+
+        if (isModalOpen) {
+            // Read the QBO ID directly from the modal container attribute set when opened
+            const container = document.getElementById('modal-workspace-container');
+            targetQboId = container?.getAttribute('data-qbo-id') || '';
+        } else {
+            // Fallback to the single-client input selector
+            const activeInputVal = document.getElementById('client-select-input')?.value || '';
+            const idMatch = activeInputVal.match(/:\s*(\d+)(?:\s*\||\s*$)/);
+            if (idMatch) targetQboId = idMatch[1];
+        }
 
         for (const k in window.clientData) {
             const client = window.clientData[k];
-            if (String(client.id) === String(targetQboId) || String(client.id) === String(activeInputVal) || k === activeInputVal) {
+            if (String(client.id) === String(targetQboId)) {
                 activeClientObj = client;
                 break;
             }
@@ -569,13 +717,22 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicit
     const clientForServices = activeClientObj || (window.clientData ? Object.values(window.clientData)[0] : null);
     if (clientForServices && Array.isArray(clientForServices.exposed_services)) {
         clientForServices.exposed_services.forEach(s => {
-            const isSelectedByItemId = Boolean(itemId) && String(s.id) === String(itemId);
-            const isSelectedByTitle = Boolean(service) && s.name.trim().toLowerCase() === String(service).trim().toLowerCase();
-            const sel = (isSelectedByItemId || isSelectedByTitle) ? 'selected' : '';
+            let sel = '';
+            const cleanSvc = (service || '').trim().toLowerCase();
+
+            if (cleanSvc) {
+                // Prioritize explicit service name match
+                sel = (s.name.trim().toLowerCase() === cleanSvc) ? 'selected' : '';
+            } else if (itemId) {
+                // Fallback to item ID match only when no service name exists
+                sel = (String(s.id) === String(itemId)) ? 'selected' : '';
+            }
+
             if (sel) {
                 resolvedItemId = s.id;
+                selectedOptionValue = s.name;
             }
-            optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)}</option>`;
+            optionsHtml += `<option value="${escapeHtml(s.name)}" data-item-id="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)}</option>`;
         });
     }
 
@@ -586,7 +743,7 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicit
             <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${escapeHtml(resolvedItemId)}">
         </td>
         <td>
-            <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" onchange="onServiceDropdownChange('${rowId}')">
+            <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" required onchange="onServiceDropdownChange('${rowId}')">
                 ${optionsHtml}
             </select>
         </td>
@@ -602,10 +759,10 @@ function addServiceRow(itemId = '', service = '', fee = '', notes = '', explicit
 
     tbody.appendChild(tr);
 
-    // Enforce selection value on DOM node directly
-    if (resolvedItemId) {
+    // Enforce selection value on DOM node directly by matching option value (service name)
+    if (selectedOptionValue) {
         const selectEl = tr.querySelector(`#row_service_${rowId}`);
-        if (selectEl) selectEl.value = String(resolvedItemId);
+        if (selectEl) selectEl.value = selectedOptionValue;
     }
 
     recalculateTotals();
@@ -627,7 +784,7 @@ function onServiceDropdownChange(rowId) {
 
     const opt = select.options[select.selectedIndex];
     if (opt && opt.value) {
-        if (itemIdHidden) itemIdHidden.value = opt.value;
+        if (itemIdHidden) itemIdHidden.value = opt.getAttribute('data-item-id') || '';
         if (feeInput) {
             feeInput.value = opt.getAttribute('data-fee') || '0';
         }
@@ -647,9 +804,9 @@ function recalculateTotals() {
     let discountTotal = 0;
 
     // Target the modal's tbody if the batch modal is open, otherwise fallback to the main workspace tbody
-    const modalContainer = document.getElementById('modal-workspace-container');
-    const modalTbody = modalContainer ? modalContainer.querySelector('#service-tbody') : null;
-    const tbody = modalTbody || document.getElementById('service-tbody');
+    const batchModal = document.getElementById('batch-edit-modal');
+    const isModalOpen = batchModal && getComputedStyle(batchModal).display !== 'none';
+    const tbody = (isModalOpen && batchModal) ? batchModal.querySelector('#service-tbody') : document.getElementById('service-tbody');
 
     if (!tbody) return;
 
@@ -663,7 +820,7 @@ function recalculateTotals() {
             let serviceText = '';
             if (select && select.selectedIndex >= 0) {
                 const opt = select.options[select.selectedIndex];
-                serviceText = (opt?.getAttribute('data-service-name') || opt?.text || opt?.value || '').toLowerCase();
+                serviceText = (opt?.getAttribute('data-service-name') || opt?.value || opt?.text || '').toLowerCase();
             }
 
             if (serviceText.includes('discount') || serviceText.includes('referral')) {
@@ -677,7 +834,7 @@ function recalculateTotals() {
     const netTotal = baseTotal - discountTotal;
 
     // Target the active container (modal vs main single-client view) for summary element updates
-    const activeContext = (modalContainer && modalTbody) ? modalContainer : document;
+    const activeContext = (isModalOpen && batchModal) ? batchModal : document;
     const discountEl = activeContext.querySelector('#ui-total-discount');
     const balanceEl = activeContext.querySelector('#ui-total-balance');
 
@@ -734,6 +891,10 @@ function applyClonedScopeFromSource() {
     if (tbody) tbody.innerHTML = '';
 
     sourceDraft.rows.forEach(r => addServiceRow(r.item_id, r.service, r.fee, r.notes));
+
+    // Also copy out-of-scope checklist selections if present
+    syncOutOfScopeChecklistFromDraft(sourceDraft);
+
     toggleInlineCopyBar(false);
 }
 
@@ -769,6 +930,25 @@ function changeBatchPage(direction) {
 function handleBatchCheckboxToggle(qboId, engId, isChecked) {
     const key = `${qboId}:${engId}`;
     globalBatchSelections[key] = isChecked;
+
+    // Update master header checkbox state & apply button counter dynamically
+    const filteredRows = getFilteredBatchRows();
+    const activeMasterCheckbox = document.getElementById('master-batch-checkbox');
+
+    if (activeMasterCheckbox && filteredRows.length > 0) {
+        const selectedCount = filteredRows.filter(r => globalBatchSelections[`${r.qboId}:${r.engId}`] === true).length;
+        if (selectedCount === 0) {
+            activeMasterCheckbox.checked = false;
+            activeMasterCheckbox.indeterminate = false;
+        } else if (selectedCount === filteredRows.length) {
+            activeMasterCheckbox.checked = true;
+            activeMasterCheckbox.indeterminate = false;
+        } else {
+            activeMasterCheckbox.checked = false;
+            activeMasterCheckbox.indeterminate = true;
+        }
+    }
+
     updateBatchSummaryMetrics();
 }
 
@@ -793,7 +973,6 @@ function getFilteredBatchRows() {
         const client = window.clientData[clientKey];
         const qboId = String(client.id);
         const meta = client.metadata || {};
-        const clientAddr = client.address || {};
         const engagements = client.engagements || {};
 
         Object.keys(engagements).forEach(engId => {
@@ -804,20 +983,27 @@ function getFilteredBatchRows() {
 
             let clientFee = 0.0;
             if (draft.rows && draft.rows.length > 0) {
-                const baseFee = draft.rows.reduce((sum, r) => sum + (r.fee || 0), 0);
-                const discountFee = draft.rows.filter(r => (r.service || '').toLowerCase().includes('discount')).reduce((sum, r) => sum + Math.abs(r.fee || 0), 0);
+                let baseFee = 0;
+                let discountFee = 0;
+
+                draft.rows.forEach(r => {
+                    const feeVal = Math.abs(r.fee || 0);
+                    const serviceName = (r.service || '').toLowerCase();
+
+                    if (serviceName.includes('discount') || serviceName.includes('referral')) {
+                        discountFee += feeVal;
+                    } else {
+                        baseFee += feeVal;
+                    }
+                });
+
                 clientFee = baseFee - discountFee;
             }
 
             const pSigner = draft.primary_signer || {};
             const coSigner = draft.co_signer || {};
-            const addrObj = draft.billing_address || clientAddr;
 
-            const hasServiceRows = Boolean(draft.rows && Array.isArray(draft.rows) && draft.rows.length > 0);
-            const isAddressMissing = !addrObj.street || !addrObj.city;
-            const isConfigMissing = !draft.entity_type && !meta.entity_type;
-            const isEmailMissing = !pSigner.email && !draft.primary_signer_email && !client.email;
-            const isDataIncomplete = !hasServiceRows || isAddressMissing || isConfigMissing || isEmailMissing;
+            const isDataIncomplete = isProfileIncomplete(client, draft);
 
             const isApproved = Boolean(draft.is_approved === true);
             const reviewedBy = draft.reviewed_by || '';
@@ -831,9 +1017,11 @@ function getFilteredBatchRows() {
             const isDualSigner = (coSignerEmailVal.includes('@') || coSignerNameVal.length > 0);
             const clientNameClean = clientKey.split(' (Customer')[0] || pSigner.friendly_name || draft.friendly_name || meta.friendly_name;
 
-            const searchableText = `${qboId} ${clientNameClean} ${engTitle} ${entityType} ${clientFee} ${reviewedBy}`.toLowerCase();
+            const questionnaireStatus = draft.questionnaire_status || 'unsent';
+
+            const searchableText = `${qboId} ${clientNameClean} ${engTitle} ${entityType} ${clientFee} ${reviewedBy} ${questionnaireStatus}`.toLowerCase();
             const completion = parseAdobeCompletion(draft.adobe_completed_at);
-            
+
             // Both Signed (+) and Cancelled (!) are terminal finalized states
             const isFinalized = completion.isSigned || completion.isCancelled;
 
@@ -849,7 +1037,8 @@ function getFilteredBatchRows() {
                 allRecords.push({
                     qboId, engId, clientKey, client, draft, isLocked, isPaper,
                     clientFee, entityType, isDualSigner, coSignerNameVal, coSignerEmailVal,
-                    isDataIncomplete, isApproved, reviewedBy, reviewedAt, clientNameClean, engTitle
+                    isDataIncomplete, isApproved, reviewedBy, reviewedAt, clientNameClean, engTitle,
+                    questionnaireStatus
                 });
             }
         });
@@ -871,6 +1060,13 @@ function getFilteredBatchRows() {
                 return 1;                           // Rank 1: Needs Review
             };
 
+            const getQuestRank = (rec) => {
+                const st = (rec.questionnaireStatus || 'unsent').toLowerCase();
+                if (st === 'returned') return 2;
+                if (st === 'delivered') return 1;
+                return 0; // unsent
+            };
+
             switch (currentSortColumn) {
                 case 1: 
                     valA = parseInt(a.qboId, 10) || 0; 
@@ -885,12 +1081,12 @@ function getFilteredBatchRows() {
                     valB = (b.entityType || '').toLowerCase(); 
                     break;
                 case 4: 
-                    valA = a.isDualSigner ? 1 : 0; 
-                    valB = b.isDualSigner ? 1 : 0; 
-                    break;
-                case 5: 
                     valA = Number(a.clientFee) || 0; 
                     valB = Number(b.clientFee) || 0; 
+                    break;
+                case 5:
+                    valA = getQuestRank(a);
+                    valB = getQuestRank(b);
                     break;
                 case 6: 
                     valA = a.isPaper ? 1 : 0; 
@@ -926,13 +1122,6 @@ function renderBatchTableGrid() {
     const filteredRows = getFilteredBatchRows();
     const totalFilteredCount = filteredRows.length;
 
-    filteredRows.forEach(item => {
-        const key = `${item.qboId}:${item.engId}`;
-        if (!Object.prototype.hasOwnProperty.call(globalBatchSelections, key)) {
-            globalBatchSelections[key] = (!item.isLocked && !item.isDataIncomplete && item.isApproved);
-        }
-    });
-
     let paginatedSlice = filteredRows;
     if (batchPageSize !== 'all') {
         const totalPages = Math.max(1, Math.ceil(totalFilteredCount / batchPageSize));
@@ -945,7 +1134,7 @@ function renderBatchTableGrid() {
     tbody.innerHTML = '';
 
     paginatedSlice.forEach(item => {
-        const { qboId, engId, draft, isLocked, isPaper, clientFee, entityType, isDualSigner, coSignerNameVal, coSignerEmailVal, isDataIncomplete, isApproved, reviewedBy, clientNameClean, engTitle } = item;
+        const { qboId, engId, draft, isLocked, isPaper, clientFee, entityType, isDataIncomplete, isApproved, reviewedBy, clientNameClean, engTitle, questionnaireStatus } = item;
         const selectionKey = `${qboId}:${engId}`;
         const isChecked = Boolean(globalBatchSelections[selectionKey]);
 
@@ -954,29 +1143,41 @@ function renderBatchTableGrid() {
         const completion = parseAdobeCompletion(draft.adobe_completed_at);
 
         let statusBadge = `<span class="badge badge-needs-review badge-clickable" ${badgeClickAttr}>🔍 Needs Review</span>`;
-        let checkboxDisabled = '';
 
-        if (completion.isCancelled) {
+        // 1. Check for explicit paper wet-signature or questionnaire sign-off
+        if (draft.acceptance_type === 'paper_wet_signature') {
+            statusBadge = `<span class="badge badge-approved" title="Physical wet-ink paper signature received and recorded">✅ Wet Sig</span>`;
+        } else if (draft.acceptance_type === 'questionnaire_implicit_consent') {
+            statusBadge = `<span class="badge badge-approved" title="Sign-off completed via digital questionnaire consent">✅ Consent</span>`;
+        }
+        // 2. Check for electronic e-sign completion status from Adobe Sign
+        else if (completion.isCancelled) {
             statusBadge = `<span class="badge badge-clickable" ${badgeClickAttr} style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5;" title="Cancelled/Declined in Adobe Sign (${escapeHtml(completion.date)})">🚫 Cancelled</span>`;
-            checkboxDisabled = 'disabled';
         } else if (completion.isSigned) {
             const pdfUrl = `${window.location.pathname}?action=view_signed_pdf&client_name=${encodeURIComponent(qboId)}&engagement_id=${encodeURIComponent(engId)}`;
             statusBadge = `<a href="${pdfUrl}" target="_blank" class="badge badge-approved badge-clickable" style="text-decoration: none;" title="Signed on ${escapeHtml(completion.date)}">✅ Signed 📄</a>`;
-            checkboxDisabled = 'disabled';
-        } else if (isLocked) {
-            statusBadge = `<span class="badge badge-warning">Out for Signature</span>`;
-            checkboxDisabled = 'disabled';
-        } else if (isDataIncomplete) {
+        } 
+        // 3. Handle active locked state (dispatched agreements awaiting signature)
+        else if (isLocked) {
+            statusBadge = `<span class="badge badge-warning" title="${isPaper ? 'Paper agreement printed/dispatched' : 'E-signature pending via Adobe Sign'}">Out for Signature</span>`;
+        } 
+        // 4. Fallback pre-dispatch review states
+        else if (isDataIncomplete) {
             statusBadge = `<span class="badge badge-warning badge-clickable" ${badgeClickAttr}>⚠️ Data Incomplete</span>`;
-            checkboxDisabled = 'disabled';
         } else if (isApproved) {
             const byText = reviewedBy ? ` (${escapeHtml(reviewedBy)})` : '';
             statusBadge = `<span class="badge badge-info badge-clickable" ${badgeClickAttr}>✅ Approved${byText}</span>`;
-        } else {
-            checkboxDisabled = 'disabled';
         }
 
-        const checkedAttr = (isChecked && !checkboxDisabled) ? 'checked' : '';
+        let questBadge = `<span class="badge badge-quest-unsent">⚪ Unsent</span>`;
+        if (questionnaireStatus === 'delivered') {
+            questBadge = `<span class="badge badge-quest-delivered">📬 Delivered</span>`;
+        } else if (questionnaireStatus === 'returned') {
+            const consentType = draft.acceptance_type === 'questionnaire_implicit_consent' ? ' (Consent)' : '';
+            questBadge = `<span class="badge badge-quest-returned">✅ Returned${consentType}</span>`;
+        }
+
+        const checkedAttr = isChecked ? 'checked' : '';
         const formatBadgeClass = isPaper ? 'badge-paper' : 'badge-electronic';
         const formatText = isPaper ? 'Paper' : 'Electronic';
         const disabledCursor = isLocked ? 'cursor: default;' : 'cursor: pointer;';
@@ -995,7 +1196,7 @@ function renderBatchTableGrid() {
         tr.className = `batch-row-item format-${isPaper ? 'paper' : 'electronic'}`;
         tr.innerHTML = `
             <td style="text-align: center;">
-                <input type="checkbox" class="batch-checkbox" data-qbo-id="${qboId}" data-eng-id="${engId}" ${checkboxDisabled} ${checkedAttr} onchange="handleBatchCheckboxToggle('${qboId}', '${engId}', this.checked)">
+                <input type="checkbox" class="batch-checkbox" data-qbo-id="${qboId}" data-eng-id="${engId}" ${checkedAttr} onchange="handleBatchCheckboxToggle('${qboId}', '${engId}', this.checked)">
             </td>
             <td style="font-family: monospace; font-size: 12px; color: #555;">${qboId}</td>
             <td style="padding: 4px 8px;">
@@ -1008,8 +1209,8 @@ function renderBatchTableGrid() {
                 <br/><small style="color: #475569; font-weight: 600;">${escapeHtml(engTitle)}</small>
             </td>
             <td><span class="badge ${entityType === 'individual' ? 'badge-individual' : 'badge-organization'}">${escapeHtml(entityType)}</span></td>
-            <td style="font-size: 12px; color: #444;">${isDualSigner ? 'Joint (' + escapeHtml(coSignerNameVal || coSignerEmailVal) + ')' : 'Single'}</td>
             <td style="text-align: right; font-family: monospace; font-weight: bold; font-size: 14px;">$${Math.round(clientFee).toLocaleString()}</td>
+            <td>${questBadge}</td>
             <td>${formatBadgeHtml}</td>
             <td>${statusBadge}</td>
         `;
@@ -1055,85 +1256,24 @@ function updatePaginationUI(totalItems) {
 function updateBatchSummaryMetrics() {
     if (!window.clientData) return;
 
-    let selectedCount = 0, selectedElectronic = 0, selectedPaper = 0;
-    let approvedCount = 0;
-    let needsReviewCount = 0;
-    let incompleteCount = 0;
-    let sentCount = 0;
+    let selectedCount = 0;
 
     Object.keys(window.clientData).forEach(clientKey => {
         const client = window.clientData[clientKey];
         const qboId = String(client.id);
-        const meta = client.metadata || {};
-        const clientAddr = client.address || {};
         const engagements = client.engagements || {};
 
         Object.keys(engagements).forEach(engId => {
-            const draft = engagements[engId];
-            const isLocked = Boolean(draft.is_locked);
-            const effectiveFormat = draft.delivery_format || meta.delivery_format || 'electronic';
-            const isPaper = (effectiveFormat === 'paper');
-
-            const pSigner = draft.primary_signer || {};
-            const addrObj = draft.billing_address || clientAddr;
-
-            const hasServiceRows = Boolean(draft.rows && Array.isArray(draft.rows) && draft.rows.length > 0);
-            const isAddressMissing = !addrObj.street || !addrObj.city;
-            const isConfigMissing = !draft.entity_type && !meta.entity_type;
-            const isEmailMissing = !pSigner.email && !draft.primary_signer_email && !client.email;
-            const isDataIncomplete = !hasServiceRows || isAddressMissing || isConfigMissing || isEmailMissing;
-
-            const isApproved = Boolean(draft.is_approved === true);
-
-            const selectionKey = `${qboId}:${engId}`;
-            const isChecked = Boolean(globalBatchSelections[selectionKey]);
-
-            if (isChecked && isApproved && !isLocked && !isDataIncomplete) {
+            if (globalBatchSelections[`${qboId}:${engId}`]) {
                 selectedCount++;
-                if (isPaper) selectedPaper++; else selectedElectronic++;
-            }
-
-            if (isLocked) {
-                sentCount++;
-            } else if (isDataIncomplete) {
-                incompleteCount++;
-            } else if (isApproved) {
-                approvedCount++;
-            } else {
-                needsReviewCount++;
             }
         });
     });
 
-    const summaryGridNode = document.getElementById('batch-summary-grid');
-    if (summaryGridNode) {
-        summaryGridNode.innerHTML = `
-            <div class="summary-strip-item">
-                <span class="strip-label">Selected Batch:</span>
-                <span class="strip-value">${selectedCount}</span>
-                <span class="strip-sub">(${selectedElectronic} E-Sign / ${selectedPaper} Paper)</span>
-            </div>
-            <div class="summary-strip-divider">|</div>
-            <div class="summary-strip-item">
-                <span class="strip-label">Approved / Ready:</span>
-                <span class="strip-value text-green">${approvedCount}</span>
-            </div>
-            <div class="summary-strip-divider">|</div>
-            <div class="summary-strip-item">
-                <span class="strip-label">Needs Review:</span>
-                <span class="strip-value text-orange">${needsReviewCount}</span>
-            </div>
-            <div class="summary-strip-divider">|</div>
-            <div class="summary-strip-item">
-                <span class="strip-label">Data Incomplete:</span>
-                <span class="strip-value text-orange">${incompleteCount}</span>
-            </div>
-            <div class="summary-strip-divider">|</div>
-            <div class="summary-strip-item">
-                <span class="strip-label">Dispatched / Sent:</span>
-                <span class="strip-value text-blue">${sentCount}</span>
-            </div>
-        `;
+    const applyBtn = document.getElementById('btn-batch-apply-action');
+    if (applyBtn) {
+        applyBtn.innerText = selectedCount > 0 ? `Apply (${selectedCount})` : 'Apply';
+        applyBtn.disabled = selectedCount === 0;
     }
 }
 
@@ -1142,12 +1282,10 @@ function filterBatchTableGrid() {
     renderBatchTableGrid();
 }
 
-function selectAllBatchRows(shouldSelect) {
+function toggleMasterBatchCheckbox(masterChecked) {
     const filteredRows = getFilteredBatchRows();
     filteredRows.forEach(item => {
-        if (!item.isLocked && !item.isDataIncomplete && item.isApproved) {
-            globalBatchSelections[`${item.qboId}:${item.engId}`] = shouldSelect;
-        }
+        globalBatchSelections[`${item.qboId}:${item.engId}`] = masterChecked;
     });
     renderBatchTableGrid();
 }
@@ -1182,6 +1320,215 @@ function toggleClientDeliveryFormat(qboId, engId) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
     }).catch(err => console.error('Error saving format preference:', err));
+}
+
+// ==========================================
+// BATCH ACTION DISPATCH ROUTER
+// ==========================================
+
+function handleBatchActionExecution() {
+    const actionSelect = document.getElementById('batch-action-select');
+    if (!actionSelect) return;
+
+    const actionValue = actionSelect.value;
+    const targetKeys = Object.keys(globalBatchSelections).filter(k => globalBatchSelections[k] === true);
+
+    if (targetKeys.length === 0) {
+        alert('Please select at least one engagement record from the grid.');
+        return;
+    }
+
+    switch (actionValue) {
+        case 'submit_batch':
+            executeBatchPipelineSubmission();
+            break;
+        case 'record_paper_signature':
+            openRecordPaperSignatureModal(targetKeys);
+            break;
+        case 'send_adobe_reminder':
+            executeSendAdobeReminders(targetKeys);
+            break;
+        case 'email_welcome_letter':
+            executeEmailWelcomeLettersOnly(targetKeys);
+            break;
+        default:
+            alert('Please select a valid batch action to perform.');
+    }
+}
+
+function openRecordPaperSignatureModal(targetKeys) {
+    const modal = document.getElementById('paper-signature-modal');
+    if (!modal) {
+        // Fallback prompt if modal container is absent
+        const isImplicit = confirm(`Record paper agreement acceptance for ${targetKeys.length} client(s)?\n\nClick [OK] for Explicit Wet Signature, or [Cancel] for Implicit Questionnaire Consent.`);
+        executeRecordPaperSignature(targetKeys, isImplicit ? 'paper_wet_signature' : 'questionnaire_implicit_consent');
+        return;
+    }
+
+    const countSpan = document.getElementById('paper-modal-count');
+    if (countSpan) countSpan.innerText = targetKeys.length;
+
+    modal.style.display = 'flex';
+}
+
+function closeRecordPaperSignatureModal() {
+    const modal = document.getElementById('paper-signature-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function confirmRecordPaperSignatureModal() {
+    const targetKeys = Object.keys(globalBatchSelections).filter(k => globalBatchSelections[k] === true);
+    const selectedRadio = document.querySelector('input[name="paper_acceptance_type"]:checked');
+    const acceptanceType = selectedRadio ? selectedRadio.value : 'paper_wet_signature';
+
+    closeRecordPaperSignatureModal();
+    executeRecordPaperSignature(targetKeys, acceptanceType);
+}
+
+async function executeRecordPaperSignature(targetKeys, acceptanceType) {
+    const overlay = document.getElementById('batch-progress-overlay');
+    const terminalLog = document.getElementById('batch-terminal-log');
+    const progressBar = document.getElementById('batch-progress-fill');
+    const closeBtn = document.getElementById('btn-close-progress');
+
+    if (overlay) overlay.style.display = 'flex';
+    if (closeBtn) closeBtn.style.display = 'none';
+    if (terminalLog) terminalLog.innerHTML = `Recording paper acceptance (${acceptanceType}) for ${targetKeys.length} account(s)...\n`;
+
+    let completed = 0;
+
+    for (const key of targetKeys) {
+        const [qboId, engId] = key.split(':');
+        let clientObj = null;
+        for (const k in window.clientData) {
+            if (String(window.clientData[k].id) === String(qboId)) {
+                clientObj = window.clientData[k];
+                break;
+            }
+        }
+
+        const draft = clientObj?.engagements?.[engId];
+        if (draft) {
+            draft.acceptance_type = acceptanceType;
+            draft.is_locked = true;
+        }
+
+        const params = new URLSearchParams();
+        params.append('action', 'patch_draft_only');
+        params.append('client_name', qboId);
+        params.append('engagement_id', engId);
+        params.append('is_locked', 'true');
+        params.append('acceptance_type', acceptanceType);
+
+        try {
+            await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            });
+            terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Recorded QBO ${qboId} / Eng ${engId} ✔`;
+        } catch (err) {
+            terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Failed QBO ${qboId} / Eng ${engId}: ${err.message}`;
+        }
+
+        completed++;
+        if (progressBar) progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
+    }
+
+    terminalLog.innerHTML += `\n\n========================================\nPaper signature recording complete!`;
+    if (closeBtn) closeBtn.style.display = 'inline-block';
+    renderBatchTableGrid();
+}
+
+async function executeSendAdobeReminders(targetKeys) {
+    const overlay = document.getElementById('batch-progress-overlay');
+    const terminalLog = document.getElementById('batch-terminal-log');
+    const progressBar = document.getElementById('batch-progress-fill');
+    const closeBtn = document.getElementById('btn-close-progress');
+
+    if (overlay) overlay.style.display = 'flex';
+    if (closeBtn) closeBtn.style.display = 'none';
+    if (terminalLog) terminalLog.innerHTML = `Sending Adobe Sign reminders to ${targetKeys.length} account(s)...\n`;
+
+    let completed = 0;
+
+    for (const key of targetKeys) {
+        const [qboId, engId] = key.split(':');
+        const params = new URLSearchParams();
+        params.append('action', 'send_adobe_reminder');
+        params.append('client_name', qboId);
+        params.append('engagement_id', engId);
+
+        try {
+            await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            });
+            terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Reminder Sent for QBO ${qboId} / Eng ${engId} ✔`;
+        } catch (err) {
+            terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Failed QBO ${qboId}: ${err.message}`;
+        }
+
+        completed++;
+        if (progressBar) progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
+    }
+
+    terminalLog.innerHTML += `\n\n========================================\nReminder dispatch complete!`;
+    if (closeBtn) closeBtn.style.display = 'inline-block';
+}
+
+async function executeEmailWelcomeLettersOnly(targetKeys) {
+    const overlay = document.getElementById('batch-progress-overlay');
+    const terminalLog = document.getElementById('batch-terminal-log');
+    const progressBar = document.getElementById('batch-progress-fill');
+    const closeBtn = document.getElementById('btn-close-progress');
+
+    if (overlay) overlay.style.display = 'flex';
+    if (closeBtn) closeBtn.style.display = 'none';
+    if (terminalLog) terminalLog.innerHTML = `Dispatching Welcome Letters to ${targetKeys.length} account(s)...\n`;
+
+    let completed = 0;
+
+    for (const key of targetKeys) {
+        const [qboId, engId] = key.split(':');
+        let clientObj = null;
+        for (const k in window.clientData) {
+            if (String(window.clientData[k].id) === String(qboId)) {
+                clientObj = window.clientData[k];
+                break;
+            }
+        }
+
+        const draft = clientObj?.engagements?.[engId];
+        if (draft) {
+            draft.questionnaire_status = 'delivered';
+        }
+
+        const params = new URLSearchParams();
+        params.append('action', 'email_welcome_letter_only');
+        params.append('client_name', qboId);
+        params.append('engagement_id', engId);
+        params.append('questionnaire_status', 'delivered');
+
+        try {
+            await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            });
+            terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Welcome Letter Dispatched QBO ${qboId} / Eng ${engId} ✔`;
+        } catch (err) {
+            terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Failed QBO ${qboId}: ${err.message}`;
+        }
+
+        completed++;
+        if (progressBar) progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
+    }
+
+    terminalLog.innerHTML += `\n\n========================================\nWelcome Letter dispatch complete!`;
+    if (closeBtn) closeBtn.style.display = 'inline-block';
+    renderBatchTableGrid();
 }
 
 // ==========================================
@@ -1220,18 +1567,29 @@ function openBatchEditModal(qboId, engId) {
 
     rows.forEach((r) => {
         const rowId = `m_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-        let optionsHtml = '<option value="">-- Select Service Item --</option>';
         let resolvedItemId = r.item_id || '';
+        let selectedOptionValue = r.service || '';
+        const defaultSelected = (!r.service && !resolvedItemId) ? 'selected' : '';
+        let optionsHtml = '<option value="" disabled ' + defaultSelected + '>-- Select Service Item --</option>';
 
         if (clientObj.exposed_services) {
             clientObj.exposed_services.forEach(s => {
-                const isSelectedByItemId = Boolean(r.item_id) && String(s.id) === String(r.item_id);
-                const isSelectedByTitle = Boolean(r.service) && s.name.trim().toLowerCase() === String(r.service).trim().toLowerCase();
-                const sel = (isSelectedByItemId || isSelectedByTitle) ? 'selected' : '';
+                let sel = '';
+                const cleanSvc = (r.service || '').trim().toLowerCase();
+
+                if (cleanSvc) {
+                    // Prioritize explicit service name match
+                    sel = (s.name.trim().toLowerCase() === cleanSvc) ? 'selected' : '';
+                } else if (r.item_id) {
+                    // Fallback to item ID match only when no service name exists
+                    sel = (String(s.id) === String(r.item_id)) ? 'selected' : '';
+                }
+
                 if (sel) {
                     resolvedItemId = s.id;
+                    selectedOptionValue = s.name;
                 }
-                optionsHtml += `<option value="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)}</option>`;
+                optionsHtml += `<option value="${escapeHtml(s.name)}" data-item-id="${s.id}" data-service-name="${escapeHtml(s.name)}" data-fee="${s.fee}" data-notes="${escapeHtml(s.notes)}" ${sel}>${escapeHtml(s.name)}</option>`;
             });
         }
 
@@ -1243,7 +1601,7 @@ function openBatchEditModal(qboId, engId) {
                     <input type="hidden" name="row_item_id_${rowId}" id="row_item_id_${rowId}" value="${escapeHtml(resolvedItemId)}">
                 </td>
                 <td>
-                    <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" onchange="onServiceDropdownChange('${rowId}')">
+                    <select name="row_service_${rowId}" id="row_service_${rowId}" style="width: 100%; padding: 8px;" required onchange="onServiceDropdownChange('${rowId}')">
                         ${optionsHtml}
                     </select>
                 </td>
@@ -1342,13 +1700,7 @@ function closeBatchEditModal() {
                             let serviceName = '';
                             if (selectEl && selectEl.selectedIndex >= 0) {
                                 const selectedOption = selectEl.options[selectEl.selectedIndex];
-                                const attrName = selectedOption.getAttribute('data-service-name');
-                                if (attrName) {
-                                    serviceName = attrName.trim();
-                                } else {
-                                    const rawText = selectedOption.text || '';
-                                    serviceName = rawText.replace(/\s*\(\$[\d,]+\)$/, '').trim();
-                                }
+                                serviceName = selectedOption.getAttribute('data-service-name') || selectedOption.value || selectedOption.text.replace(/\s*\(\$[\d,]+\)$/, '').trim();
                             }
 
                             const fee = parseInt(tr.querySelector(`#row_fee_${rowId}`)?.value, 10) || 0;
@@ -1380,8 +1732,13 @@ function closeBatchEditModal() {
                     params.append(`row_notes_${rid}`, r.notes || '');
                 });
 
-                const isDataIncomplete = !targetDraft.rows?.length || !targetDraft.primary_signer?.email;
-                globalBatchSelections[`${qboId}:${engId}`] = newApprovedState && !isDataIncomplete;
+                // Preserve out of scope items when patching draft from Quick Review Modal
+                if (targetDraft.out_of_scope_items && typeof targetDraft.out_of_scope_items === 'object') {
+                    params.append('oos_submitted', 'true');
+                    Object.entries(targetDraft.out_of_scope_items).forEach(([k, v]) => {
+                        params.append(k, v);
+                    });
+                }
 
                 fetch(window.location.href, {
                     method: 'POST',
@@ -1409,7 +1766,7 @@ function cancelBatchEditModal() {
     if (container) container.innerHTML = '';
 }
 
-function applyBatchBulkClonedScope() {
+async function applyBatchBulkClonedScope() {
     const sourceVal = document.getElementById('batch-bulk-source-input')?.value || '';
     if (!sourceVal) return alert('Please select a source engagement to copy scope from.');
 
@@ -1445,7 +1802,7 @@ function applyBatchBulkClonedScope() {
 
     let completed = 0;
 
-    targetKeys.forEach(key => {
+    for (const key of targetKeys) {
         const [qboId, engId] = key.split(':');
         let targetDraft = null;
         for (const k in window.clientData) {
@@ -1456,26 +1813,79 @@ function applyBatchBulkClonedScope() {
         }
 
         if (targetDraft) {
+            // 1. Update memory state
             targetDraft.rows = JSON.parse(JSON.stringify(sourceDraft.rows));
             if (sourceDraft.out_of_scope_items) {
                 targetDraft.out_of_scope_items = JSON.parse(JSON.stringify(sourceDraft.out_of_scope_items));
+            }
+
+            // 2. Persist cloned scope and out-of-scope items to disk via patch API
+            const params = new URLSearchParams();
+            params.append('action', 'patch_draft_only');
+            params.append('client_name', qboId);
+            params.append('engagement_id', engId);
+
+            const safeRows = Array.isArray(targetDraft.rows) ? targetDraft.rows : [];
+            safeRows.forEach((r, idx) => {
+                const rid = idx + 1;
+                params.append('selected_rows', rid);
+                params.append(`row_item_id_${rid}`, r.item_id || '');
+                params.append(`row_service_${rid}`, r.service || '');
+                params.append(`row_fee_${rid}`, r.fee || 0);
+                params.append(`row_notes_${rid}`, r.notes || '');
+            });
+
+            if (targetDraft.out_of_scope_items && typeof targetDraft.out_of_scope_items === 'object') {
+                params.append('oos_submitted', 'true');
+                Object.entries(targetDraft.out_of_scope_items).forEach(([k, v]) => {
+                    params.append(k, v);
+                });
+            }
+
+            try {
+                await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params.toString()
+                });
+                if (terminalLog) terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Updated & Saved QBO ${qboId} / Eng ${engId} ✔`;
+            } catch (err) {
+                if (terminalLog) terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Save Failed QBO ${qboId}: ${err.message}`;
             }
         }
 
         completed++;
         if (progressBar) progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
-        if (terminalLog) terminalLog.innerHTML += `\n[${completed}/${targetKeys.length}] Updated QBO ${qboId} / Eng ${engId}`;
-    });
+    }
 
     if (terminalLog) terminalLog.innerHTML += `\n\n========================================\nScope clone execution complete!`;
     if (closeBtn) closeBtn.style.display = 'inline-block';
+    renderBatchTableGrid();
 }
 
 async function executeBatchPipelineSubmission() {
     const targetKeys = Object.keys(globalBatchSelections).filter(k => globalBatchSelections[k] === true);
     if (targetKeys.length === 0) return alert('No valid, approved engagements selected.');
 
-    if (!confirm(`Are you sure you want to process and dispatch ${targetKeys.length} approved engagement(s)?`)) return;
+    const unapprovedKeys = targetKeys.filter(key => {
+        const [qboId, engId] = key.split(':');
+        let clientObj = null;
+        for (const k in window.clientData) {
+            if (String(window.clientData[k].id) === String(qboId)) {
+                clientObj = window.clientData[k];
+                break;
+            }
+        }
+        const draft = clientObj?.engagements?.[engId];
+        return !draft || draft.is_approved !== true;
+    });
+
+    if (unapprovedKeys.length > 0) {
+        alert(`Execution halted: ${unapprovedKeys.length} selected engagement(s) have not been reviewed and approved yet.`);
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to process and dispatch ${targetKeys.length} selected engagement(s)?`)) return;
 
     const overlay = document.getElementById('batch-progress-overlay');
     const terminalLog = document.getElementById('batch-terminal-log');
@@ -1511,6 +1921,7 @@ async function executeBatchPipelineSubmission() {
         params.append('engagement_id', engId);
         params.append('engagement_title', draft.engagement_title || '2026 Tax Services Agreement');
         params.append('delivery_format', draft.delivery_format || 'electronic');
+        params.append('include_cover_letter', 'true');
 
         // Signer & Contact Information
         const pSigner = draft.primary_signer || {};
@@ -1566,7 +1977,10 @@ async function executeBatchPipelineSubmission() {
             if (res.ok) {
                 const data = await res.json();
                 if (data.status === 'success') {
-                    if (draft) draft.is_locked = true;
+                    if (draft) {
+                        draft.is_locked = true;
+                        draft.questionnaire_status = 'delivered';
+                    }
                     terminalLog.innerHTML += `SUCCESS ✔ (Estimate #${data.estimate_id || 'OK'})`;
                 } else {
                     terminalLog.innerHTML += `FAILED ❌ (${data.message || 'Pipeline failed'})`;
@@ -1590,4 +2004,5 @@ async function executeBatchPipelineSubmission() {
 
     terminalLog.innerHTML += `\n\n========================================\nBatch pipeline execution complete!`;
     closeBtn.style.display = 'inline-block';
+    renderBatchTableGrid();
 }

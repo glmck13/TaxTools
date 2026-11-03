@@ -1,7 +1,46 @@
-# Tarrant Advisors LLC
-1875 Campus Commons Dr., Suite 203, Reston, VA 20191
-75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464
+{% if INCLUDE_WELCOME_LETTER %}
 
+<b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}{% if CLIENT_PHONE %}<br><b>Phone:</b> {{CLIENT_PHONE}}{% endif %}
+
+Dear {{GREETING_NAME}},
+
+Welcome to the {{TAX_YEAR}} tax preparation season! To help streamline your return preparation and make gathering your documents as simple as possible, we have prepared your personalized digital organizer and secure file portal.
+
+Please review the following links to access your tax resources:
+
+{% set items = [] %}
+{% if SHAREPOINT_FOLDER_URL %}
+  {% set _ = items.append({'url': SHAREPOINT_FOLDER_URL, 'title': 'Your Secure SharePoint Folder', 'desc': 'Use this main portal folder to securely upload your tax documents, W-2s, 1099s, and supporting records directly to our team.'}) %}
+{% endif %}
+{% if CHECKLIST_FILE_URL %}
+  {% set _ = items.append({'url': CHECKLIST_FILE_URL, 'title': 'Your ' ~ TAX_YEAR ~ ' Tax Document Checklist', 'desc': 'A customized checklist of the specific tax forms and information statements needed for your return based on prior year filings.'}) %}
+{% endif %}
+{% if QUESTIONNAIRE_FORM_URL %}
+  {% set _ = items.append({'url': QUESTIONNAIRE_FORM_URL, 'title': 'Your ' ~ TAX_YEAR ~ ' Digital Tax Questionnaire', 'desc': 'Please complete this online questionnaire to provide demographic updates and confirm your tax information.'}) %}
+{% endif %}
+
+{% for item in items %}
+{{ loop.index }}. <a href="{{ item.url }}" color="#0078d4"><b><u>{{ item.title }}</u></b></a><br>
+   {{ item.desc }}
+{% endfor %}
+
+### Next Steps & Action Required
+
+{% if IS_PAPER %}
+Please review the <b>Tax Services Engagement Agreement</b> on the following page. Once you have reviewed the scope of services and fee estimates, please print, sign, and return the paper agreement to our office, or complete your confirmation via the online tax questionnaire.
+{% else %}
+Please review the <b>Tax Services Engagement Agreement</b> on the following page. Once you have reviewed the scope of services and fee estimates, please sign and date the agreement using the e-signature block at the bottom.
+{% endif %}
+
+If you have any questions or need assistance accessing your SharePoint folder, please reach out to our office at (703) 919-2665.
+
+Thank you for choosing Tarrant Advisors LLC. We look forward to working with you this season!
+
+Sincerely,<br>
+<b>Tarrant Advisors LLC</b>
+{% endif %}
+
+---PAGE_BREAK---
 ## {{TAX_YEAR}} TAX SERVICES ENGAGEMENT AGREEMENT ("Agreement")
 
 <b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}{% if CLIENT_PHONE %}<br><b>Phone:</b> {{CLIENT_PHONE}}{% endif %}
@@ -34,11 +73,13 @@ Tax services in addition to those described above and/or in addition to those pr
 {% endfor %}
 {% endif %}
 {% else %}
+{# START_OUT_OF_SCOPE #}
 * Additional state returns
 * Additional Schedule K-1's or new rental properties or sales
 * Detailed estimated payment computations or calculations based on actual activity
 * Tax research including analysis of additional transactions
 * Detailed correspondence with the tax authorities or audit assistance
+{# END_OUT_OF_SCOPE #}
 {% endif %}
 
 ### TERMS
@@ -51,7 +92,7 @@ This document establishes the terms under which Tarrant Advisors LLC will render
 3. You have reviewed our tax organizer including the related questionnaire and completed it to the best of your ability. Attaching and/or enclosing the backup material will be "completing" the organizer. <b><i>You agree to complete the organizer and questionnaire for us to process your returns.</i></b>
 4. You agree to provide all needed information with your tax organizer. Please include all W-2's, 1099's and summary year-end statements from your securities accounts and other tax return information, as applicable. Please provide K-1's as soon as received.
 5. You agree to respond to our written request for missing information in a timely manner <b>in writing via e-mail, fax or regular mail</b>.
-6. <b>You agree to review your returns carefully before signing and submitting Form 8879</b>. We will e-file your returns as soon as possible after receipt of your signed Form 8879. WE ENCOURAGE THE USE OF ADOBE SIGN FOR EXPEDITING THE REVIEW AND TAX FILING.
+6. <b>You agree to review your returns carefully before signing and submitting Form 8879</b>. We will e-file your returns as soon as possible after receipt of your signed Form 8879. {% if IS_PAPER %}IF YOU ARE RETURNING PAPER COPIES, PLEASE ENSURE SIGNATURES ARE LEGIBLE.{% else %}WE ENCOURAGE THE USE OF ADOBE SIGN FOR EXPEDITING THE REVIEW AND TAX FILING.{% endif %}
 7. <b>We do not file extensions unless you ask us to do so. If you want us to file an extension, contact us by April 1st. <i><u>Filing an extension does not relieve you of the obligation to pay all of your taxes by April 15th</u></i></b> (it is an EXTENSION of time to FILE - not an extension of time to PAY). Penalties will apply to any substantial payments made after that date. Extension payments can be made electronically as long as we have your bank information. If your return is extended, you agree to provide all necessary information to complete your return as soon as available but no later than September 15th, or you may be charged additional fees. Final returns are due by October 15th, and it is your responsibility to ensure we have all the required documentation to enable us to prepare and file your returns prior to this deadline.
 8. You are aware of IRS record keeping and documentation requirements and represent that you have the necessary records required. We do not audit or verify information, but we may ask for additional clarification.
 9. In the event your return is selected for audit, it will be your responsibility to produce documentation, records, and other evidence to substantiate items you claimed as income and/or deductions. We can serve as your representative at our agreed upon hourly rates.
