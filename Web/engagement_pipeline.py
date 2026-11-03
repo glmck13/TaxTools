@@ -1842,6 +1842,7 @@ def handle_email_welcome_letter_only(form):
     # 5. Render Jinja variables into Page 1
     rendered_markdown = Template(page1_markdown).render(
         INCLUDE_WELCOME_LETTER=True,
+        IS_FULL_AGREEMENT=False,
         IS_PAPER=False,
         GREETING_NAME=greeting_name,
         TAX_YEAR=TAX_YEAR,
@@ -2185,6 +2186,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_l
     jinja_tmpl = Template(raw_markdown)
     markdown_content = jinja_tmpl.render(
         INCLUDE_WELCOME_LETTER=should_include_cover_letter,
+        IS_FULL_AGREEMENT=True,
         IS_PAPER=is_paper_delivery,
         SHAREPOINT_FOLDER_URL=sp_folder_url,
         CHECKLIST_FILE_URL=sp_checklist_url,

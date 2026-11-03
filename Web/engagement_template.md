@@ -24,12 +24,14 @@ Please review the following links to access your tax resources:
    {{ item.desc }}
 {% endfor %}
 
+{% if IS_FULL_AGREEMENT %}
 ### Next Steps & Action Required
 
 {% if IS_PAPER %}
 Please review the <b>Tax Services Engagement Agreement</b> on the following page. Once you have reviewed the scope of services and fee estimates, please print, sign, and return the paper agreement to our office, or complete your confirmation via the online tax questionnaire.
 {% else %}
 Please review the <b>Tax Services Engagement Agreement</b> on the following page. Once you have reviewed the scope of services and fee estimates, please sign and date the agreement using the e-signature block at the bottom.
+{% endif %}
 {% endif %}
 
 If you have any questions or need assistance accessing your SharePoint folder, please reach out to our office at (703) 919-2665.
