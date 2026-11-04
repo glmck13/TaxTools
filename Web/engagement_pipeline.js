@@ -1979,7 +1979,9 @@ async function executeBatchPipelineSubmission() {
                 if (data.status === 'success') {
                     if (draft) {
                         draft.is_locked = true;
-                        draft.questionnaire_status = 'delivered';
+                        if (params.get('include_cover_letter') === 'true') {
+                            draft.questionnaire_status = 'delivered';
+                        }
                     }
                     terminalLog.innerHTML += `SUCCESS ✔ (Estimate #${data.estimate_id || 'OK'})`;
                 } else {

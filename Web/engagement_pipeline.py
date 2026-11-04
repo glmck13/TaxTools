@@ -2826,7 +2826,8 @@ def execute_transactional_pipeline(form):
             active_draft["estimate_id"] = estimate_id
             active_draft["phone"] = effective_phone
             active_draft["delivery_format"] = target_qbo_format
-            active_draft["questionnaire_status"] = "delivered"
+            if include_welcome_letter:
+                active_draft["questionnaire_status"] = "delivered"
             if adobe_agreement_id:
                 active_draft["adobe_agreement_id"] = adobe_agreement_id
 
