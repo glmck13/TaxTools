@@ -51,7 +51,7 @@ def update_engagement_json_file(filepath, completed_at):
             data = json.load(f)
 
         # 3. Update completion timestamp
-        data["adobe_completed_at"] = completed_at
+        data["adobe_completed_at"] = '+' + completed_at
 
         # 4. Atomic Write: Write to temporary file in the same directory
         with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tf:
