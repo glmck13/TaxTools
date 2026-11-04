@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import concurrent.futures
 import html
+import json
 import os
 import sys
 import urllib.parse
@@ -71,15 +73,56 @@ def fetch_agreements(api_base, access_token):
     return response.json()
 
 
-def render_html_page(agreements, error_message=None):
+def fetch_agreement_external_id(api_base, access_token, agreement_id):
+    """Fetch individual agreement detail from Adobe API to extract externalId metadata."""
+    url = f"{api_base}/agreements/{agreement_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            raw_ext_id = (data.get("externalId") or {}).get("id")
+            if raw_ext_id:
+                ext_data = raw_ext_id if isinstance(raw_ext_id, dict) else json.loads(raw_ext_id)
+                qbo_id = ext_data.get("qbo_id")
+                eng_id = ext_data.get("engagement_id")
+                if qbo_id and eng_id:
+                    return agreement_id, f"{qbo_id}_{eng_id}"
+    except Exception:
+        pass
+    return agreement_id, None
+
+
+def render_html_page(agreements, api_base="", access_token="", error_message=None):
     """Render HTML report with inline CSS and Vanilla JS for sorting, filtering, and pagination."""
     
+    # Concurrently fetch externalId metadata from Adobe GET /agreements/{id}
+    meta_map = {}
+    if agreements and api_base and access_token:
+        agr_ids = [item.get("id") for item in agreements if item.get("id")]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [
+                executor.submit(fetch_agreement_external_id, api_base, access_token, agr_id)
+                for agr_id in agr_ids
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                agr_id, tag_val = future.result()
+                if tag_val:
+                    meta_map[agr_id] = tag_val
+
     table_rows = []
     if agreements:
         for item in agreements:
             raw_id = item.get("id") or ""
             agr_id = html.escape(raw_id)
-            name = html.escape(item.get("name") or "Untitled")
+            
+            # Append : <qbo_id>_<engagement_id> tag if resolved
+            tag_suffix = f": {meta_map[raw_id]}" if raw_id in meta_map else ""
+            name = html.escape((item.get("name") or "Untitled") + tag_suffix)
+            
             status = html.escape(item.get("status") or "UNKNOWN")
             
             # Parse displayDate
@@ -346,7 +389,7 @@ def render_html_page(agreements, error_message=None):
         <div class="pagination-buttons">
             <button id="prevBtn" class="btn-page" onclick="changePage(-1)">&laquo; Previous</button>
             <span id="pageInfo" class="page-info">Page 1 of 1</span>
-            <button id="nextBtn" class="btn-page" onclick="changePage(1)">Next &raquo;</button>
+            <button id="nextBtn" class="btn-page" onclick="changePage(1)">&raquo; Next</button>
         </div>
     </div>
 </div>
@@ -460,7 +503,7 @@ def main():
     try:
         data = fetch_agreements(api_base, access_token)
         agreements = data.get("userAgreementList", [])
-        render_html_page(agreements)
+        render_html_page(agreements, api_base=api_base, access_token=access_token)
     except requests.exceptions.RequestException as e:
         render_html_page([], error_message=f"API Request Failed: {str(e)}")
 
