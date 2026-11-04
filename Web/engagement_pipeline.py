@@ -1026,8 +1026,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 <body>
 <div class="wrapper">
     <div class="header-title-bar">
-        <h1>Account Engagement Portal</h1>
-        <a href="/intake.html" id="app-switch-link" class="btn-app-switch"> 👤 Client Intake Hub &rarr; </a>
+        <h1>Account Engagement Portal <span style="color: orange;">{"***SANDBOX***" if PIPELINE_SANDBOX else ""}</span></h1>
+        <a href="/intake.html{"?sandbox=true" if PIPELINE_SANDBOX else ""}" id="app-switch-link" class="btn-app-switch"> 👤 Client Intake Hub &rarr; </a>
     </div>
 
     <div class="mode-tabs">

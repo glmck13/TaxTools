@@ -14,6 +14,17 @@ const LOOKUP_CGI_URL = `/cgi/intake_lookup.cgi${CGI_SUFFIX}`;
 const PROVISION_CGI_URL = `/cgi/intake_provision.cgi${CGI_SUFFIX}`;
 
 document.addEventListener("DOMContentLoaded", () => {
+    if (isSandbox) {
+        const sandboxEl = document.getElementById("sandbox");
+        if (sandboxEl) {
+            sandboxEl.innerHTML = ' <span style="color: orange;">***SANDBOX***</span>';
+        }
+
+        const appSwitchLink = document.getElementById("pipeline");
+        if (appSwitchLink) {
+            appSwitchLink.href = "/cgi/engagement_sandbox.cgi?sandbox=true";
+        }
+    }
     // Set default contact date to today
     const contactDateInput = document.getElementById("contact_date");
     if (contactDateInput && !contactDateInput.value) {
