@@ -78,7 +78,7 @@ def parse_acct_num(notes_str):
             raw_ent = str(data.get("entity", "")).lower().strip()
             meta["entity_type"] = raw_ent if raw_ent in ORGANIZATION_ENTITY_TYPES else "individual"
 
-            raw_fmt = str(data.get("format", data.get("delivery_format", ""))).lower().strip()
+            raw_fmt = str(data.get("delivery_format", "")).lower().strip()
             if raw_fmt in ["paper", "electronic"]:
                 meta["delivery_format"] = raw_fmt
             else:
