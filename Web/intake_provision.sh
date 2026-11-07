@@ -334,14 +334,14 @@ fi
 
 NOTES_JSON=$(jq -n -c \
   --arg entity "$ENTITY_TYPE" \
-  --arg format "$DELIVERY_FORMAT" \
+  --arg delivery_format "$DELIVERY_FORMAT" \
   --arg p_name "$FRIENDLY_NAME" \
   --arg p_email "$CLIENT_EMAIL" \
   --arg c_name "$CO_SIGNER_NAME" \
   --arg c_email "$CO_SIGNER_EMAIL" \
   '{
     entity: $entity,
-    format: $format,
+    delivery_format: $delivery_format,
     signers: (
       [{name: $p_name, email: $p_email}] +
       (if ($c_name != "" or $c_email != "") then [{name: $c_name, email: $c_email}] else [] end)

@@ -443,7 +443,7 @@ def parse_acct_num(acct_num_str):
         if isinstance(data, dict):
             meta["entity_type"] = str(data.get("entity", "")).lower().strip()
 
-            raw_fmt = str(data.get("format", data.get("delivery_format", ""))).lower().strip()
+            raw_fmt = str(data.get("delivery_format", "")).lower().strip()
             if raw_fmt in ["paper", "electronic"]:
                 meta["delivery_format"] = raw_fmt
             else:
@@ -490,7 +490,7 @@ def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_
 
     payload = {
         "entity": entity_type.strip().lower(),
-        "format": format.strip().lower() if format in ["paper", "electronic"] else "electronic",
+        "delivery_format": delivery_format.strip().lower() if delivery_format in ["paper", "electronic"] else "electronic",
         "signers": signers
     }
     return json.dumps(payload)
@@ -2660,7 +2660,7 @@ def execute_transactional_pipeline(form):
         co_signer_name=co_signer_name,
         co_signer_email=co_signer_email,
         entity_type=entity_type,
-        format=target_qbo_format
+        delivery_format=target_qbo_format
     )
 
     if sync_to_qbo:
