@@ -20,9 +20,14 @@ document.addEventListener("DOMContentLoaded", () => {
             sandboxEl.innerHTML = ' <span style="color: orange;">***SANDBOX***</span>';
         }
 
-        const appSwitchLink = document.getElementById("pipeline");
-        if (appSwitchLink) {
-            appSwitchLink.href = "/cgi/engagement_sandbox.cgi?sandbox=true";
+        const engagementLink = document.getElementById("engagement-pipeline");
+        if (engagementLink) {
+            engagementLink.href = "/cgi/engagement_sandbox.cgi";
+        }
+
+        const consentLink = document.getElementById("consent-pipeline");
+        if (consentLink) {
+            consentLink.href = "/cgi/consent_sandbox.cgi";
         }
     }
     // Set default contact date to today

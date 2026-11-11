@@ -41,6 +41,7 @@ if PIPELINE_SANDBOX:
     CSS_FILE = "engagement_sandbox.css"
     ENGAGEMENT_TEMPLATE = "engagement_sandbox.md"
     SERVICES_TEMPLATE = "services_sandbox.md"
+    CONSENT_SCRIPT = "consent_sandbox.cgi"
     OWNER_EMAIL = "dianna@tarrantadvisors.com"
     OWNER_SIGNATURE = "Where's Waldo"
     OWNER_CORPNAME = "Software Services"
@@ -52,6 +53,7 @@ else:
     CSS_FILE = "engagement_pipeline.css"
     ENGAGEMENT_TEMPLATE = "engagement_template.md"
     SERVICES_TEMPLATE = "services_template.md"
+    CONSENT_SCRIPT = "consent_pipeline.cgi"
     OWNER_EMAIL = "steve@tarrantadvisors.com"
     OWNER_SIGNATURE = "Steve Tarrant"
     OWNER_CORPNAME = "Managing Member - Tarrant Advisors, LLC"
@@ -464,7 +466,7 @@ def parse_acct_num(acct_num_str):
 
     return meta
 
-def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_email="", entity_type="individual", format="electronic"):
+def compile_acct_num(friendly_name, primary_email, co_signer_name="", co_signer_email="", entity_type="individual", delivery_format="electronic"):
     CLEAR_KEYWORDS = {"none", "null", "single", "n/a", ""}
 
     clean_p_name = friendly_name.strip()
@@ -1025,9 +1027,12 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 </head>
 <body>
 <div class="wrapper">
-    <div class="header-title-bar">
+    <div class="portal-nav-bar">
         <h1>Account Engagement Portal <span style="color: orange;">{"***SANDBOX***" if PIPELINE_SANDBOX else ""}</span></h1>
-        <a href="/intake.html{"?sandbox=true" if PIPELINE_SANDBOX else ""}" id="app-switch-link" class="btn-app-switch"> 👤 Client Intake Hub &rarr; </a>
+        <div class="portal-nav-links">
+            <a href="/cgi/{CONSENT_SCRIPT}" class="btn-portal-nav">🔒 Consent Portal &rarr;</a>
+            <a href="/intake.html{"?sandbox=true" if PIPELINE_SANDBOX else ""}" id="app-switch-link" class="btn-portal-nav">👤 Client Intake Hub &rarr;</a>
+        </div>
     </div>
 
     <div class="mode-tabs">
@@ -1461,7 +1466,7 @@ def handle_generate_preview(form):
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Review Proposed Engagement Document</title>
+    <title>Engagement Portal</title>
     <link rel="stylesheet" type="text/css" href="/css/{get_asset_url(CSS_FILE)}">
     <script src="/js/{get_asset_url(JS_FILE)}"></script>
 </head>

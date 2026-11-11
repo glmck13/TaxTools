@@ -4,14 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Client Intake & Profile Hub</title>
-    <link rel="stylesheet" href="/css/intake.css?v=1.1">
+    <link rel="stylesheet" href="/css/intake.css?v=2.1">
 </head>
 <body>
 
 <div class="wrapper">
     <div class="header-title-bar">
         <h1>Client Intake & Profile Hub <span id="sandbox"></span></h1>
-        <a href="/cgi/engagement_pipeline.cgi" id="pipeline" class="btn-app-switch"> 📑 Engagement Portal &rarr; </a>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <a href="/cgi/consent_pipeline.cgi" class="btn-app-switch" id="consent-pipeline">🔒 Consent Portal &rarr;</a>
+            <a href="/cgi/engagement_pipeline.cgi" class="btn-app-switch" id="engagement-pipeline">📑 Engagement Portal &rarr;</a>
+        </div>
     </div>
 
     <!-- Mode Switcher Controls -->
@@ -193,6 +196,6 @@
     </div>
 </div>
 
-<script src="/js/intake.js?v=1.2"></script>
+<script src="/js/intake.js?v=2.1"></script>
 </body>
 </html>

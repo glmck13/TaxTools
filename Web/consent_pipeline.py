@@ -26,12 +26,18 @@ if PIPELINE_SANDBOX:
     JS_FILE = "consent_sandbox.js"
     CSS_FILE = "consent_sandbox.css"
     CONSENT_TEMPLATE = "consent_sandbox.md"
+    ENGAGEMENT_SCRIPT = "engagement_sandbox.cgi"
     CARBON_COPIES = []
 else:
     JS_FILE = "consent_pipeline.js"
     CSS_FILE = "consent_pipeline.css"
     CONSENT_TEMPLATE = "consent_template.md"
-    CARBON_COPIES = ["katie@tarrantadvisors.com"]
+    ENGAGEMENT_SCRIPT = "engagement_pipeline.cgi"
+    CARBON_COPIES = ["steve@tarrantadvisors.com", "katie@tarrantadvisors.com"]
+
+COMPANY_NAME = "Tarrant Advisors LLC"
+COMPANY_ADDR1 = "1875 Campus Commons Dr., Suite 203, Reston, VA 20191"
+COMPANY_ADDR2 = "75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464"
 
 SCRIPT_URL = os.environ.get("SCRIPT_NAME", "")
 
@@ -41,6 +47,17 @@ QBO_TOKEN = os.environ.get("QBO_ACCESS_TOKEN", "")
 
 ADOBE_APIBASE = os.environ.get("ADOBE_APIBASE", "")
 ADOBE_TOKEN = os.environ.get("ADOBE_ACCESS_TOKEN", "")
+
+def get_asset_url(filename):
+    subfolder = "js" if filename.endswith(".js") else "css"
+    filepath = os.path.join(os.environ.get("DOCUMENT_ROOT", "."), subfolder, filename)
+    if os.path.exists(filepath):
+        mtime = int(os.path.getmtime(filepath))
+        return f"{filename}?v={mtime}"
+    return f"{filename}?v={int(time.time())}"
+
+JS_FILE = get_asset_url(JS_FILE)
+CSS_FILE = get_asset_url(CSS_FILE)
 
 # ==========================================
 # FORM DATA EXTRACTION HELPERS
@@ -55,8 +72,39 @@ def get_form_val(form, key, default=""):
     return str(val) if val is not None else default
 
 # ==========================================
-# QUICKBOOKS ONLINE REST WRAPPERS (READ-ONLY)
+# QUICKBOOKS ONLINE REST WRAPPERS & NOTES PARSERS
 # ==========================================
+def parse_acct_num(acct_num_str):
+    """Parses structured JSON metadata stored inside QuickBooks Online Customer Notes."""
+    meta = {
+        "entity_type": "individual",
+        "delivery_format": "electronic",
+        "friendly_name": "",
+        "primary_signer_email": "",
+        "co_signer_name": "",
+        "co_signer_email": ""
+    }
+    if not acct_num_str or not acct_num_str.strip():
+        return meta
+
+    data = json.loads(acct_num_str.strip())
+    
+    meta["entity_type"] = str(data.get("entity", "individual")).lower().strip()
+    meta["delivery_format"] = str(data.get("delivery_format", "electronic")).lower().strip()
+
+    signers = data.get("signers", [])
+    if len(signers) > 0:
+        p_signer = signers[0]
+        meta["friendly_name"] = str(p_signer.get("name", "")).strip()
+        meta["primary_signer_email"] = str(p_signer.get("email", "")).strip()
+
+    if len(signers) > 1:
+        s_signer = signers[1]
+        meta["co_signer_name"] = str(s_signer.get("name", "")).strip()
+        meta["co_signer_email"] = str(s_signer.get("email", "")).strip()
+
+    return meta
+
 def qbo_api_request(endpoint, method="GET", payload=None):
     """Executes REST calls directly against QuickBooks Online endpoints."""
     if "?" in endpoint:
@@ -227,10 +275,22 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
     client_data_map = {}
     for c in customers:
         c_id = c["Id"]
-        # Unescape HTML entities first so dictionary keys are plain text ("Duncan & Gerry McKenna")
         c_name = html.unescape(c["DisplayName"])
+        acct_num = c.get("Notes", "")
         addr_obj = c.get("BillAddr", {})
         c_email = c.get("PrimaryEmailAddr", {}).get("Address", "")
+        
+        # Extract phone number from QBO customer record[cite: 3]
+        phone_obj = c.get("PrimaryPhone", {})
+        c_phone = phone_obj.get("FreeFormNumber", "") if isinstance(phone_obj, dict) else ""
+
+        # Parse QBO Notes JSON metadata using parse_acct_num()[cite: 3]
+        meta = parse_acct_num(acct_num)
+        meta["legal_name"] = c_name
+        if not meta.get("friendly_name"):
+            meta["friendly_name"] = c_name
+        if not meta.get("primary_signer_email"):
+            meta["primary_signer_email"] = c_email
 
         has_addr = bool(addr_obj.get("Line1") and addr_obj.get("City") and addr_obj.get("CountrySubDivisionCode") and addr_obj.get("PostalCode"))
 
@@ -238,6 +298,8 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         client_data_map[client_key] = {
             "id": c_id,
             "email": c_email,
+            "phone": c_phone,
+            "metadata": meta,
             "address": {
                 "street": addr_obj.get("Line1", ""),
                 "city": addr_obj.get("City", ""),
@@ -255,6 +317,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
             "friendly_name": html.unescape(get_form_val(preserved_form, "friendly_name")),
             "local_legal_name": html.unescape(get_form_val(preserved_form, "local_legal_name")),
             "tax_years_covered": get_form_val(preserved_form, "tax_years_covered", "2025 and 2026 tax years"),
+            "client_phone_num": get_form_val(preserved_form, "client_phone_num"),
             "local_street": get_form_val(preserved_form, "local_street"),
             "local_city": get_form_val(preserved_form, "local_city"),
             "local_state": get_form_val(preserved_form, "local_state"),
@@ -268,7 +331,7 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Tarrant Advisors - Section 7216 Consent Portal</title>
+    <title>Consent Portal</title>
     <link rel="stylesheet" type="text/css" href="/css/{CSS_FILE}">
     <script>
         window.clientData = {json.dumps(client_data_map)};
@@ -285,7 +348,13 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 </head>
 <body>
 <div class="wrapper">
-    <h1>Tarrant Advisors LLC — Consent Request Portal</h1>
+    <div class="portal-nav-bar">
+        <h1 style="margin: 0; border: none; padding: 0;">Consent Request Portal <span style="color: orange;">{"***SANDBOX***" if PIPELINE_SANDBOX else ""}</span></h1>
+        <div class="portal-nav-links">
+            <a href="/cgi/{ENGAGEMENT_SCRIPT}" class="btn-portal-nav">📑 Engagement Portal &rarr;</a>
+            <a href="/intake.html{"?sandbox=true" if PIPELINE_SANDBOX else ""}" id="app-switch-link" class="btn-portal-nav">👤 Client Intake Hub &rarr;</a>
+        </div>
+    </div>
     <p style="font-size: 13px; color: #666; margin-bottom: 25px;">
         Generate and dispatch Section 7216 consent agreements allowing disclosure of client tax return information to authorized advisors.
     </p>
@@ -339,6 +408,7 @@ def handle_generate_preview(form):
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
     local_legal_name = html.unescape(get_form_val(form, "local_legal_name")).strip() or clean_client_title
     tax_years_covered = get_form_val(form, "tax_years_covered", "2025 and 2026 tax years")
+    client_phone_num = get_form_val(form, "client_phone_num") # Captured from form
 
     local_street = get_form_val(form, "local_street")
     local_city = get_form_val(form, "local_city")
@@ -356,6 +426,7 @@ def handle_generate_preview(form):
         ("friendly_name", friendly_name),
         ("local_legal_name", local_legal_name),
         ("tax_years_covered", tax_years_covered),
+        ("client_phone_num", client_phone_num), # Passed to PDF preview
         ("local_street", local_street),
         ("local_city", local_city),
         ("local_state", local_state),
@@ -371,7 +442,7 @@ def handle_generate_preview(form):
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Review Proposed Consent Document</title>
+    <title>Consent Portal</title>
     <link rel="stylesheet" type="text/css" href="/css/{CSS_FILE}">
 </head>
 <body>
@@ -382,6 +453,7 @@ def handle_generate_preview(form):
             <input type="hidden" name="friendly_name" value="{html.escape(friendly_name)}">
             <input type="hidden" name="local_legal_name" value="{html.escape(local_legal_name)}">
             <input type="hidden" name="tax_years_covered" value="{html.escape(tax_years_covered)}">
+            <input type="hidden" name="client_phone_num" value="{html.escape(client_phone_num)}">
             <input type="hidden" name="local_street" value="{html.escape(local_street)}">
             <input type="hidden" name="local_city" value="{html.escape(local_city)}">
             <input type="hidden" name="local_state" value="{html.escape(local_state)}">
@@ -419,7 +491,6 @@ def build_salutation_name(friendly_name, co_signer_name=""):
     primary_clean = friendly_name.strip() if friendly_name else ""
     co_signer_clean = co_signer_name.strip() if co_signer_name else ""
 
-    # Case 1: Primary client already contains joint names (e.g., "Jack & Jane Fleisher" or "Jack and Jane Fleisher")
     if " & " in primary_clean:
         parts = primary_clean.split(" & ", 1)
         p1 = clean_first_name(parts[0])
@@ -434,11 +505,9 @@ def build_salutation_name(friendly_name, co_signer_name=""):
     primary_first = clean_first_name(primary_clean)
     co_signer_first = clean_first_name(co_signer_clean)
 
-    # Case 2: Separate co-signer provided in form
     if primary_first and co_signer_first and primary_first.lower() != co_signer_first.lower():
         return f"{primary_first} and {co_signer_first}"
 
-    # Case 3: Standard single client
     return primary_first or primary_clean
 
 # ==========================================
@@ -447,12 +516,14 @@ def build_salutation_name(friendly_name, co_signer_name=""):
 def xml_safe_escape(text):
     if not text:
         return ""
-    # Unescape existing HTML entities first to prevent double-escaping (&amp; -> & -> &amp;)
     text = html.unescape(str(text))
     text = unicodedata.normalize('NFKD', text)
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    for tag in ["strong", "b", "i", "u"]:
-        text = text.replace(f"&lt;{tag}&gt;", f"<{tag}>").replace(f"&lt;/{tag}&gt;", f"</{tag}>")
+
+    for tag in ["strong", "b", "i", "u", "a"]:
+        text = re.sub(rf'&lt;({tag}\b.*?)&gt;', r'<\1>', text, flags=re.IGNORECASE)
+        text = re.sub(rf'&lt;/({tag})&gt;', r'</\1>', text, flags=re.IGNORECASE)
+
     return text.replace("&lt;br/&gt;", "<br/>").replace("&lt;br&gt;", "<br/>")
 
 def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
@@ -463,6 +534,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or clean_client_title
     local_legal_name = html.unescape(get_form_val(form, "local_legal_name")).strip() or clean_client_title
     tax_years_covered = get_form_val(form, "tax_years_covered", "2025 and 2026 tax years")
+    client_phone_num = get_form_val(form, "client_phone_num") # Retrieved for PDF rendering
 
     street = get_form_val(form, "local_street")
     city = get_form_val(form, "local_city")
@@ -480,12 +552,13 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
         with open(CONSENT_TEMPLATE, "r", encoding="utf-8") as f:
             raw_markdown = f.read()
     except FileNotFoundError:
-        raw_markdown = "# Tarrant Advisors LLC\n1875 Campus Commons Dr., Suite 203, Reston, VA 20191\n75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464\n## CONSENT TO DISCLOSE TAX RETURN INFORMATION"
+        raw_markdown = "## CONSENT TO DISCLOSE TAX RETURN INFORMATION"
 
     jinja_tmpl = Template(raw_markdown)
     markdown_content = jinja_tmpl.render(
         TODAY_DATE=datetime.date.today().strftime('%B %d, %Y'),
         CLIENT_ADDRESS=billing_address,
+        CLIENT_PHONE=xml_safe_escape(client_phone_num),
         CLIENT_LEGAL_NAME=xml_safe_escape(local_legal_name),
         FRIENDLY_NAME=xml_safe_escape(friendly_name),
         GREETING_NAME=xml_safe_escape(greeting_name),
@@ -521,56 +594,20 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     )
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
+    list_item_style = ParagraphStyle('ListItem', parent=body_style, spaceBefore=4, spaceAfter=3)
     h1_style = ParagraphStyle('CustomH1', parent=styles['Heading1'], fontSize=20, leading=24, textColor=HEADER_BLUE, spaceAfter=12)
     h2_style = ParagraphStyle('CustomH2', parent=styles['Heading2'], fontSize=14, leading=18, textColor=colors.HexColor('#111111'), spaceBefore=14, spaceAfter=8)
     h3_style = ParagraphStyle('CustomH3', parent=styles['Heading3'], fontSize=11, leading=15, textColor=colors.HexColor('#111111'), spaceBefore=8, spaceAfter=4)
 
     story = []
 
-    # ---------------------------------------------------------
-    # HEADER PARSING: Company Title + Office Addresses + Logo Table
-    # ---------------------------------------------------------
-    header_text_nodes = []
-    content_lines = markdown_content.split('\n')
-    filtered_lines = []
+    header_text_nodes = [
+        Paragraph(COMPANY_NAME, company_style),
+        Spacer(1, 2),
+        Paragraph(COMPANY_ADDR1, address_style),
+        Paragraph(COMPANY_ADDR2, address_style)
+    ]
 
-    company_title_found = False
-
-    for line in content_lines:
-        line_str = line.strip()
-        if not line_str or line_str.startswith("{%") or line_str.startswith("%}"):
-            continue
-
-        # 1. Match company title line (# Tarrant Advisors LLC)
-        if line_str.startswith("# ") and not company_title_found:
-            company_title_found = True
-            header_text_nodes.append(Paragraph(xml_safe_escape(line_str[2:].strip()), company_style))
-            header_text_nodes.append(Spacer(1, 3))
-            continue
-        
-        # 2. Match office address lines (stop when hitting ##, Date, or Client)
-        if company_title_found and len(header_text_nodes) < 5:
-            if line_str.startswith("##") or re.match(r'^[A-Z][a-z]+\s+\d{1,2},\s+\d{4}', line_str):
-                filtered_lines.append(line)
-                company_title_found = False
-                continue
-            header_text_nodes.append(Paragraph(xml_safe_escape(line_str), address_style))
-            continue
-
-        filtered_lines.append(line)
-
-    # Fallback safety if template header was missing
-    if not header_text_nodes:
-        header_text_nodes = [
-            Paragraph("Tarrant Advisors LLC", company_style),
-            Spacer(1, 3),
-            Paragraph("1875 Campus Commons Dr., Suite 203, Reston, VA 20191", address_style),
-            Paragraph("75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464", address_style)
-        ]
-
-    # ---------------------------------------------------------
-    # PROPORTIONAL LOGO SCALING
-    # ---------------------------------------------------------
     logo_path = os.environ.get("DOCUMENT_ROOT", ".") + "/images/logo.png"
     if os.path.exists(logo_path):
         logo_img = Image(logo_path)
@@ -588,7 +625,6 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     else:
         logo_img = Paragraph("", styles['Normal'])
 
-    # Build Top Header Table (Logo Left, Text Right)
     header_table = Table([[logo_img, header_text_nodes]], colWidths=[160, 370])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
@@ -602,13 +638,9 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
     story.append(header_table)
     story.append(Spacer(1, 10))
 
-    # ---------------------------------------------------------
-    # RENDER BODY CONTENT IN CORRECT SEQUENCE
-    # ---------------------------------------------------------
-    for line in filtered_lines:
+    for line in markdown_content.split('\n'):
         line_str = line.strip()
-        if not line_str:
-            story.append(Spacer(1, 4))
+        if not line_str or line_str.startswith("{%") or line_str.startswith("%}") or line_str.startswith("{#"):
             continue
 
         if line_str.startswith("# "):
@@ -619,6 +651,9 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False):
             story.append(Paragraph(line_str[4:], h3_style))
         elif line_str == "---":
             story.append(Spacer(1, 10))
+        elif re.match(r'^\d+\.\s+', line_str):
+            story.append(Paragraph(xml_safe_escape(line_str), list_item_style))
+            story.append(Spacer(1, 3))
         else:
             story.append(Paragraph(xml_safe_escape(line_str), body_style))
             story.append(Spacer(1, 4))
@@ -742,6 +777,7 @@ def execute_transactional_pipeline(form):
             ("friendly_name", friendly_name),
             ("local_legal_name", local_legal_name),
             ("tax_years_covered", get_form_val(form, "tax_years_covered")),
+            ("client_phone_num", get_form_val(form, "client_phone_num")), # Included in download final link
             ("local_street", get_form_val(form, "local_street")),
             ("local_city", get_form_val(form, "local_city")),
             ("local_state", get_form_val(form, "local_state")),

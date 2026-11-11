@@ -1,10 +1,6 @@
-# Tarrant Advisors LLC
-1875 Campus Commons Dr., Suite 203, Reston, VA 20191  
-75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464  
 ## CONSENT TO DISCLOSE TAX RETURN INFORMATION
 
-{{ TODAY_DATE }}<br/>{{ CLIENT_LEGAL_NAME }}<br/>{{ CLIENT_ADDRESS }}
-<br/>
+<b>Date:</b> {{ TODAY_DATE }}<br/><b>Client:</b> {{ CLIENT_LEGAL_NAME }}<br/><b>Address:</b> {{ CLIENT_ADDRESS }}{% if CLIENT_PHONE %}<br/><b>Phone:</b> {{ CLIENT_PHONE }}{% endif %}
 <br/>
 <br/>
 Dear {{ GREETING_NAME }}:

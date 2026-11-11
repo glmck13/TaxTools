@@ -48,14 +48,17 @@ function onClientChange() {
 
     const clientRecord = window.clientData[selectedClient];
     const address = clientRecord.address || {};
+    const metadata = clientRecord.metadata || {}; // Sourced from QBO Notes JSON via Python backend[cite: 2]
     
-    // Support both <input list="..."> and legacy <select> elements for name extraction
+    // Support both <input list="..."> and legacy <select> elements for name extraction[cite: 3]
     const rawText = clientSelect.value || (clientSelect.options && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex].text : '');
     const rawOptionText = unescapeHtml(rawText);
     const rawCustomerName = rawOptionText.split(/\s*\(Customer/)[0].trim();
 
     const healData = window.preservedHealData || {};
-    const defaultFriendlyName = healData.friendly_name || rawCustomerName;
+    
+    // Prioritize preserved data, then metadata friendly name, then raw customer name[cite: 2, 3]
+    const defaultFriendlyName = healData.friendly_name || metadata.friendly_name || rawCustomerName;
     const defaultLegalName = healData.local_legal_name || rawCustomerName;
 
     const isAddressMissing = !address.street || !address.city || !address.state || !address.zip;
@@ -63,9 +66,9 @@ function onClientChange() {
     if (profileContainer) {
         profileContainer.style.display = 'block';
         if (isAddressMissing) {
-            renderFallbackAddressPanel(profileContainer, address, defaultFriendlyName, defaultLegalName, clientRecord.email);
+            renderFallbackAddressPanel(profileContainer, address, defaultFriendlyName, defaultLegalName, clientRecord.email, clientRecord.phone);
         } else {
-            renderVerifiedProfilePanel(profileContainer, address, defaultFriendlyName, defaultLegalName, clientRecord.email);
+            renderVerifiedProfilePanel(profileContainer, address, defaultFriendlyName, defaultLegalName, clientRecord.email, clientRecord.phone);
         }
     }
 
@@ -73,7 +76,7 @@ function onClientChange() {
         submitBtn.style.display = 'block';
     }
 
-    // Hydrate preserved form values if available (e.g. on workspace revert or reload)
+    // Hydrate preserved form values if available (e.g. on workspace revert or reload)[cite: 3]
     if (healData.friendly_name) {
         const friendlyInput = document.querySelector('input[name="friendly_name"]');
         if (friendlyInput) friendlyInput.value = healData.friendly_name;
@@ -111,7 +114,7 @@ function onClientChange() {
         if (coSignerEmailInput) coSignerEmailInput.value = healData.meta_additional_signer;
     }
 
-    // Clear preserved memory after initial hydration pass to prevent leaks across client switches
+    // Clear preserved memory after initial hydration pass to prevent leaks across client switches[cite: 3]
     window.preservedHealData = {};
 }
 
@@ -119,7 +122,7 @@ function onClientChange() {
  * Renders an address fallback panel when QBO address is incomplete.
  * Note: These fields are strictly used for document generation and are NOT written back to QBO.
  */
-function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaultLegalName, clientEmail) {
+function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaultLegalName, clientEmail, clientPhone) {
     // Explicitly fallback to empty string to ensure no leak from prior client selection
     const street = addr.street ? addr.street : '';
     const city = addr.city ? addr.city : '';
@@ -129,6 +132,10 @@ function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaul
     container.innerHTML = `
         <div class="profile-card profile-card-fallback">
             <div class="profile-card-title" style="color: #b76200;">⚠️ Incomplete Billing Address in QBO</div>
+            
+            <!-- Hidden input to pass phone number -->
+            <input type="hidden" name="client_phone_num" value="${escapeHtml(clientPhone || '')}">
+
             <p style="margin: 0 0 15px 0; font-size: 13px; color: #666;">
                 QuickBooks Online does not have a complete billing address for this customer. Please enter the address below for the consent letter. 
                 <em>(Note: This address will only be used for this consent document and will NOT be written back to QuickBooks Online.)</em>
@@ -180,18 +187,19 @@ function renderFallbackAddressPanel(container, addr, defaultFriendlyName, defaul
 /**
  * Renders verified profile panel when complete customer parameters exist in QBO.
  */
-function renderVerifiedProfilePanel(container, addr, defaultFriendlyName, defaultLegalName, clientEmail) {
+function renderVerifiedProfilePanel(container, addr, defaultFriendlyName, defaultLegalName, clientEmail, clientPhone) {
     const formattedAddress = `${addr.street || ''}, ${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`;
 
     container.innerHTML = `
         <div class="profile-card profile-card-complete">
             <div class="profile-card-title" style="color: #107c41;">✓ Customer Address Verified</div>
             
-            <!-- Hidden inputs to pass verified address data -->
+            <!-- Hidden inputs to pass verified address and phone data -->
             <input type="hidden" name="local_street" value="${escapeHtml(addr.street || '')}">
             <input type="hidden" name="local_city" value="${escapeHtml(addr.city || '')}">
             <input type="hidden" name="local_state" value="${escapeHtml(addr.state || '')}">
             <input type="hidden" name="local_zip" value="${escapeHtml(addr.zip || '')}">
+            <input type="hidden" name="client_phone_num" value="${escapeHtml(clientPhone || '')}">
 
             <div style="margin-bottom: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="form-field-group">
