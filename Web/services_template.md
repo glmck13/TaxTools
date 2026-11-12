@@ -26,6 +26,7 @@ Our Services for 2025 are expected to include the following: Preparation of the 
 - ID: 48
 - Type: individual
 - Fee: 0
+- Migrates-From: 19
 
 Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal income tax return and state income tax return for your state of residence, if applicable. We will assist with routine tax questions that do not require additional research and will assist with the preparation of 2027 federal and state tax payments based on 100 or 110 percent of prior year tax liability, as applicable. We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority. We will provide guidance related to you making federal tax payments online, as necessary.
 
@@ -34,6 +35,7 @@ Our Services for 2026 are expected to include the following: Preparation of the 
 - ID: 51
 - Type: organization
 - Fee: 0
+- Migrates-From: 50
 
 Our Services for 2026 are expected to include the following: Preparation of the 2026 Federal and state income tax return. We will assist with routine tax questions that do not require additional research, we will analyze the benefits of paying state taxes at the entity level and will assist with the preparation of state tax payments based on 100 or 110 percent of prior year tax liability, as applicable.  We will assist with routine notices and inquiries from the tax authorities which require one communication (call or written response) with the tax authority.
 
@@ -57,6 +59,7 @@ Our Services for 2024 are expected to include the following: Preparation of the 
 - ID: 57
 - Type: organization
 - Fee: 0
+- Migrates-From: 56
 
 Preparation of the 2026 Federal income tax return and state income tax returns, as applicable, for the Estate/Trust of XXXX .  We will review the estate accounting/activity through 12/31/26 for reasonableness and reflect the income and expenditures in the tax returns. We will assist with routine tax questions and will assist with the preparation of state tax payments, as applicable.  We will assist with IRS communications and responses related to the 2026 tax returns.
 
@@ -198,6 +201,12 @@ We will also charge you for the licensing fees of $10 a month for QuickBooks Led
 ## Research
 - ID: 43
 - Type: both
+- Fee: 0
+
+
+## Planning & Analysis
+- ID: 46
+- Type: organization
 - Fee: 0
 
 
