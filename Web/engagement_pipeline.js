@@ -1169,13 +1169,25 @@ function renderBatchTableGrid() {
             statusBadge = `<span class="badge badge-info badge-clickable" ${badgeClickAttr}>✅ Approved${byText}</span>`;
         }
 
-        let questBadge = `<span class="badge badge-quest-unsent">⚪ Unsent</span>`;
+        let questBadgeClass = 'badge-quest-unsent';
+        let questBadgeText = '⚪ Unsent 🔄';
         if (questionnaireStatus === 'delivered') {
-            questBadge = `<span class="badge badge-quest-delivered">📬 Delivered</span>`;
+            questBadgeClass = 'badge-quest-delivered';
+            questBadgeText = '📬 Delivered 🔄';
         } else if (questionnaireStatus === 'returned') {
             const consentType = draft.acceptance_type === 'questionnaire_implicit_consent' ? ' (Consent)' : '';
-            questBadge = `<span class="badge badge-quest-returned">✅ Returned${consentType}</span>`;
+            questBadgeClass = 'badge-quest-returned';
+            questBadgeText = `✅ Returned${consentType} 🔄`;
         }
+
+        const questBadge = `
+            <span class="badge ${questBadgeClass}" 
+                  onclick="cycleClientQuestionnaireStatus('${qboId}', '${engId}')" 
+                  title="Click to cycle questionnaire status (Unsent → Delivered → Returned)" 
+                  style="cursor: pointer; user-select: none;">
+                ${questBadgeText}
+            </span>
+        `;
 
         const checkedAttr = isChecked ? 'checked' : '';
         const formatBadgeClass = isPaper ? 'badge-paper' : 'badge-electronic';
@@ -1320,6 +1332,46 @@ function toggleClientDeliveryFormat(qboId, engId) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
     }).catch(err => console.error('Error saving format preference:', err));
+}
+
+function cycleClientQuestionnaireStatus(qboId, engId) {
+    let targetDraft = null;
+    for (const k in window.clientData) {
+        if (String(window.clientData[k].id) === String(qboId)) {
+            targetDraft = window.clientData[k].engagements?.[engId];
+            break;
+        }
+    }
+
+    if (!targetDraft) return;
+
+    const currentStatus = (targetDraft.questionnaire_status || 'unsent').toLowerCase();
+    const nextStatus = currentStatus === 'unsent'
+        ? 'delivered'
+        : currentStatus === 'delivered'
+            ? 'returned'
+            : 'unsent';
+
+    targetDraft.questionnaire_status = nextStatus;
+
+    // Optimistically update UI
+    renderBatchTableGrid();
+
+    // Persist to draft JSON (preserve lock state if already locked)
+    const params = new URLSearchParams();
+    params.append('action', 'patch_draft_only');
+    params.append('client_name', qboId);
+    params.append('engagement_id', engId);
+    params.append('questionnaire_status', nextStatus);
+    if (targetDraft.is_locked) {
+        params.append('is_locked', 'true');
+    }
+
+    fetch(window.location.href, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString()
+    }).catch(err => console.error('Error saving questionnaire status:', err));
 }
 
 // ==========================================
