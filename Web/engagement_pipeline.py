@@ -2612,12 +2612,12 @@ def execute_transactional_pipeline(form):
     prior_estimate_id = get_form_val(form, "prior_estimate_id").strip()
     draft_path = get_draft_file_path(client_qbo_id, eng_id)
 
-    existing_draft_format = "electronic"
+    existing_draft_format = ""
     if os.path.exists(draft_path):
         try:
             with open(draft_path, "r", encoding="utf-8") as df:
                 disk_draft = json.load(df)
-                existing_draft_format = disk_draft.get("delivery_format", "electronic")
+                existing_draft_format = disk_draft.get("delivery_format", "")
                 if not prior_estimate_id:
                     prior_estimate_id = str(disk_draft.get("estimate_id", "")).strip()
                 if not primary_email:
@@ -2657,7 +2657,7 @@ def execute_transactional_pipeline(form):
 
     # Preserve format baseline from QBO Notes or disk draft during sync
     existing_qbo_meta = parse_acct_num(fresh_customer.get("Notes", ""))
-    target_qbo_format = get_form_val(form, "delivery_format") or existing_qbo_meta.get("delivery_format") or existing_draft_format or "electronic"
+    target_qbo_format = get_form_val(form, "delivery_format") or existing_draft_format or existing_qbo_meta.get("delivery_format") or "electronic"
 
     proposed_notes_json = compile_acct_num(
         friendly_name=friendly_name,
