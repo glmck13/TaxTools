@@ -5,13 +5,14 @@ Master Checklist Processing Pipeline:
 2. Queries QBO API to map QBO_Id <-> ProConnect ClientEntityId and resolve customer emails.
 3. Iterates over qbosp.csv (master customer list).
 4. Fetches raw JSON checklists from ProConnect API.
-5. Builds formatted .xlsx workbooks using openpyxl matching the dropdown styling layout.
-6. Ensures /{TAX_YEAR} subfolder exists under client folder on SharePoint.
-7. Uploads .xlsx to SharePoint via m365 CLI with local staging to guarantee target file naming.
-8. Creates and obtains folder sharing links via 'm365 spo folder sharinglink add' with scope 'users' and recipient email.
-9. Generates direct web viewer link for the .xlsx file.
-10. Outputs sp_checklists.json keyed by QBO Customer Id.
-11. Includes --cleanup mode to back out sharing links and remove created checklist files.
+5. Stages raw checklist JSON payloads locally in checklists/{qbo_id}.json (translating QBO ID if --xlate is provided).
+6. Builds formatted .xlsx workbooks using openpyxl matching the dropdown styling layout.
+7. Ensures /{TAX_YEAR} subfolder exists under client folder on SharePoint.
+8. Uploads .xlsx to SharePoint via m365 CLI with local staging to guarantee target file naming.
+9. Creates and obtains folder sharing links via 'm365 spo folder sharinglink add' with scope 'users' and recipient email.
+10. Generates direct web viewer link for the .xlsx file.
+11. Outputs sp_checklists.json keyed by Production QBO Customer Id.
+12. Includes --cleanup mode to back out sharing links and remove created checklist files.
 """
 
 import os
@@ -50,6 +51,22 @@ QBO_ACCESS_TOKEN = os.environ.get("QBO_ACCESS_TOKEN", "")
 SPO_SITE_URL = os.environ.get("SPO_SITE_URL", "")
 SPO_DOC_LIBRARY = os.environ.get("SPO_DOC_LIBRARY", "Shared Documents")
 TAX_YEAR = os.environ.get("TAX_YEAR", "2026")
+
+
+# ==========================================
+# ID MAPPING LOADER (--xlate)
+# ==========================================
+def load_id_mapping(xlate_path: str) -> Dict[str, Any]:
+    """Loads production-to-sandbox ID mapping file."""
+    if xlate_path and os.path.exists(xlate_path):
+        try:
+            with open(xlate_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[WARNING] Failed reading ID mapping file {xlate_path}: {e}", file=sys.stderr)
+    elif xlate_path:
+        print(f"[WARNING] ID mapping file not found: {xlate_path}", file=sys.stderr)
+    return {"customers": {}, "services": {}}
 
 
 # ==========================================
@@ -576,7 +593,7 @@ def parse_qbosp_csv(qbosp_path: str) -> Dict[str, Dict[str, str]]:
             if not line_str or line_str.lower().startswith("qbo_id") or line_str.startswith("#"):
                 continue
             parts = line_str.split(":", 4)
-            if len(parts) >= 3 and parts[0].strip() and parts[2].strip():
+            if len(parts) >= 3 and parts[0].strip():
                 qbo_id = parts[0].strip()
                 c_name = parts[1].strip()
                 sp_folder = parts[2].strip()
@@ -589,8 +606,10 @@ def parse_qbosp_csv(qbosp_path: str) -> Dict[str, Dict[str, str]]:
 
 def main():
     parser = argparse.ArgumentParser(description="Process ProConnect checklists, build Excel files with dropdowns, upload to SharePoint via m365 CLI.")
-    parser.add_argument("-q", "--qbosp", default="qbosp.csv", help="Path to qbosp.csv mapping file (default: qbosp.csv)")
-    parser.add_argument("-o", "--output-json", default="sp_checklists.json", help="Path for output JSON link mapping (default: sp_checklists.json)")
+    parser.add_argument("-q", "--qbosp", default="qbosp.csv", help="Path to qbosp.csv mapping file")
+    parser.add_argument("-o", "--output-json", default="sp_links.json", help="Path for output JSON link mapping")
+    parser.add_argument("-c", "--checklists", default="checklists", help="Directory to stage raw checklist JSON files keyed by QBO ID")
+    parser.add_argument("-x", "--xlate", default="", metavar="FILE", help="Path to id_mapping.json to translate production QBO IDs to sandbox QBO IDs when naming checklist JSON files.")
     parser.add_argument("--site-url", default=SPO_SITE_URL, help="SharePoint Site Web URL")
     parser.add_argument("--doc-lib", default=SPO_DOC_LIBRARY, help="SharePoint Document Library folder root (default: Shared Documents)")
     parser.add_argument("--tax-year", default=TAX_YEAR, help="Tax year parameter for API requests (default: 2026)")
@@ -602,6 +621,8 @@ def main():
     doc_lib = args.doc_lib
     qbosp_path = args.qbosp
     out_json_path = args.output_json
+    checklists = args.checklists
+    xlate_path = args.xlate
     tax_year = args.tax_year
 
     # If --cleanup is passed, execute the backout process and exit
@@ -617,6 +638,11 @@ def main():
     if 'authorization' not in headers:
         print("[ERROR] Missing 'authorization' header in cURL input from stdin.", file=sys.stderr)
         sys.exit(1)
+
+    id_mapping = load_id_mapping(xlate_path)
+    cust_map = id_mapping.get("customers", {})
+    if xlate_path:
+        print(f"[INFO] Loaded ID mapping from {xlate_path} ({len(cust_map)} customer(s) mapped).", file=sys.stderr)
 
     qbo_meta = get_qbo_customer_metadata()
     qbosp_customers = parse_qbosp_csv(qbosp_path)
@@ -634,21 +660,25 @@ def main():
         if isinstance(ret, dict) and ret.get('id_client'):
             returns_by_client_id[str(ret['id_client'])] = ret
 
+    os.makedirs(checklists, exist_ok=True)
     sharepoint_links = {}
     processed_count = 0
 
-    print("\n[INFO] Starting checklist extraction, Excel creation, and SharePoint upload loop...\n", file=sys.stderr)
+    print("\n[INFO] Starting checklist extraction, local JSON staging, Excel creation, and SharePoint upload loop...\n", file=sys.stderr)
 
-    for qbo_id, cust_info in qbosp_customers.items():
+    for prod_qbo_id, cust_info in qbosp_customers.items():
         c_name = cust_info["name"]
         sp_folder = cust_info["sp_folder"]
 
-        meta = qbo_meta.get(qbo_id, {})
+        # Resolve target QBO ID for local checklist JSON staging using --xlate if available
+        target_qbo_id = str(cust_map.get(prod_qbo_id, prod_qbo_id))
+
+        meta = qbo_meta.get(prod_qbo_id, {})
         proconnect_id = meta.get("client_entity_id")
         client_email = meta.get("email", "")
 
         if not proconnect_id:
-            print(f"[-] Skipping QBO ID {qbo_id} ({c_name}): No matching ProConnect ClientEntityId found in QBO.", file=sys.stderr)
+            print(f"[-] Skipping QBO ID {prod_qbo_id} ({c_name}): No matching ProConnect ClientEntityId found in QBO.", file=sys.stderr)
             continue
 
         ret_data = returns_by_client_id.get(proconnect_id)
@@ -669,29 +699,44 @@ def main():
             "checklist": checklist_data
         }
 
+        # Stage raw checklist JSON locally for batch packet PDF generation (using translated Sandbox ID when --xlate is set)
+        staged_json_path = os.path.join(checklists, f"{target_qbo_id}.json")
+        try:
+            with open(staged_json_path, "w", encoding="utf-8") as jf:
+                json.dump(payload, jf, indent=2)
+        except Exception as je:
+            print(f"[-] Warning: Failed staging checklist JSON to {staged_json_path}: {je}", file=sys.stderr)
+
+        if not sp_folder:
+            id_label = f"Prod ID: {prod_qbo_id} -> Sandbox ID: {target_qbo_id}" if target_qbo_id != prod_qbo_id else f"QBO ID: {prod_qbo_id}"
+            print(f"[-] No sp_folder for [{c_name}] ({id_label}). Staged JSON to {staged_json_path}. Continue...", file=sys.stderr)
+            continue
+
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
             tmp_xlsx_path = tmp_file.name
 
         try:
             build_excel_workbook(payload, tmp_xlsx_path)
 
-            target_filename = f"Tax_Checklist_{qbo_id}.xlsx"
+            target_filename = f"Tax_Checklist_{prod_qbo_id}.xlsx"
             processed_count += 1
-            print(f"[{processed_count}] Processing [{c_name}] (QBO ID: {qbo_id}) -> Folder: '{sp_folder}/{tax_year}'...", file=sys.stderr)
+            id_label = f"Prod ID: {prod_qbo_id} -> Sandbox ID: {target_qbo_id}" if target_qbo_id != prod_qbo_id else f"QBO ID: {prod_qbo_id}"
+            print(f"[{processed_count}] Processing [{c_name}] ({id_label}) -> Folder: '{sp_folder}/{tax_year}'...", file=sys.stderr)
             
             folder_url, checklist_url = process_sharepoint_upload_and_sharing(
                 site_url, doc_lib, sp_folder, tax_year, client_email, tmp_xlsx_path, target_filename
             )
 
             if checklist_url:
-                sharepoint_links[qbo_id] = {
+                sharepoint_links[prod_qbo_id] = {
                     "folder_url": folder_url or "",
                     "checklist_url": checklist_url
                 }
+                print(f"  ├─ Staged JSON  : {staged_json_path}", file=sys.stderr)
                 print(f"  ├─ Folder URL   : {folder_url}", file=sys.stderr)
                 print(f"  └─ Checklist URL: {checklist_url}", file=sys.stderr)
             else:
-                print(f"  └─ Warning: Processed but failed retrieving checklist web link for QBO ID {qbo_id}", file=sys.stderr)
+                print(f"  └─ Warning: Processed but failed retrieving checklist web link for QBO ID {prod_qbo_id}", file=sys.stderr)
 
         finally:
             if os.path.exists(tmp_xlsx_path):
@@ -703,6 +748,7 @@ def main():
         json.dump(sharepoint_links, f, indent=2)
 
     print(f"\n[SUCCESS] Execution complete! Successfully processed {processed_count} checklist(s).", file=sys.stderr)
+    print(f"  - Staged checklist JSONs in : {checklists}", file=sys.stderr)
     print(f"  - Keyed output JSON saved to: {out_json_path}", file=sys.stderr)
 
 
