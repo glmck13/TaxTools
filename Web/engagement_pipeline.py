@@ -2321,21 +2321,83 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
     story.append(_make_brand_header_table(styles))
     story.append(Spacer(1, 10))
 
+    def build_acknowledgment_flowables(field_prefix, client_label, firm_label=None):
+        """Builds Adobe Sign checkbox paragraphs (or [   ] visual placeholders for electronic previews)."""
+        if not include_esign_tags and is_paper_delivery:
+            return []
+
+        def box(tag_name):
+            return f"{{{{*{tag_name}}}}}" if include_esign_tags else "[   ]"
+
+        ack_items = [Spacer(1, 6)]
+        if is_org_type:
+            if firm_label:
+                ack_items.append(Paragraph(
+                    f"{box(f'{field_prefix}_es_signer1_checkbox')} <strong>Firm:</strong> {firm_label}",
+                    body_style
+                ))
+                ack_items.append(Spacer(1, 4))
+            ack_items.append(Paragraph(
+                f"{box(f'{field_prefix}_es_signer2_checkbox')} <strong>Client:</strong> {client_label}",
+                body_style
+            ))
+            if co_signer_email and "@" in co_signer_email:
+                ack_items.append(Spacer(1, 4))
+                ack_items.append(Paragraph(
+                    f"{box(f'{field_prefix}_es_signer3_checkbox')} <strong>Co-Signer:</strong> {client_label}",
+                    body_style
+                ))
+        else:
+            ack_items.append(Paragraph(
+                f"{box(f'{field_prefix}_es_signer1_checkbox')} <strong>Client:</strong> {client_label}",
+                body_style
+            ))
+            if co_signer_email and "@" in co_signer_email:
+                ack_items.append(Spacer(1, 4))
+                ack_items.append(Paragraph(
+                    f"{box(f'{field_prefix}_es_signer2_checkbox')} <strong>Co-Signer:</strong> {client_label}",
+                    body_style
+                ))
+        ack_items.append(Spacer(1, 8))
+        return ack_items
+
+    in_agreement_section = not should_include_cover_letter
+    welcome_ack_injected = False
+    agreement_ack_injected = False
+
     for line in filtered_lines:
         line_str = line.strip()
         if not line_str or line_str.startswith("{%") or line_str.startswith("%}"):
             continue
 
         if line_str == "---PAGE_BREAK---":
+            in_agreement_section = True
             if should_include_cover_letter:
                 story.append(DuplexPageBreak() if use_duplex_breaks else PageBreak())
                 story.append(_make_brand_header_table(styles))
                 story.append(Spacer(1, 10))
             continue
 
+        # 1. Welcome Letter: Inject right before the first enumerated list item ("1. ...")
+        if not in_agreement_section and not welcome_ack_injected and re.match(r'^\d+\.\s+', line_str):
+            story.extend(build_acknowledgment_flowables(
+                field_prefix="welcome",
+                client_label="I have reviewed the welcome instructions and portal links below.",
+                firm_label=None
+            ))
+            welcome_ack_injected = True
+
         if line_str.startswith("# "):
             story.append(Paragraph(xml_safe_escape(line_str[2:]), h1_style))
         elif line_str.startswith("## ") or line_str.startswith("### "):
+            # 2. Engagement Agreement: Inject right before the first ### subheading
+            if in_agreement_section and not agreement_ack_injected and line_str.startswith("### "):
+                story.extend(build_acknowledgment_flowables(
+                    field_prefix="agree",
+                    client_label="I have read and reviewed the entire Tax Services Engagement Agreement below before signing.",
+                    firm_label="I have reviewed the scope and fees below prior to counter-signing."
+                ))
+                agreement_ack_injected = True
             story.append(Paragraph(xml_safe_escape(re.sub(r'^#+\s*', '', line_str)), h2_style))
         elif re.match(r'^\d+\.\s+', line_str):
             story.append(Paragraph(xml_safe_escape(line_str), list_item_style))
