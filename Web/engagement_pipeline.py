@@ -12,7 +12,6 @@ import time
 import unicodedata
 import stat
 import base64
-import subprocess
 import resend
 import markdown
 
@@ -21,7 +20,7 @@ from jinja2 import Template
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image, PageBreak, Flowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # ==========================================
@@ -60,6 +59,8 @@ else:
     CARBON_COPIES = ["katie@tarrantadvisors.com"]
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/engagements"
 
+CHECKLISTS_DIR = os.path.join(os.environ.get("DOCUMENT_ROOT", "."), "checklists")
+
 COMPANY_NAME = "Tarrant Advisors LLC"
 COMPANY_ADDR1 = "1875 Campus Commons Dr., Suite 203, Reston, VA 20191"
 COMPANY_ADDR2 = "75 Port City Landing, Suite 110, Mt. Pleasant, SC 29464"
@@ -90,6 +91,37 @@ TAG_DRAFT = "[D] "
 TAG_FINAL = "[F] "
 
 TAX_FORM_URL= "https://forms.cloud.microsoft/r/czf2bCX6G6?r8317f2e8061f4b9e97fef60dc3ce2903"
+
+# ==========================================
+# DUPLEX REPORTLAB FLOWABLES & TEMPLATE
+# ==========================================
+
+class DuplexPageBreak(Flowable):
+    """Marker flowable processed by DuplexDocTemplate to align next content on an odd (front) page."""
+    def __init__(self):
+        super().__init__()
+        self.width = 0
+        self.height = 0
+
+    def draw(self):
+        pass
+
+class DuplexDocTemplate(SimpleDocTemplate):
+    """SimpleDocTemplate subclass supporting DuplexPageBreak for double-sided printing."""
+    def handle_flowable(self, flowables):
+        if flowables and isinstance(flowables[0], DuplexPageBreak):
+            flowables.pop(0)
+            current_page = self.canv.getPageNumber()
+            if current_page % 2 == 1:
+                # Currently on front (odd) page -> emit 2 breaks so next content starts on next front (odd) page
+                flowables.insert(0, PageBreak())
+                flowables.insert(0, Spacer(1, 1))
+                flowables.insert(0, PageBreak())
+            else:
+                # Currently on back (even) page -> 1 break lands cleanly on next front (odd) page
+                flowables.insert(0, PageBreak())
+            return
+        super().handle_flowable(flowables)
 
 def encode_questionnaire_param(qbo_id):
     """
@@ -544,6 +576,9 @@ def populate_form_from_disk_draft(form, c_id, eng_id):
         co_signer = disk_draft.get("co_signer", {}) if isinstance(disk_draft.get("co_signer"), dict) else {}
         b_addr = disk_draft.get("billing_address", {}) if isinstance(disk_draft.get("billing_address"), dict) else {}
 
+        form["client_name"] = [str(c_id)]
+        form["engagement_id"] = [str(eng_id)]
+        form["engagement_title"] = [disk_draft.get("engagement_title", "2026 Tax Services Agreement")]
         form["friendly_name"] = [p_signer.get("friendly_name", "")]
         form["legal_name"] = [p_signer.get("legal_name", "")]
         form["primary_signer_email"] = [p_signer.get("email", "")]
@@ -868,7 +903,6 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
         active_oos_dict = extract_out_of_scope_dict(preserved_form)
         is_approved_val = get_form_val(preserved_form, "is_approved", "false").lower() in ["true", "1", "yes"]
 
-        # FIX: Construct heal_data BEFORE referencing it in the parsed_qbo_id customer loop
         heal_data = {
             "engagement_title": html.unescape(get_form_val(preserved_form, "engagement_title", f"{TAX_YEAR} Tax Services Agreement")),
             "primary_signer": {
@@ -1159,25 +1193,13 @@ def render_phase1_workspace(error_msg=None, preserved_form=None):
 
             <div class="toolbar-group-right">
                 <select id="batch-action-select" class="batch-action-select">
-                    <option value="submit_batch">⚡ Submit Selected Batch for Dispatch</option>
-                    <option value="record_paper_signature">✍️ Record Paper Signature / Consent</option>
+                    <option value="submit_batch">⚡ Dispatch Selected Engagements</option>
+                    <option value="print_paper_packets">🖨️ Print Paper Packets</option>
+                    <option value="record_paper_signature">✍️ Record Paper Signature Status</option>
                     <option value="send_adobe_reminder">🔔 Send Adobe Sign Reminder</option>
                     <option value="email_welcome_letter">✉️ Email Welcome Letter Only</option>
                 </select>
                 <button type="button" id="btn-batch-apply-action" onclick="handleBatchActionExecution()" class="btn-batch-apply" disabled>Apply</button>
-            </div>
-        </div>
-
-        <div id="batch-bulk-copy-toolbar" class="inline-copy-toolbar" style="display:none; margin-bottom: 20px;">
-            <div style="font-weight:600; font-size:13px; color:#0078d4; margin-bottom:6px;">Bulk Apply Scope & Exclusions to Checked Batch Engagements:</div>
-            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                <input type="text" 
-                       id="batch-bulk-source-input" 
-                       list="clone-client-options" 
-                       placeholder="Select source engagement to apply to checked accounts..." 
-                       style="flex-grow:1; min-width:280px; padding:8px 12px; font-size:13px; border:1px solid #cbd5e0; border-radius:4px;">
-                <button type="button" onclick="applyBatchBulkClonedScope()" class="btn-submit" style="width:auto; padding:8px 16px; font-size:13px;">Apply Scope to Checked</button>
-                <button type="button" onclick="toggleBatchBulkCopyToolbar(false)" class="btn-add-row" style="padding:8px 12px; font-size:13px;">Cancel</button>
             </div>
         </div>
 
@@ -1586,7 +1608,7 @@ def handle_save_draft_only(form):
     # 2. Extract Fallback Names
     clean_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_val))
     clean_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_title).split(' — ')[0].split('|')[0].split(':')[0].strip()
-    
+
     p_signer = draft.get("primary_signer", {}) if isinstance(draft.get("primary_signer"), dict) else {}
     friendly_name = html.unescape(get_form_val(form, "friendly_name")).strip() or p_signer.get("friendly_name") or clean_title
     legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or p_signer.get("legal_name") or clean_title
@@ -2064,7 +2086,62 @@ def xml_safe_escape(text):
 
     return text.replace("&lt;br/&gt;", "<br/>").replace("&lt;br&gt;", "<br/>")
 
-def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_letter=False):
+def _make_brand_header_table(styles):
+    """Builds the standard Tarrant Advisors ReportLab header table."""
+    HEADER_BLUE = colors.HexColor('#0078d4')
+    company_style = ParagraphStyle(
+        'CompanyHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        leading=22,
+        textColor=HEADER_BLUE,
+        alignment=2
+    )
+    address_style = ParagraphStyle(
+        'AddressHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Oblique',
+        fontSize=8,
+        leading=11,
+        textColor=HEADER_BLUE,
+        alignment=2
+    )
+    header_text_nodes = [
+        Paragraph(COMPANY_NAME, company_style),
+        Spacer(1, 2),
+        Paragraph(COMPANY_ADDR1, address_style),
+        Paragraph(COMPANY_ADDR2, address_style)
+    ]
+
+    logo_path = os.environ.get("DOCUMENT_ROOT", ".") + "/images/logo.png"
+    if os.path.exists(logo_path):
+        logo_img = Image(logo_path)
+        max_w, max_h = 160.0, 60.0
+        aspect = logo_img.imageWidth / float(logo_img.imageHeight)
+        if aspect > (max_w / max_h):
+            logo_img.drawWidth = max_w
+            logo_img.drawHeight = max_w / aspect
+        else:
+            logo_img.drawHeight = max_h
+            logo_img.drawWidth = max_h * aspect
+        logo_img.hAlign = 'LEFT'
+    else:
+        logo_img = Paragraph("", styles['Normal'])
+
+    ht = Table([[logo_img, header_text_nodes]], colWidths=[160, 370])
+    ht.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('ALIGN', (0,0), (0,0), 'LEFT'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+    ]))
+    return ht
+
+def build_engagement_story(form, include_esign_tags=False, include_cover_letter=False, use_duplex_breaks=False):
+    """Builds the ReportLab story list for the Welcome Letter (optional) and Engagement Agreement."""
     raw_client_name = get_form_val(form, "client_name", "Unknown Client")
     row_ids = get_form_list(form, "selected_rows")
     if not row_ids:
@@ -2132,7 +2209,7 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_l
 
     # Determine delivery format for Jinja conditional rendering
     delivery_fmt = get_form_val(form, "delivery_format") or draft_data.get("delivery_format", "electronic")
-    is_paper_delivery = (delivery_fmt.lower() == "paper")
+    is_paper_delivery = (delivery_fmt.lower() == "paper") or use_duplex_breaks
 
     try:
         with open(ENGAGEMENT_TEMPLATE, "r", encoding="utf-8") as f:
@@ -2211,31 +2288,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_l
         DYNAMIC_SERVICES_TEXT="{{DYNAMIC_SERVICES_TEXT}}"
     )
 
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40, title=f"{TAX_YEAR} Tax Engagement Agreement - {legal_name}")
     styles = getSampleStyleSheet()
-
     HEADER_BLUE = colors.HexColor('#0078d4')
-
-    company_style = ParagraphStyle(
-        'CompanyHeader',
-        parent=styles['Normal'],
-        fontName='Helvetica-Bold',
-        fontSize=18,
-        leading=22,
-        textColor=HEADER_BLUE,
-        alignment=2
-    )
-
-    address_style = ParagraphStyle(
-        'AddressHeader',
-        parent=styles['Normal'],
-        fontName='Helvetica-Oblique',
-        fontSize=8,
-        leading=11,
-        textColor=HEADER_BLUE,
-        alignment=2
-    )
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
     list_item_style = ParagraphStyle('ListItem', parent=body_style, spaceBefore=4, spaceAfter=3)
@@ -2257,53 +2311,14 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_l
 
     story = []
 
-    # Explicitly set the clean header text nodes (single title + addresses)
-    header_text_nodes = [
-        Paragraph(COMPANY_NAME, company_style),
-        Spacer(1, 2),
-        Paragraph(COMPANY_ADDR1, address_style),
-        Paragraph(COMPANY_ADDR2, address_style)
-    ]
-
-    logo_path = os.environ.get("DOCUMENT_ROOT", ".") + "/images/logo.png"
-    if os.path.exists(logo_path):
-        logo_img = Image(logo_path)
-        max_w, max_h = 160.0, 60.0
-        aspect = logo_img.imageWidth / float(logo_img.imageHeight)
-
-        if aspect > (max_w / max_h):
-            logo_img.drawWidth = max_w
-            logo_img.drawHeight = max_w / aspect
-        else:
-            logo_img.drawHeight = max_h
-            logo_img.drawWidth = max_h * aspect
-
-        logo_img.hAlign = 'LEFT'
-    else:
-        logo_img = Paragraph("", styles['Normal'])
-
-    def make_header_table():
-        ht = Table([[logo_img, header_text_nodes]], colWidths=[160, 370])
-        ht.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN', (0,0), (0,0), 'LEFT'),
-            ('ALIGN', (1,0), (1,0), 'RIGHT'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-        ]))
-        return ht
-
-    # Filter out redundant header/address lines from template body processing
     filtered_lines = []
     for line in markdown_content.split('\n'):
         line_str = line.strip()
         if not line_str or line_str.startswith("{%") or line_str.startswith("%}"):
             continue
-
         filtered_lines.append(line)
 
-    story.append(make_header_table())
+    story.append(_make_brand_header_table(styles))
     story.append(Spacer(1, 10))
 
     for line in filtered_lines:
@@ -2313,8 +2328,8 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_l
 
         if line_str == "---PAGE_BREAK---":
             if should_include_cover_letter:
-                story.append(PageBreak())
-                story.append(make_header_table())
+                story.append(DuplexPageBreak() if use_duplex_breaks else PageBreak())
+                story.append(_make_brand_header_table(styles))
                 story.append(Spacer(1, 10))
             continue
 
@@ -2399,9 +2414,217 @@ def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_l
         ])
 
     story.append(KeepTogether(sig_elements))
+    return story
+
+def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_letter=False):
+    raw_client_name = get_form_val(form, "client_name", "Unknown Client")
+    clean_client_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', html.unescape(raw_client_name))
+    clean_client_title = re.sub(r'\s*\((?:QBO|Customer)\s*ID:.*?\)', '', clean_client_title)
+    clean_client_title = clean_client_title.split(' — ')[0].split('|')[0].split(':')[0].strip()
+    legal_name = html.unescape(get_form_val(form, "legal_name")).strip() or clean_client_title
+
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40,
+        title=f"{TAX_YEAR} Tax Engagement Agreement - {legal_name}"
+    )
+    story = build_engagement_story(
+        form,
+        include_esign_tags=include_esign_tags,
+        include_cover_letter=include_cover_letter,
+        use_duplex_breaks=False
+    )
     doc.build(story)
     pdf_buffer.seek(0)
     return pdf_buffer
+
+def _clean_checklist_text(text):
+    if not text:
+        return ""
+    pattern = r'^(?:Please\s+)?(?:upload|provide|submit|share)(?:\s+all|\s+your|\s+us)?\s+'
+    return re.sub(pattern, '', str(text), flags=re.IGNORECASE).strip()
+
+def build_checklist_story(qbo_id, fallback_client_name="Client"):
+    """
+    Reads staged {CHECKLISTS_DIR}/{qbo_id}.json and builds ReportLab flowables
+    for the client's Tax Document Checklist. Returns empty list if no checklist exists.
+    """
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(qbo_id or ''))
+    json_path = os.path.join(CHECKLISTS_DIR, f"{safe_id}.json")
+    if not os.path.exists(json_path):
+        return []
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as ex:
+        print(f"DEBUG: Failed reading checklist JSON {json_path}: {str(ex)}", file=sys.stderr)
+        return []
+
+    checklist_obj = payload.get("checklist") if isinstance(payload.get("checklist"), dict) else payload
+    source_docs = checklist_obj.get("sourceDocuments") if isinstance(checklist_obj, dict) else []
+    if not source_docs:
+        return []
+
+    styles = getSampleStyleSheet()
+    HEADER_BLUE = colors.HexColor('#0078d4')
+    LIGHT_BG = colors.HexColor('#f8fafc')
+    ACCENT_BG = colors.HexColor('#eff6ff')
+    BORDER_GRAY = colors.HexColor('#cbd5e1')
+
+    h1_style = ParagraphStyle('ChkH1', parent=styles['Heading1'], fontSize=18, leading=22, textColor=HEADER_BLUE, spaceAfter=8)
+    h2_style = ParagraphStyle('ChkH2', parent=styles['Heading2'], fontSize=12, leading=16, textColor=HEADER_BLUE, spaceBefore=12, spaceAfter=6, keepWithNext=True)
+    body_style = ParagraphStyle('ChkBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
+    tbl_hdr = ParagraphStyle('ChkTblHdr', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, textColor=colors.white)
+    tbl_cell = ParagraphStyle('ChkTblCell', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#1e293b'))
+    tbl_center = ParagraphStyle('ChkTblCenter', parent=tbl_cell, alignment=1)
+    tbl_right = ParagraphStyle('ChkTblRight', parent=tbl_cell, alignment=2)
+
+    client_name = str(payload.get("client_name") or fallback_client_name)
+    return_name = str(payload.get("return_name") or f"{TAX_YEAR} Tax Return")
+
+    story = []
+    story.append(_make_brand_header_table(styles))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(f"{TAX_YEAR} Tax Document Checklist", h1_style))
+
+    info_tbl = Table([[
+        Paragraph(f"<strong>Client:</strong> {xml_safe_escape(client_name)}", tbl_cell),
+        Paragraph(f"<strong>Return:</strong> {xml_safe_escape(return_name)}", tbl_right)
+    ]], colWidths=[310, 220])
+    info_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), ACCENT_BG),
+        ('BOX', (0, 0), (-1, -1), 0.75, BORDER_GRAY),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(info_tbl)
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph(
+        "Please gather the requested tax documents listed below, check off each item as collected, "
+        "and include this checklist with your tax records.",
+        body_style
+    ))
+
+    categories = {}
+    for doc_item in source_docs:
+        if isinstance(doc_item, dict):
+            cat = str(doc_item.get("sourceDocumentType") or "OTHER").upper()
+            categories.setdefault(cat, []).append(doc_item)
+
+    item_num = 1
+    for cat_name, docs in categories.items():
+        story.append(Paragraph(f"Category: {xml_safe_escape(cat_name)}", h2_style))
+
+        rows = [[
+            Paragraph("Done", ParagraphStyle('ChkHdrC', parent=tbl_hdr, alignment=1)),
+            Paragraph("#", ParagraphStyle('NumHdrC', parent=tbl_hdr, alignment=1)),
+            Paragraph("Document Requested", tbl_hdr),
+            Paragraph("Client Notes", tbl_hdr)
+        ]]
+
+        for d in docs:
+            desc = _clean_checklist_text(d.get("text", ""))
+            rows.append([
+                Paragraph("[   ]", tbl_center),
+                Paragraph(str(item_num), tbl_center),
+                Paragraph(xml_safe_escape(desc), tbl_cell),
+                Paragraph("", tbl_cell)
+            ])
+            item_num += 1
+
+        tbl = Table(rows, colWidths=[38, 28, 334, 130], repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), HEADER_BLUE),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
+            ('GRID', (0, 0), (-1, -1), 0.5, BORDER_GRAY),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(tbl)
+        story.append(Spacer(1, 6))
+
+    return story
+
+def handle_print_paper_packets(form):
+    """
+    Compiles a single duplex-formatted batch PDF packet containing each selected engagement's:
+      1. Welcome Letter (starts on front/odd page)
+      2. Engagement Agreement (starts on front/odd page via DuplexPageBreak)
+      3. Client Tax Document Checklist from {CHECKLISTS_DIR}/{qbo_id}.json (starts on front/odd page)
+    """
+    packet_keys = get_form_list(form, "packet_keys")
+    if not packet_keys:
+        return render_pipeline_error(form, "No engagements selected for paper packet printing.", http_code=400)
+
+    master_story = []
+    valid_count = 0
+
+    for key in packet_keys:
+        if ":" not in str(key):
+            continue
+        qbo_id, eng_id = str(key).split(":", 1)
+        qbo_id = re.sub(r'[^a-zA-Z0-9_-]', '', qbo_id.strip())
+        eng_id = re.sub(r'[^a-zA-Z0-9_-]', '', eng_id.strip())
+
+        draft_path = get_draft_file_path(qbo_id, eng_id)
+        if not os.path.exists(draft_path):
+            continue
+
+        client_form = populate_form_from_disk_draft({}, qbo_id, eng_id)
+
+        if valid_count > 0:
+            master_story.append(DuplexPageBreak())
+
+        # 1. Welcome Letter + Engagement Agreement (duplex aligned, no e-sign tags)
+        eng_story = build_engagement_story(
+            client_form,
+            include_esign_tags=False,
+            include_cover_letter=True,
+            use_duplex_breaks=True
+        )
+        master_story.extend(eng_story)
+
+        # 2. Client Tax Document Checklist (duplex aligned on front page)
+        legal_name = html.unescape(get_form_val(client_form, "legal_name")).strip() or html.unescape(get_form_val(client_form, "friendly_name")).strip() or f"Client {qbo_id}"
+        checklist_story = build_checklist_story(qbo_id, fallback_client_name=legal_name)
+        if checklist_story:
+            master_story.append(DuplexPageBreak())
+            master_story.extend(checklist_story)
+
+        valid_count += 1
+
+    if valid_count == 0 or not master_story:
+        return render_pipeline_error(form, "None of the selected engagement drafts could be loaded.", http_code=404)
+
+    pdf_buffer = io.BytesIO()
+    doc = DuplexDocTemplate(
+        pdf_buffer,
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40,
+        title=f"{TAX_YEAR} Tax Paper Packets"
+    )
+    doc.build(master_story)
+    pdf_bytes = pdf_buffer.getvalue()
+
+    filename = f"TA_Paper_Packets_{datetime.date.today().strftime('%Y-%m-%d')}.pdf"
+    sys.stdout.buffer.write(b"Content-Type: application/pdf\n")
+    sys.stdout.buffer.write(f"Content-Disposition: attachment; filename={urllib.parse.quote(filename)}\n\n".encode('utf-8'))
+    sys.stdout.buffer.write(pdf_bytes)
 
 def handle_render_live_pdf(form):
     raw_client_val = get_form_val(form, "client_name")
@@ -2513,7 +2736,6 @@ def handle_send_resend_email(form):
 
     resend.api_key = os.environ.get("RESEND_API_KEY")
 
-    # FIX: Pass raw bytes directly instead of list(pdf_bytes) to prevent payload bloat/errors
     params = {
         "from": f"Tarrant Advisors <{email_from}>",
         "reply_to": email_from,
@@ -2977,6 +3199,8 @@ if __name__ == "__main__":
 
     if action == "generate_preview":
         handle_generate_preview(form_data)
+    elif action == "print_paper_packets":
+        handle_print_paper_packets(form_data)
     elif action == "save_draft_only":
         handle_save_draft_only(form_data)
     elif action == "patch_draft_only":

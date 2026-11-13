@@ -215,13 +215,6 @@ function toggleInlineCopyBar(show) {
     }
 }
 
-function toggleBatchBulkCopyToolbar(show) {
-    const bar = document.getElementById('batch-bulk-copy-toolbar');
-    if (bar) {
-        bar.style.display = show ? 'block' : 'none';
-    }
-}
-
 // ==========================================
 // REVIEW & APPROVAL UI HELPERS (OPTION B)
 // ==========================================
@@ -1012,9 +1005,6 @@ function getFilteredBatchRows() {
             const entityType = draft.entity_type || meta.entity_type || 'individual';
             const engTitle = draft.engagement_title || `Engagement #${engId}`;
 
-            const coSignerEmailVal = coSigner.email || draft.co_signer_email || meta.co_signer_email || '';
-            const coSignerNameVal = coSigner.name || draft.co_signer_name || meta.co_signer_name || '';
-            const isDualSigner = (coSignerEmailVal.includes('@') || coSignerNameVal.length > 0);
             const clientNameClean = clientKey.split(' (Customer')[0] || pSigner.friendly_name || draft.friendly_name || meta.friendly_name;
 
             const questionnaireStatus = draft.questionnaire_status || 'unsent';
@@ -1036,7 +1026,7 @@ function getFilteredBatchRows() {
             if (matchesSearch && matchesFilter) {
                 allRecords.push({
                     qboId, engId, clientKey, client, draft, isLocked, isPaper,
-                    clientFee, entityType, isDualSigner, coSignerNameVal, coSignerEmailVal,
+                    clientFee, entityType,
                     isDataIncomplete, isApproved, reviewedBy, reviewedAt, clientNameClean, engTitle,
                     questionnaireStatus
                 });
@@ -1394,6 +1384,9 @@ function handleBatchActionExecution() {
         case 'submit_batch':
             executeBatchPipelineSubmission();
             break;
+        case 'print_paper_packets':
+            executePrintPaperPackets(targetKeys);
+            break;
         case 'record_paper_signature':
             openRecordPaperSignatureModal(targetKeys);
             break;
@@ -1406,6 +1399,37 @@ function handleBatchActionExecution() {
         default:
             alert('Please select a valid batch action to perform.');
     }
+}
+
+function executePrintPaperPackets(targetKeys) {
+    if (!Array.isArray(targetKeys) || targetKeys.length === 0) {
+        alert('Please select at least one engagement record from the grid.');
+        return;
+    }
+
+    // Submit via native hidden POST form to trigger clean browser PDF attachment download
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = window.location.pathname;
+    form.style.display = 'none';
+
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = 'print_paper_packets';
+    form.appendChild(actionInput);
+
+    targetKeys.forEach(key => {
+        const keyInput = document.createElement('input');
+        keyInput.type = 'hidden';
+        keyInput.name = 'packet_keys';
+        keyInput.value = key;
+        form.appendChild(keyInput);
+    });
+
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
 }
 
 function openRecordPaperSignatureModal(targetKeys) {
@@ -1816,103 +1840,6 @@ function cancelBatchEditModal() {
     const container = document.getElementById('modal-workspace-container');
     if (modal) modal.style.display = 'none';
     if (container) container.innerHTML = '';
-}
-
-async function applyBatchBulkClonedScope() {
-    const sourceVal = document.getElementById('batch-bulk-source-input')?.value || '';
-    if (!sourceVal) return alert('Please select a source engagement to copy scope from.');
-
-    const targetKeys = Object.keys(globalBatchSelections).filter(k => globalBatchSelections[k] === true);
-    if (targetKeys.length === 0) return alert('No batch engagements selected.');
-
-    const parts = sourceVal.split(':');
-    if (parts.length < 2) return alert('Invalid source selection format.');
-
-    const sourceQboId = parts[0];
-    const sourceEngId = parts[1];
-
-    let sourceDraft = null;
-    for (const k in window.clientData) {
-        if (String(window.clientData[k].id) === String(sourceQboId)) {
-            sourceDraft = window.clientData[k].engagements?.[sourceEngId];
-            break;
-        }
-    }
-
-    if (!sourceDraft || !sourceDraft.rows) return alert('Source engagement has no rows to copy.');
-
-    if (!confirm(`Apply cloned scope (${sourceDraft.rows.length} item(s)) to ${targetKeys.length} checked batch engagement(s)?`)) return;
-
-    const overlay = document.getElementById('batch-progress-overlay');
-    const terminalLog = document.getElementById('batch-terminal-log');
-    const progressBar = document.getElementById('batch-progress-fill');
-    const closeBtn = document.getElementById('btn-close-progress');
-
-    if (overlay) overlay.style.display = 'flex';
-    if (closeBtn) closeBtn.style.display = 'none';
-    if (terminalLog) terminalLog.innerHTML = `Cloning scope to ${targetKeys.length} engagement file(s)...\n`;
-
-    let completed = 0;
-
-    for (const key of targetKeys) {
-        const [qboId, engId] = key.split(':');
-        let targetDraft = null;
-        for (const k in window.clientData) {
-            if (String(window.clientData[k].id) === String(qboId)) {
-                targetDraft = window.clientData[k].engagements?.[engId];
-                break;
-            }
-        }
-
-        if (targetDraft) {
-            // 1. Update memory state
-            targetDraft.rows = JSON.parse(JSON.stringify(sourceDraft.rows));
-            if (sourceDraft.out_of_scope_items) {
-                targetDraft.out_of_scope_items = JSON.parse(JSON.stringify(sourceDraft.out_of_scope_items));
-            }
-
-            // 2. Persist cloned scope and out-of-scope items to disk via patch API
-            const params = new URLSearchParams();
-            params.append('action', 'patch_draft_only');
-            params.append('client_name', qboId);
-            params.append('engagement_id', engId);
-
-            const safeRows = Array.isArray(targetDraft.rows) ? targetDraft.rows : [];
-            safeRows.forEach((r, idx) => {
-                const rid = idx + 1;
-                params.append('selected_rows', rid);
-                params.append(`row_item_id_${rid}`, r.item_id || '');
-                params.append(`row_service_${rid}`, r.service || '');
-                params.append(`row_fee_${rid}`, r.fee || 0);
-                params.append(`row_notes_${rid}`, r.notes || '');
-            });
-
-            if (targetDraft.out_of_scope_items && typeof targetDraft.out_of_scope_items === 'object') {
-                params.append('oos_submitted', 'true');
-                Object.entries(targetDraft.out_of_scope_items).forEach(([k, v]) => {
-                    params.append(k, v);
-                });
-            }
-
-            try {
-                await fetch(window.location.href, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: params.toString()
-                });
-                if (terminalLog) terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Updated & Saved QBO ${qboId} / Eng ${engId} ✔`;
-            } catch (err) {
-                if (terminalLog) terminalLog.innerHTML += `\n[${completed + 1}/${targetKeys.length}] Save Failed QBO ${qboId}: ${err.message}`;
-            }
-        }
-
-        completed++;
-        if (progressBar) progressBar.style.width = `${(completed / targetKeys.length) * 100}%`;
-    }
-
-    if (terminalLog) terminalLog.innerHTML += `\n\n========================================\nScope clone execution complete!`;
-    if (closeBtn) closeBtn.style.display = 'inline-block';
-    renderBatchTableGrid();
 }
 
 async function executeBatchPipelineSubmission() {

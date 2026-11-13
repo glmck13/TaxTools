@@ -1236,11 +1236,6 @@ select {
     color: #0078d4;
 }
 
-.batch-table td {
-    padding: 6px 10px;
-    vertical-align: middle;
-}
-
 /* Modal Overlay Styling */
 .modal-overlay {
     display: none;
@@ -1356,6 +1351,7 @@ select {
 /* Tighten table padding overall */
 .batch-table th,
 .batch-table td {
+    vertical-align: middle;
     padding: 4px 6px !important;
 }
 
@@ -1413,14 +1409,6 @@ select {
 .batch-table th:nth-child(8),
 .batch-table td:nth-child(8) {
     width: 150px !important;
-    white-space: nowrap;
-}
-
-/* Column 9: Actions Column */
-.batch-table th:nth-child(9),
-.batch-table td:nth-child(9) {
-    width: 110px !important;
-    text-align: center;
     white-space: nowrap;
 }
 
