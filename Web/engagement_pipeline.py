@@ -45,7 +45,8 @@ if PIPELINE_SANDBOX:
     OWNER_SIGNATURE = "Where's Waldo"
     OWNER_CORPNAME = "Software Services"
     CARBON_COPIES = []
-    DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox"
+    DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox-engagements"
+    CHECKLISTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/sandbox-checklists"
 else:
     ENABLE_BATCH_MODE = True
     JS_FILE = "engagement_pipeline.js"
@@ -58,8 +59,8 @@ else:
     OWNER_CORPNAME = "Managing Member - Tarrant Advisors, LLC"
     CARBON_COPIES = ["katie@tarrantadvisors.com"]
     DRAFTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/engagements"
+    CHECKLISTS_DIR = os.environ.get("DOCUMENT_ROOT", ".") + "/checklists"
 
-CHECKLISTS_DIR = os.path.join(os.environ.get("DOCUMENT_ROOT", "."), "checklists")
 
 COMPANY_NAME = "Tarrant Advisors LLC"
 COMPANY_ADDR1 = "1875 Campus Commons Dr., Suite 203, Reston, VA 20191"
@@ -2321,41 +2322,50 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
     story.append(_make_brand_header_table(styles))
     story.append(Spacer(1, 10))
 
+    alias_definitions = []
+
     def build_acknowledgment_flowables(field_prefix, client_label, firm_label=None):
-        """Builds Adobe Sign checkbox paragraphs (or [   ] visual placeholders for electronic previews)."""
+        """Builds Adobe Sign short-aliased initial prompts (or _______ blanks for previews)."""
         if not include_esign_tags and is_paper_delivery:
             return []
 
-        def box(tag_name):
-            return f"{{{{*{tag_name}}}}}" if include_esign_tags else "[   ]"
+        short_code = "w" if field_prefix == "welcome" else "a"
+
+        def init_tag(signer_num):
+            if not include_esign_tags:
+                return "[   ]"
+            alias_key = f"{short_code}{signer_num}"
+            full_field = f"{field_prefix}_es_signer{signer_num}_initials"
+            alias_definitions.append(f"{{{{#{alias_key}=*{full_field}}}}}")
+            return f"{{{{*{alias_key}}}}}"
 
         ack_items = [Spacer(1, 6)]
         if is_org_type:
             if firm_label:
                 ack_items.append(Paragraph(
-                    f"{box(f'{field_prefix}_es_signer1_checkbox')} <strong>Firm:</strong> {firm_label}",
+                    f"{init_tag(1)} &nbsp;<strong>Firm Initials:</strong> {firm_label}",
                     body_style
                 ))
                 ack_items.append(Spacer(1, 4))
             ack_items.append(Paragraph(
-                f"{box(f'{field_prefix}_es_signer2_checkbox')} <strong>Client:</strong> {client_label}",
+                f"{init_tag(2)} &nbsp;<strong>Client Initials (Required):</strong> {client_label}",
                 body_style
             ))
             if co_signer_email and "@" in co_signer_email:
                 ack_items.append(Spacer(1, 4))
                 ack_items.append(Paragraph(
-                    f"{box(f'{field_prefix}_es_signer3_checkbox')} <strong>Co-Signer:</strong> {client_label}",
+                    f"{init_tag(3)} &nbsp;<strong>Co-Signer Initials (Required):</strong> {client_label}",
                     body_style
                 ))
         else:
             ack_items.append(Paragraph(
-                f"{box(f'{field_prefix}_es_signer1_checkbox')} <strong>Client:</strong> {client_label}",
+                f"{init_tag(1)} &nbsp;<strong>Client Initials (Required):</strong> {client_label}",
                 body_style
             ))
             if co_signer_email and "@" in co_signer_email:
                 ack_items.append(Spacer(1, 4))
                 ack_items.append(Paragraph(
-                    f"{box(f'{field_prefix}_es_signer2_checkbox')} <strong>Co-Signer:</strong> {client_label}",
+                    f"{init_tag(2)} &nbsp;<strong>Co-Signer Initials (Required):</strong> {client_label}",
                     body_style
                 ))
         ack_items.append(Spacer(1, 8))
@@ -2394,8 +2404,8 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
             if in_agreement_section and not agreement_ack_injected and line_str.startswith("### "):
                 story.extend(build_acknowledgment_flowables(
                     field_prefix="agree",
-                    client_label="I have read and reviewed the entire Tax Services Engagement Agreement below before signing.",
-                    firm_label="I have reviewed the scope and fees below prior to counter-signing."
+                    client_label="I have read and agree to the Tax Services Engagement Agreement terms below.",
+                    firm_label="Scope and fees reviewed prior to counter-signing."
                 ))
                 agreement_ack_injected = True
             story.append(Paragraph(xml_safe_escape(re.sub(r'^#+\s*', '', line_str)), h2_style))
@@ -2476,6 +2486,9 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
         ])
 
     story.append(KeepTogether(sig_elements))
+    if include_esign_tags and alias_definitions:
+        alias_style = ParagraphStyle('AdobeAlias', parent=styles['Normal'], fontSize=1, leading=1, textColor=colors.white)
+        story.append(Paragraph(" ".join(alias_definitions), alias_style))
     return story
 
 def compile_reportlab_pdf_buffer(form, include_esign_tags=False, include_cover_letter=False):
