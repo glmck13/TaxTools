@@ -71,6 +71,20 @@ Preparation of the 2026 Federal income tax return and state income tax returns, 
 Preparation of the 2025 Federal income tax return and state income tax returns, as applicable, for the Estate/Trust of XXXX .  We will review the estate accounting/activity through 12/31/25 for reasonableness and reflect the income and expenditures in the tax returns. We will assist with routine tax questions and will assist with the preparation of state tax payments, as applicable.  We will assist with IRS communications and responses related to the 2025 tax returns.
 
 
+## 2027 Federal & State Tax Return - Estate/Trust
+- ID: 58
+- Type: organization
+- Fee: 0
+Preparation of the 2027 Federal income tax return and state income tax returns, as applicable, for the Estate/Trust of XXXX .  We will review the estate accounting/activity through 12/31/27 for reasonableness and reflect the income and expenditures in the tax returns. We will assist with routine tax questions and will assist with the preparation of state tax payments, as applicable.  We will assist with IRS communications and responses related to the 2027 tax returns.
+
+
+## Prior Year Tax Return Preparation
+- ID: 59
+- Type: both
+- Fee: 0
+Preparation of your prior year tax returns (Federal and State, as applicable)  for the tax year XXXX.
+
+
 ## Sale of Property
 - ID: 55
 - Type: both
@@ -223,4 +237,4 @@ Planning and Analysis related to setup of the S Corporation. This work will incl
 - Type: both
 - Fee: 0
 
-Initial deposit toward engagement services.
+Initial deposit toward engagement services. We will bill this deposit in January 2027 and upon distribution of the 2026 tax return preparation information.
