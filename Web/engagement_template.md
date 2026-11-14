@@ -1,45 +1,92 @@
 {% if INCLUDE_WELCOME_LETTER %}
 
+{% if not IS_FULL_AGREEMENT %}
+Dear {{GREETING_NAME}},
+
+<b>Happy New Year!</b> We are delighted to continue to have you as our client and look forward to working with you to prepare your tax returns for the {{TAX_YEAR}} tax year.
+
+Included below are links to your tax questionnaire and your SharePoint site for document exchange and storage.
+
+{% set ns = namespace(step=1) %}
+{% if SHAREPOINT_FOLDER_URL %}
+{{ns.step}}. <a href="{{SHAREPOINT_FOLDER_URL}}" color="#0078d4"><b><u>Your Secure SharePoint Folder</u></b></a><br>Use this main portal folder to securely upload your tax documents, W-2s, 1099s, and supporting records directly to our team.
+{% set ns.step = ns.step + 1 %}
+{% endif %}
+{% if CHECKLIST_FILE_URL %}
+{{ns.step}}. <a href="{{CHECKLIST_FILE_URL}}" color="#0078d4"><b><u>Your {{TAX_YEAR}} Tax Document Checklist</u></b></a><br>A customized checklist of the specific tax forms and information statements needed for your return based on prior year filings. This checklist is also included in your SharePoint Folder.
+{% set ns.step = ns.step + 1 %}
+{% endif %}
+{{ns.step}}. <a href="{{QUESTIONNAIRE_FORM_URL}}" color="#0078d4"><b><u>Your {{TAX_YEAR}} Tax Questionnaire</u></b></a><br>Please complete one copy of this Questionnaire and submit to transmit back to us. Please note that for married taxpayers, we only need one questionnaire per household. Also note that if you have already signed an engagement agreement for Services related to your {{TAX_YEAR}} tax return, you may also answer yes to the contracting questions to affirm agreement to the terms.
+
+<br>As a reminder, related to certain data transmittal and data security considerations:
+
+* <b>Note that we do not require written amounts for W-2 wage or Form 1099 investment income or retirement income amounts. Please provide the supporting statements for these items and we will extract the needed information for the returns.</b>
+
+* <b>Please avoid sending any documents</b> containing social security numbers, account information, or personal data <b>BY EMAIL</b>. This is NOT the most secure method for transmitting information. Alternatively, documents may be uploaded to our portal, sent via mail or hand delivered to our office.
+
+We appreciate your business and will be happy to discuss any questions you have regarding this agreement or the charges for our services. Our team looks forward to working with you to lessen the stress involved in preparing your taxes. We wish you a safe, healthy, and prosperous {{NEXT_YEAR}}!
+
+Very truly yours,<br>
+<b>Tarrant Advisors</b>
+
+{% elif IS_PAPER %}
 <b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}{% if CLIENT_PHONE %}<br><b>Phone:</b> {{CLIENT_PHONE}}{% endif %}
 
 Dear {{GREETING_NAME}},
 
-Welcome to the {{TAX_YEAR}} tax preparation season! To help streamline your return preparation and make gathering your documents as simple as possible, we have prepared your personalized digital organizer and secure file portal.
+<b>Happy New Year!</b> We are delighted to continue to have you as our client and look forward to working with you to prepare your tax returns for the {{TAX_YEAR}} tax year.
 
-Please review the following links to access your tax resources:
+The attached is your {{TAX_YEAR}} tax organizer, tax questionnaire, and the agreement to have Tarrant Advisors prepare your {{TAX_YEAR}} federal and state income tax returns, and where applicable, estimated tax vouchers for {{NEXT_YEAR}}. We also include an engagement agreement which should be completed, signed, and returned to our office with your deposit for Services to be provided. Alternatively, you may agree to the terms of our agreement by checking the appropriate box(s) in the tax questionnaire.
 
-{% set items = [] %}
+As a reminder, related to certain data transmittal and data security considerations:
+
+* <b>Note that the tax organizer requires similar information as prior years, but we do not require written details of certain W-2 wage or Form 1099 investment income or retirement income amounts. Please provide the supporting statements for these items and we will extract the needed information for the returns.</b>
+
+* <b>Please avoid sending any documents</b> containing social security numbers, account information, or personal data <b>BY EMAIL</b>. This is NOT the most secure method for transmitting information. Alternatively, documents may be uploaded to our portal, sent via mail or hand delivered to our office.
+
+* <font color="#c00000"><b>Effective September 30, 2025, sending CHECKS for tax payments/estimates is no longer the preferred method with the IRS. Although the IRS continues to accept checks, we should convert to electronic payment as soon as possible.</b></font> Paying online is proof of payment, SECURE, and gets recorded to your account immediately. <b>Federal Payments can be made at:</b> <a href="https://www.irs.gov/payments" color="#0078d4"><u>https://www.irs.gov/payments</u></a>. <b>Virginia Payments can be made at:</b> <a href="https://www.tax.virginia.gov/individual-income-tax-payment-options" color="#0078d4"><u>https://www.tax.virginia.gov/individual-income-tax-payment-options</u></a>. Additional states can be searched electronically or let us know and we can provide the information for alternative states.
+
+* <b>Electronic signing</b> provides you the ability to review your tax return online and sign the e-file forms 8879 and State form electronically allowing us to expedite and efficiently process your tax return filings. Once you have reviewed your return, please continue to utilize the electronic signing to allow us to complete the timely transmittal of your returns.
+
+We appreciate your business and will be happy to discuss any questions you have regarding this agreement or the charges for our services. Our team looks forward to working with you to lessen the stress involved in preparing your taxes. We wish you a safe, healthy, and prosperous {{NEXT_YEAR}}!
+
+Very truly yours,<br>
+<b>Tarrant Advisors</b>
+{% else %}
+<b>Date:</b> {{TODAY_DATE}}<br><b>Client:</b> {{CLIENT_LEGAL_NAME}}<br><b>Address:</b> {{CLIENT_ADDRESS}}{% if CLIENT_PHONE %}<br><b>Phone:</b> {{CLIENT_PHONE}}{% endif %}
+
+Dear {{GREETING_NAME}},
+
+<b>Happy New Year!</b> We are delighted to continue to have you as our client and look forward to working with you to prepare your tax returns for the {{TAX_YEAR}} tax year.
+
+Included below are links to your tax questionnaire and your SharePoint site for document exchange and storage.
+
+{% set ns = namespace(step=1) %}
 {% if SHAREPOINT_FOLDER_URL %}
-  {% set _ = items.append({'url': SHAREPOINT_FOLDER_URL, 'title': 'Your Secure SharePoint Folder', 'desc': 'Use this main portal folder to securely upload your tax documents, W-2s, 1099s, and supporting records directly to our team.'}) %}
+{{ns.step}}. <a href="{{SHAREPOINT_FOLDER_URL}}" color="#0078d4"><b><u>Your Secure SharePoint Folder</u></b></a><br>Use this main portal folder to securely upload your tax documents, W-2s, 1099s, and supporting records directly to our team.
+{% set ns.step = ns.step + 1 %}
 {% endif %}
 {% if CHECKLIST_FILE_URL %}
-  {% set _ = items.append({'url': CHECKLIST_FILE_URL, 'title': 'Your ' ~ TAX_YEAR ~ ' Tax Document Checklist', 'desc': 'A customized checklist of the specific tax forms and information statements needed for your return based on prior year filings.'}) %}
+{{ns.step}}. <a href="{{CHECKLIST_FILE_URL}}" color="#0078d4"><b><u>Your {{TAX_YEAR}} Tax Document Checklist</u></b></a><br>A customized checklist of the specific tax forms and information statements needed for your return based on prior year filings. This checklist is also included in your SharePoint Folder.
+{% set ns.step = ns.step + 1 %}
 {% endif %}
-{% if QUESTIONNAIRE_FORM_URL %}
-  {% set _ = items.append({'url': QUESTIONNAIRE_FORM_URL, 'title': 'Your ' ~ TAX_YEAR ~ ' Digital Tax Questionnaire', 'desc': 'Please complete this online questionnaire to provide demographic updates and confirm your tax information.'}) %}
+{{ns.step}}. <a href="{{QUESTIONNAIRE_FORM_URL}}" color="#0078d4"><b><u>Your {{TAX_YEAR}} Tax Questionnaire</u></b></a><br>Please complete one copy of this Questionnaire and submit to transmit back to us. Please note that for married taxpayers, we only need one questionnaire per household.
+
+<br>In addition, we include the agreement to have Tarrant Advisors prepare your {{TAX_YEAR}} federal and state income tax returns, and where applicable, estimated tax vouchers for {{NEXT_YEAR}}. Please electronically sign the agreement in the e-signature block below. Note that for married taxpayers, we need the signature of both individuals. Alternatively, you may agree to the terms of our agreement by checking the appropriate box(s) in the tax questionnaire.
+
+As a reminder, related to certain data transmittal and data security considerations:
+
+* <b>Note that we do not require written amounts for W-2 wage or Form 1099 investment income or retirement income amounts. Please provide the supporting statements for these items and we will extract the needed information for the returns.</b>
+
+* <b>Please avoid sending any documents</b> containing social security numbers, account information, or personal data <b>BY EMAIL</b>. This is NOT the most secure method for transmitting information. Alternatively, documents may be uploaded to our portal, sent via mail or hand delivered to our office.
+
+We appreciate your business and will be happy to discuss any questions you have regarding this agreement or the charges for our services. Our team looks forward to working with you to lessen the stress involved in preparing your taxes. We wish you a safe, healthy, and prosperous {{NEXT_YEAR}}!
+
+Very truly yours,<br>
+<b>Tarrant Advisors</b>
+
 {% endif %}
 
-{% for item in items %}
-{{ loop.index }}. <a href="{{ item.url }}" color="#0078d4"><b><u>{{ item.title }}</u></b></a><br>
-   {{ item.desc }}
-{% endfor %}
-
-{% if IS_FULL_AGREEMENT %}
-### Next Steps & Action Required
-
-{% if IS_PAPER %}
-Please review the <b>Tax Services Engagement Agreement</b> on the following page. Once you have reviewed the scope of services and fee estimates, please print, sign, and return the paper agreement to our office, or complete your confirmation via the online tax questionnaire.
-{% else %}
-Please review the <b>Tax Services Engagement Agreement</b> on the following page. Once you have reviewed the scope of services and fee estimates, please sign and date the agreement using the e-signature block at the bottom.
-{% endif %}
-{% endif %}
-
-If you have any questions or need assistance accessing your SharePoint folder, please reach out to our office at (703) 919-2665.
-
-Thank you for choosing Tarrant Advisors LLC. We look forward to working with you this season!
-
-Sincerely,<br>
-<b>Tarrant Advisors LLC</b>
 {% endif %}
 
 ---PAGE_BREAK---

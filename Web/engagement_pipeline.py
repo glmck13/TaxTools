@@ -2081,7 +2081,7 @@ def xml_safe_escape(text):
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     # Allow safe HTML tags used for styling and hyperlinks inside ReportLab Paragraphs
-    for tag in ["strong", "b", "i", "u", "a"]:
+    for tag in ["strong", "b", "i", "u", "a", "font"]:
         text = re.sub(rf'&lt;({tag}\b.*?)&gt;', r'<\1>', text, flags=re.IGNORECASE)
         text = re.sub(rf'&lt;/({tag})&gt;', r'</\1>', text, flags=re.IGNORECASE)
 
@@ -2210,7 +2210,7 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
 
     # Determine delivery format for Jinja conditional rendering
     delivery_fmt = get_form_val(form, "delivery_format") or draft_data.get("delivery_format", "electronic")
-    is_paper_delivery = (delivery_fmt.lower() == "paper") or use_duplex_breaks
+    is_paper_delivery = (delivery_fmt.lower() == "paper")
 
     try:
         with open(ENGAGEMENT_TEMPLATE, "r", encoding="utf-8") as f:
@@ -2293,7 +2293,8 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
     HEADER_BLUE = colors.HexColor('#0078d4')
 
     body_style = ParagraphStyle('CustomBody', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.HexColor('#333333'))
-    list_item_style = ParagraphStyle('ListItem', parent=body_style, spaceBefore=4, spaceAfter=3)
+    bullet_style = ParagraphStyle('CustomBullet', parent=body_style, leftIndent=24, bulletIndent=14, spaceBefore=2, spaceAfter=4)
+    list_item_style = ParagraphStyle('ListItem', parent=body_style, leftIndent=28, bulletIndent=12, spaceBefore=4, spaceAfter=3)
     h1_style = ParagraphStyle('CustomH1', parent=styles['Heading1'], fontSize=20, leading=24, textColor=HEADER_BLUE, spaceAfter=12)
     h2_style = ParagraphStyle('CustomH2', parent=styles['Heading2'], fontSize=14, leading=18, textColor=colors.HexColor('#111111'), spaceBefore=14, spaceAfter=8)
 
@@ -2325,8 +2326,8 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
     alias_definitions = []
 
     def build_acknowledgment_flowables(field_prefix, client_label, firm_label=None):
-        """Builds Adobe Sign short-aliased initial prompts (or _______ blanks for previews)."""
-        if not include_esign_tags and is_paper_delivery:
+        """Builds Adobe Sign short-aliased initial prompts (or [] for previews)."""
+        if not include_esign_tags and (is_paper_delivery or use_duplex_breaks):
             return []
 
         short_code = "w" if field_prefix == "welcome" else "a"
@@ -2410,7 +2411,11 @@ def build_engagement_story(form, include_esign_tags=False, include_cover_letter=
                 agreement_ack_injected = True
             story.append(Paragraph(xml_safe_escape(re.sub(r'^#+\s*', '', line_str)), h2_style))
         elif re.match(r'^\d+\.\s+', line_str):
-            story.append(Paragraph(xml_safe_escape(line_str), list_item_style))
+            num_match = re.match(r'^(\d+\.)\s+(.*)', line_str)
+            story.append(Paragraph(xml_safe_escape(num_match.group(2)), list_item_style, bulletText=num_match.group(1)))
+        elif re.match(r'^\*\s*', line_str):
+            bullet_content = re.sub(r'^\*\s*', '', line_str)
+            story.append(Paragraph(xml_safe_escape(bullet_content), bullet_style, bulletText='•'))
         elif "{{DYNAMIC_ESTIMATES_TABLE}}" in line_str:
             t = Table(formatted_table_data, colWidths=[390, 140])
             t.setStyle(TableStyle([
