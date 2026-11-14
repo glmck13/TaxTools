@@ -19,8 +19,8 @@ echo "=== Initializing ID Mapping File ==="
 echo '{"customers": {}, "services": {}}' > "$MAPPING_FILE"
 
 echo "=== Resolving Sandbox Income Account ==="
-# Search for any active Income account in Sandbox
-SANDBOX_INCOME_ACCT_ID=$(qbo.sh GET '/company/${QBO_REALMID}/query' "query=select Id, AccountType from Account maxresults 100" | jq -r '.QueryResponse.Account[]? | select(.AccountType | contains("Income")) | .Id' | head -n 1)
+# Prefer an active Income account named "Services", falling back to the first available Income account
+SANDBOX_INCOME_ACCT_ID=$(qbo.sh GET '/company/${QBO_REALMID}/query' "query=select Id, Name, AccountType from Account maxresults 100" | jq -r '[.QueryResponse.Account[]? | select(.AccountType | contains("Income"))] | (map(select(.Name == "Services")) + .) | .[0].Id // empty')
 
 if [ -z "$SANDBOX_INCOME_ACCT_ID" ]; then
     echo "❌ Error: Could not find any active Income Account in Sandbox."
@@ -31,14 +31,14 @@ fi
 echo "Using Sandbox Income Account ID: $SANDBOX_INCOME_ACCT_ID"
 
 echo "=== Processing & Importing Service Items ==="
-while read -r item; do
+while IFS= read -r item; do
     [ -z "$item" ] && continue
     prod_id=$(echo "$item" | jq -r '.Id')
     name=$(echo "$item" | jq -r '.Name')
     
-    # Strip read-only metadata, sub-item references, and assign the Sandbox Income Account ID
+    # Strip read-only metadata, sub-item/purchasing references, and assign the Sandbox Income Account ID
     clean_item=$(echo "$item" | jq --arg inc_id "$SANDBOX_INCOME_ACCT_ID" '
-        del(.Id, .SyncToken, .MetaData, .domain, .sparse, .FullyQualifiedName, .SubItem, .ParentRef) |
+        del(.Id, .SyncToken, .MetaData, .domain, .sparse, .FullyQualifiedName, .SubItem, .ParentRef, .ExpenseAccountRef, .PurchaseDesc) |
         .IncomeAccountRef = {"value": $inc_id}
     ')
     
@@ -59,7 +59,7 @@ while read -r item; do
 done < <(jq -c '.QueryResponse.Item[]? | select(.Active != false and .Type == "Service")' "$EXPORT_DIR/raw_service_items.json")
 
 echo "=== Processing & Importing Customers ==="
-while read -r customer; do
+while IFS= read -r customer; do
     [ -z "$customer" ] && continue
     prod_id=$(echo "$customer" | jq -r '.Id')
     display_name=$(echo "$customer" | jq -r '.DisplayName')
