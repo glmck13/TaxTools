@@ -18,7 +18,7 @@ Included below are links to your tax questionnaire and your SharePoint site for 
 {% endif %}
 {{ns.step}}. <a href="{{QUESTIONNAIRE_FORM_URL}}" color="#0078d4"><b><u>Your {{TAX_YEAR}} Tax Questionnaire</u></b></a><br>Please complete one copy of this Questionnaire and submit to transmit back to us. Please note that for married taxpayers, we only need one questionnaire per household. Also note that if you have already signed an engagement agreement for Services related to your {{TAX_YEAR}} tax return, you may also answer yes to the contracting questions to affirm agreement to the terms.
 
-<br>As a reminder, related to certain data transmittal and data security considerations:
+As a reminder, related to certain data transmittal and data security considerations:
 
 * <b>Note that we do not require written amounts for W-2 wage or Form 1099 investment income or retirement income amounts. Please provide the supporting statements for these items and we will extract the needed information for the returns.</b>
 
@@ -72,7 +72,7 @@ Included below are links to your tax questionnaire and your SharePoint site for 
 {% endif %}
 {{ns.step}}. <a href="{{QUESTIONNAIRE_FORM_URL}}" color="#0078d4"><b><u>Your {{TAX_YEAR}} Tax Questionnaire</u></b></a><br>Please complete one copy of this Questionnaire and submit to transmit back to us. Please note that for married taxpayers, we only need one questionnaire per household.
 
-<br>In addition, we include the agreement to have Tarrant Advisors prepare your {{TAX_YEAR}} federal and state income tax returns, and where applicable, estimated tax vouchers for {{NEXT_YEAR}}. Please electronically sign the agreement in the e-signature block below. Note that for married taxpayers, we need the signature of both individuals. Alternatively, you may agree to the terms of our agreement by checking the appropriate box(s) in the tax questionnaire.
+In addition, we include the agreement to have Tarrant Advisors prepare your {{TAX_YEAR}} federal and state income tax returns, and where applicable, estimated tax vouchers for {{NEXT_YEAR}}. Please electronically sign the agreement in the e-signature block below. Note that for married taxpayers, we need the signature of both individuals. Alternatively, you may agree to the terms of our agreement by checking the appropriate box(s) in the tax questionnaire.
 
 As a reminder, related to certain data transmittal and data security considerations:
 
