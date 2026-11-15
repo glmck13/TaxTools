@@ -18,7 +18,7 @@ PAGE_SIZE=1000
 echo "qbo_id:client_name:friendly_name:primary_email:phone_number:co_signer_name:co_signer_email:entity_type:delivery_format:street:city:state:zip"
 
 while true; do
-    SQL_QUERY="select * from Customer where Active = true startposition ${START_POS} maxresults ${PAGE_SIZE}"
+    SQL_QUERY="select * from Customer where Active = true order by Id startposition ${START_POS} maxresults ${PAGE_SIZE}"
 
     # Fetch page of active customers via qbo.sh
     if ! RESPONSE=$(qbo.sh GET "$QUERY_URI" "query=${SQL_QUERY}"); then
@@ -60,7 +60,8 @@ while true; do
         | unescape_html
         | gsub("[\r\n]+"; " ")
         | gsub(":"; ";")
-        | trim;
+        | trim
+        | if ascii_downcase == "null" then "" else . end;
 
       def parse_notes:
         ((. // "") | trim) as $raw
@@ -85,8 +86,9 @@ while true; do
       | (if ($meta.signers | type) == "array" then $meta.signers else [] end) as $signers
       | (if ($signers[0] | type) == "object" then $signers[0] else {} end) as $p_signer
       | (if ($signers[1] | type) == "object" then $signers[1] else {} end) as $c_signer
-      | (($p_signer.email // "") | clean) as $p_email
-      | (((.PrimaryEmailAddr.Address // "") | split(",")[0]) | clean) as $qbo_email
+      | ((($p_signer.email // "") | tostring | split(",")[0]) | clean) as $p_email
+      | (((.PrimaryEmailAddr.Address // "") | tostring | split(",")[0]) | clean) as $qbo_email
+      | ((($c_signer.email // "") | tostring | split(",")[0]) | clean) as $c_email
       | [
           (.Id // ""),
           (.DisplayName // ""),
@@ -94,7 +96,7 @@ while true; do
           (if $p_email != "" then $p_email else $qbo_email end),
           (.PrimaryPhone.FreeFormNumber // ""),
           ($c_signer.name // ""),
-          ($c_signer.email // ""),
+          $c_email,
           ($meta.entity | normalize_entity),
           (if (($meta.delivery_format // "") | trim | ascii_downcase) == "paper" then "paper" else "electronic" end),
           (.BillAddr.Line1 // ""),
