@@ -19,7 +19,7 @@ PIPELINE_SANDBOX = os.environ.get("PIPELINE_SANDBOX")
 if PIPELINE_SANDBOX:
     SP_WEB_URL = "https://tarrantadvisors.sharepoint.com"
     QBOSP_MATCH_FILE = os.path.join(DOCUMENT_ROOT, "etc/sandbox-qbosp.csv")
-    ENGAGEMENTS_DIR = os.path.join(DOCUMENT_ROOT, "sandbox")
+    ENGAGEMENTS_DIR = os.path.join(DOCUMENT_ROOT, "sandbox-engagements")
 else:
     SP_WEB_URL = "https://tarrantadvisors.sharepoint.com/sites/Company"
     QBOSP_MATCH_FILE = os.path.join(DOCUMENT_ROOT, "etc/qbosp.csv")
