@@ -23,7 +23,7 @@ OUTPUT_SP_TO_QBO_CSV = "spqbo_orphans.csv"
 
 # --- Configuration Defaults ---
 DEFAULT_BATCH_SIZE = 25
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.8-flash"
 DETERMINISTIC_SEED = 42
 
 
@@ -78,8 +78,9 @@ def fetch_folder_sharing_links(folder_path: str) -> Tuple[str, Set[str]]:
     """
     emails: Set[str] = set()
     try:
+        escaped_path = folder_path.replace("'", "''")
         meta_url = (
-            f"{SITE_URL}/_api/web/GetFolderByServerRelativeUrl('{quote(folder_path)}')"
+            f"{SITE_URL}/_api/web/GetFolderByServerRelativeUrl('{quote(escaped_path)}')"
             f"?$select=ListItemAllFields/Id,ListItemAllFields/ParentList/Id"
             f"&$expand=ListItemAllFields,ListItemAllFields/ParentList"
         )
@@ -152,7 +153,7 @@ def get_top_level_folders() -> List[str]:
         library_path = f"{parsed_path}/Shared Documents"
 
     safe_param = quote(f"'{library_path}'")
-    url = f"{SITE_URL}/_api/web/GetFolderByServerRelativeUrl(@v)/Folders?$select=ServerRelativeUrl&@v={safe_param}"
+    url = f"{SITE_URL}/_api/web/GetFolderByServerRelativeUrl(@v)/Folders?$select=ServerRelativeUrl&$top=5000&@v={safe_param}"
 
     response = sp_session.get(url, timeout=30)
     response.raise_for_status()
@@ -171,14 +172,14 @@ def get_top_level_folders() -> List[str]:
 
 
 # --- 2. QBO RETRIEVAL ---
-def build_qbo_email_map() -> dict:
+def fetch_active_qbo_customers() -> List[Tuple[str, str, str]]:
     log("Querying QBO ledger...")
     url = f"{QBO_APIBASE}/company/{QBO_REALMID}/query"
-    qbo_map = {}
+    qbo_customers: List[Tuple[str, str, str]] = []
     start = 1
     while True:
         query = quote(
-            f"SELECT Id, DisplayName, PrimaryEmailAddr FROM Customer WHERE Active = true STARTPOSITION {start} MAXRESULTS 1000"
+            f"SELECT Id, DisplayName, PrimaryEmailAddr FROM Customer WHERE Active = true ORDERBY Id STARTPOSITION {start} MAXRESULTS 1000"
         )
         resp_raw = qbo_session.get(f"{url}?query={query}", timeout=30)
         resp_raw.raise_for_status()
@@ -188,13 +189,13 @@ def build_qbo_email_map() -> dict:
         if not customers:
             break
         for c in customers:
-            email = (
-                c.get("PrimaryEmailAddr", {}).get("Address", "").lower().strip()
+            raw_email = (c.get("PrimaryEmailAddr") or {}).get("Address") or ""
+            email = ",".join(
+                e.strip().lower() for e in raw_email.split(",") if e.strip()
             )
-            if email:
-                qbo_map.setdefault(email, []).append((c["DisplayName"], c["Id"]))
-        start += 1000
-    return qbo_map
+            qbo_customers.append((c["DisplayName"], str(c["Id"]), email))
+        start += len(customers)
+    return qbo_customers
 
 
 # --- 3. DATA PROCESSING & WRITING ---
@@ -205,7 +206,7 @@ def fetch_data() -> None:
     with ThreadPoolExecutor(max_workers=10) as executor:
         sp_map = dict(executor.map(fetch_folder_sharing_links, folders))
 
-    qbo_map = build_qbo_email_map()
+    qbo_customers = fetch_active_qbo_customers()
 
     log(f"Writing File 1 -> {FILE_1_PATH}")
     with open(FILE_1_PATH, "w", encoding="utf-8", newline="") as f1:
@@ -220,9 +221,8 @@ def fetch_data() -> None:
     with open(FILE_2_PATH, "w", encoding="utf-8", newline="") as f2:
         writer = csv.writer(f2)
         writer.writerow(["DisplayName", "Id", "PrimaryEmailAddr"])
-        for email, qids in qbo_map.items():
-            for qid in qids:
-                writer.writerow([qid[0], qid[1], email])
+        for display_name, qid, email in qbo_customers:
+            writer.writerow([display_name, qid, email])
 
 
 # --- 4. PYDANTIC SCHEMAS ---
@@ -278,6 +278,7 @@ def load_csv_data() -> Tuple[List[dict], List[dict]]:
 def process_forward_batch(
     qbo_batch: List[dict],
     sp_folders_text: str,
+    valid_sp_paths: Set[str],
     max_retries: int = 3,
     seed: int = DETERMINISTIC_SEED,
 ) -> List[dict]:
@@ -305,6 +306,7 @@ MATCHING CRITERIA (In Order of Priority):
 
 CONSTRAINTS & RULES:
 - MUST return a result object for EVERY QBO customer in the batch.
+- Keep 'match_reason' concise (under 15 words).
 - If matched, set 'matched_sp_folder' to the exact 'folder_path'.
 - If NO confident match is found, set 'matched_sp_folder' to null, 'confidence_score' to 0.0, and 'match_reason' to "No matching folder identified".
 
@@ -318,8 +320,8 @@ SharePoint Folders (Full List):
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=ForwardMatchResponse,
-        temperature=0.0,
         seed=seed,
+        thinking_config=types.ThinkingConfig(thinking_level="LOW"),
     )
 
     for attempt in range(1, max_retries + 1):
@@ -328,14 +330,22 @@ SharePoint Folders (Full List):
                 model=MODEL_NAME, contents=prompt, config=config
             )
             if response.parsed:
-                return [m.model_dump() for m in response.parsed.matches]
+                results = [m.model_dump() for m in response.parsed.matches]
+            else:
+                data = json.loads(response.text)
+                results = data.get("matches", [])
 
-            data = json.loads(response.text)
-            return data.get("matches", [])
+            for r in results:
+                folder = r.get("matched_sp_folder")
+                if folder and folder not in valid_sp_paths:
+                    r["matched_sp_folder"] = None
+                    r["confidence_score"] = 0.0
+                    r["match_reason"] = "No matching folder identified"
+            return results
         except Exception as e:
             log(f"  [WARN] Attempt {attempt}/{max_retries} failed for forward batch: {e}")
             if attempt < max_retries:
-                time.sleep(2 * attempt)
+                time.sleep(5 * attempt)
 
     log("  [ERROR] Forward batch failed after max retries. Constructing fallback records.")
     return [
@@ -353,6 +363,7 @@ SharePoint Folders (Full List):
 def process_reverse_batch(
     sp_batch: List[dict],
     qbo_customers_text: str,
+    valid_qbo_ids: Set[str],
     max_retries: int = 3,
     seed: int = DETERMINISTIC_SEED,
 ) -> List[dict]:
@@ -371,6 +382,7 @@ MATCHING CRITERIA:
 
 CONSTRAINTS & RULES:
 - MUST return a result object for EVERY SharePoint folder in this payload.
+- Keep 'match_reason' concise (under 15 words).
 - If a QBO customer matches, set 'matched_qbo_id' and 'matched_qbo_name' with appropriate confidence score.
 - If NO QBO customer matches, set 'matched_qbo_id' to null, 'matched_qbo_name' to null, 'confidence_score' to 0.0, and 'match_reason' to "Orphaned SharePoint folder - No QBO customer found".
 
@@ -384,8 +396,8 @@ All QBO Customers:
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=ReverseMatchResponse,
-        temperature=0.0,
         seed=seed,
+        thinking_config=types.ThinkingConfig(thinking_level="LOW"),
     )
 
     for attempt in range(1, max_retries + 1):
@@ -394,14 +406,23 @@ All QBO Customers:
                 model=MODEL_NAME, contents=prompt, config=config
             )
             if response.parsed:
-                return [m.model_dump() for m in response.parsed.matches]
+                results = [m.model_dump() for m in response.parsed.matches]
+            else:
+                data = json.loads(response.text)
+                results = data.get("matches", [])
 
-            data = json.loads(response.text)
-            return data.get("matches", [])
+            for r in results:
+                qid = r.get("matched_qbo_id")
+                if qid and str(qid) not in valid_qbo_ids:
+                    r["matched_qbo_id"] = None
+                    r["matched_qbo_name"] = None
+                    r["confidence_score"] = 0.0
+                    r["match_reason"] = "Orphaned SharePoint folder - No QBO customer found"
+            return results
         except Exception as e:
             log(f"  [WARN] Attempt {attempt}/{max_retries} failed for reverse batch: {e}")
             if attempt < max_retries:
-                time.sleep(2 * attempt)
+                time.sleep(5 * attempt)
 
     log("  [ERROR] Reverse batch failed after max retries. Constructing fallback records.")
     return [
@@ -492,6 +513,7 @@ def main() -> None:
     qbo_customers, sp_folders = load_csv_data()
     available_sp_folders = list(sp_folders)
     all_sp_folder_paths = {f["folder_path"] for f in sp_folders}
+    all_qbo_ids = {str(c["id"]) for c in qbo_customers}
 
     total_customers = len(qbo_customers)
     log(
@@ -513,10 +535,11 @@ def main() -> None:
         )
 
         sp_folders_text = json.dumps(available_sp_folders, indent=2)
-        batch_results = process_forward_batch(batch, sp_folders_text)
+        batch_results = process_forward_batch(
+            batch, sp_folders_text, all_sp_folder_paths
+        )
         all_qbo_matches.extend(batch_results)
 
-        # Track successfully mapped folders
         for m in batch_results:
             folder = m.get("matched_sp_folder")
             if folder and m.get("confidence_score", 0.0) >= 0.8:
@@ -551,26 +574,29 @@ def main() -> None:
         f"Identified {len(unmatched_sp_folders)} candidate orphaned SharePoint folder(s) out of {len(all_sp_folder_paths)} total."
     )
 
-    all_reverse_matches = []
-    
-    # Construct converse entries for folders already matched symmetrically in Pass 1
+    symmetric_by_folder = {}
     for m in all_qbo_matches:
-        if m.get("matched_sp_folder") and m.get("confidence_score", 0.0) >= 0.8:
-            all_reverse_matches.append(
-                {
-                    "sp_folder": m["matched_sp_folder"],
+        folder = m.get("matched_sp_folder")
+        score = m.get("confidence_score", 0.0)
+        if folder and score >= 0.8:
+            if (
+                folder not in symmetric_by_folder
+                or score > symmetric_by_folder[folder]["confidence_score"]
+            ):
+                symmetric_by_folder[folder] = {
+                    "sp_folder": folder,
                     "matched_qbo_id": m["qbo_id"],
                     "matched_qbo_name": m["qbo_name"],
-                    "confidence_score": m["confidence_score"],
+                    "confidence_score": score,
                     "match_reason": f"Symmetric match from Pass 1: {m['match_reason']}",
                 }
-            )
 
-    # Re-examine remaining unmatched folders against all QBO customers
+    all_reverse_matches = list(symmetric_by_folder.values())
+
     if unmatched_sp_folders:
         qbo_customers_text = json.dumps(qbo_customers, indent=2)
         total_rev_batches = (len(unmatched_sp_folders) + batch_size - 1) // batch_size
-        
+
         for i in range(0, len(unmatched_sp_folders), batch_size):
             sp_batch = unmatched_sp_folders[i : i + batch_size]
             rev_batch_num = (i // batch_size) + 1
@@ -579,7 +605,9 @@ def main() -> None:
                 f"[Pass 2] Processing Reverse Batch {rev_batch_num}/{total_rev_batches} (Folders {i+1} to {min(i+batch_size, len(unmatched_sp_folders))})..."
             )
 
-            reverse_results = process_reverse_batch(sp_batch, qbo_customers_text)
+            reverse_results = process_reverse_batch(
+                sp_batch, qbo_customers_text, all_qbo_ids
+            )
             all_reverse_matches.extend(reverse_results)
             time.sleep(0.5)
 
