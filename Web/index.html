@@ -1,0 +1,92 @@
+<html>
+
+<head>
+<title>TA Application Server</title>
+<link rel="stylesheet" href="/css/style.min.css">
+</head>
+
+<body style="background-color: whitesmoke;">
+<main>
+
+<script>
+    async function uploadClipboard() {
+        try {
+            // Request text from the system clipboard
+            const text = await navigator.clipboard.readText();
+            
+            if (text) {
+                // Set the value in the hidden input and submit the form
+                document.getElementById('clipboard_content').value = text;
+                document.getElementById('clipForm').submit();
+            } else {
+                alert("Clipboard is empty or doesn't contain text.");
+            }
+        } catch (err) {
+            console.error('Failed to read clipboard: ', err);
+            alert("Error: you must grant permission to read the clipboard");
+        }
+    }
+</script>
+
+<h1>Form Apps & Reports </h1>
+<table>
+<tr>
+<td valign=top width=650>
+<iframe src="/cgi/az_status.cgi" width=650 height=300 style="border:none;"></iframe>
+</td>
+<td valign=top>
+<p><button onclick="location.href='/cgi/az_taxqanda.cgi'">Display Tax Q&A Responses</button></p>
+</td>
+</tr>
+</table>
+
+<hr>
+
+<h1>Sharepoint Apps & Reports</h1>
+<table>
+<tr>
+<td valign=top width=650>
+<iframe src="/cgi/m365_status.cgi" width=650 height=300 style="border:none;"></iframe>
+</td>
+<td valign=top>
+<p><button onclick="location.href='/cgi/m365_pdfunite.cgi'">Merge BU Detail PDFs</button></p>
+</td>
+</tr>
+</table>
+
+<hr>
+
+<h1>Proconnect Apps & Reports</h1>
+<p>
+<table>
+<tr>
+<td valign=top width=650>
+<img src="/images/copy-as-curl.png" width=650 height=300>
+<div style="font-size: 120%;">
+<ul>
+<li>Login to Proconnect, then open the "Developer tools" on the browser and click on the Network tab</li>
+<li>Navigate to the "Tax Returns" dashboard</li>
+<li>After the page loads, look for a line starting with "returnstatus" near the bottom of the Network log</li>
+<li>Right-click the "returnstatus" line</li>
+<li>Click Copy &rarr; Copy as cURL in the pop-up menu that appears</li>
+<li>Click on "Run Proconnect Report"</li>
+</ul>
+</div>
+</td>
+<td valign=top>
+<form id="clipForm" action="/cgi/proconnect.cgi" method="POST">
+<input type="hidden" name="clipboard_content" id="clipboard_content">
+<button type="button" onclick="uploadClipboard()">Run Proconnect Report</button>
+</form>
+</td>
+</tr>
+</table>
+</p>
+
+<hr>
+
+
+<p><br><br></p>
+</main>
+</body>
+</html>
